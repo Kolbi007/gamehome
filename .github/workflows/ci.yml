@@ -63,17 +63,26 @@ jobs:
         if: matrix.arch == 'x64'
         run: dotnet test --project tests/GameHome.Core.Tests -c Release
 
+      # Versjonen øker for hvert bygg, så en ny MSIX alltid oppgraderer den som er installert:
+      #   release:  vX.Y.Z           -> X.Y.Z.0
+      #   CI-bygg:  0.1.<run_number> -> 0.1.N.0 (vanlig) og 0.1.N.1 (AOT, oppgraderer over vanlig fra samme bygg)
+      # Releaser må ha høyere minor enn 0.1 (for eksempel v0.2.0) for å ligge over CI-byggene.
       - name: Set package version
-        if: inputs.version != ''
         shell: pwsh
         run: |
-          $v = '${{ inputs.version }}'.TrimStart('v')
-          if ($v -notmatch '^\d+\.\d+\.\d+$') { throw "Ugyldig versjon: $v (forventet vX.Y.Z)" }
+          $revision = if ('${{ matrix.aot }}' -eq 'true') { 1 } else { 0 }
+          if ('${{ inputs.version }}') {
+            $v = '${{ inputs.version }}'.TrimStart('v')
+            if ($v -notmatch '^\d+\.\d+\.\d+$') { throw "Ugyldig versjon: $v (forventet vX.Y.Z)" }
+          } else {
+            $v = "0.1.${{ github.run_number }}"
+          }
+          $full = "$v.$revision"
           $m = 'src/GameHome.App/Package.appxmanifest'
           $xml = Get-Content $m -Raw
-          $xml = [regex]::Replace($xml, '(<Identity [^>]*Version=")[^"]+', "`${1}$v.0")
+          $xml = [regex]::Replace($xml, '(<Identity [^>]*Version=")[^"]+', "`${1}$full")
           Set-Content $m $xml -NoNewline
-          Write-Host "Pakkeversjon: $v.0"
+          Write-Host "Pakkeversjon: $full"
 
       - name: Import signing certificate
         id: cert

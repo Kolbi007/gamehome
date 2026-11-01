@@ -25,6 +25,8 @@
     <UapAppxPackageBuildMode>SideloadOnly</UapAppxPackageBuildMode>
     <GenerateTestArtifacts>false</GenerateTestArtifacts>
     <AppxSymbolPackageEnabled>false</AppxSymbolPackageEnabled>
+    <!-- Egen Main i Program.cs for single-instance og videresending av aktivering. -->
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
     <AppxPackageSigningEnabled Condition="'$(PackageCertificateKeyFile)' != '' or '$(PackageCertificateThumbprint)' != ''">true</AppxPackageSigningEnabled>
   </PropertyGroup>
 

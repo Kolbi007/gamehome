@@ -1,15 +1,50 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- Testflate for fase 0A og 0B: fokus, input, aktivering, oppstartstid og minne. -->
 <Window
     x:Class="GameHome.App.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="GameHome">
-    <Grid Background="#0B0D10" Padding="48">
-        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="16">
-            <TextBlock Text="GameHome" FontSize="48" FontWeight="SemiBold" Foreground="White" HorizontalAlignment="Center" />
-            <TextBlock x:Name="StatusText" Text="Skjelett for fase 0A" FontSize="20" Foreground="#A0A7B0" HorizontalAlignment="Center" />
-            <Button x:Name="FocusProbe" Content="Kontrollerfokus" HorizontalAlignment="Center" XYFocusKeyboardNavigation="Enabled" />
+    <Grid x:Name="Root" Background="#0B0D10" Padding="40,48,40,32" RowSpacing="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Spacing="4">
+            <TextBlock Text="GameHome · testflate" FontSize="36" FontWeight="SemiBold" Foreground="White" />
+            <TextBlock x:Name="InfoText" FontSize="16" Foreground="#A0A7B0" TextWrapping="Wrap" />
         </StackPanel>
+
+        <Grid x:Name="Tiles" Grid.Row="1" HorizontalAlignment="Center" ColumnSpacing="16" RowSpacing="16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="220" />
+                <ColumnDefinition Width="220" />
+                <ColumnDefinition Width="220" />
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="110" />
+                <RowDefinition Height="110" />
+            </Grid.RowDefinitions>
+            <Button x:Name="Tile1" Grid.Row="0" Grid.Column="0" Content="Flis 1" Click="Tile_Click" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" FontSize="20" />
+            <Button Grid.Row="0" Grid.Column="1" Content="Flis 2" Click="Tile_Click" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" FontSize="20" />
+            <Button Grid.Row="0" Grid.Column="2" Content="Flis 3" Click="Tile_Click" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" FontSize="20" />
+            <Button Grid.Row="1" Grid.Column="0" Content="Flis 4" Click="Tile_Click" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" FontSize="20" />
+            <Button Grid.Row="1" Grid.Column="1" Content="Flis 5" Click="Tile_Click" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" FontSize="20" />
+            <Button Grid.Row="1" Grid.Column="2" Content="Flis 6" Click="Tile_Click" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" FontSize="20" />
+        </Grid>
+
+        <TextBlock x:Name="LastInput" Grid.Row="2" HorizontalAlignment="Center" FontSize="22" Foreground="White" Text="Trykk på en knapp på kontrolleren eller en flis" />
+
+        <ListView x:Name="EventList" Grid.Row="3" IsTabStop="False" SelectionMode="None" IsItemClickEnabled="False">
+            <ListView.ItemTemplate>
+                <DataTemplate x:DataType="x:String">
+                    <TextBlock Text="{x:Bind}" FontFamily="Consolas" FontSize="14" Foreground="#C8CDD3" />
+                </DataTemplate>
+            </ListView.ItemTemplate>
+        </ListView>
     </Grid>
 </Window>
