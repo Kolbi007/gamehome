@@ -25,6 +25,13 @@
     <UapAppxPackageBuildMode>SideloadOnly</UapAppxPackageBuildMode>
     <GenerateTestArtifacts>false</GenerateTestArtifacts>
     <AppxSymbolPackageEnabled>false</AppxSymbolPackageEnabled>
+    <!--
+      Advar ved bygging når WinRT-marshalling ikke er AOT-sikker (for eksempel en .NET-samling som ItemsSource).
+      Advarsler er feil i CI, så slike feil stoppes før de når Legion Go.
+    -->
+    <CsWinRTAotWarningLevel>2</CsWinRTAotWarningLevel>
+    <!-- Egen Main i Program.cs for single-instance og videresending av aktivering. -->
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
     <AppxPackageSigningEnabled Condition="'$(PackageCertificateKeyFile)' != '' or '$(PackageCertificateThumbprint)' != ''">true</AppxPackageSigningEnabled>
   </PropertyGroup>
 

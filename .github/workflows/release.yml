@@ -31,7 +31,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           shopt -s globstar nullglob
-          # Bare standardvariantene; AOT-artefaktet er for måling til det er valgt.
+          # Bare standardvariantene (Native AOT, ADR 0005); JIT-artefaktet er for sammenligning.
           msix=(dist/gamehome-msix-x64/**/*.msix dist/gamehome-msix-arm64/**/*.msix)
           if [ ${#msix[@]} -eq 0 ]; then echo "Fant ingen MSIX" >&2; exit 1; fi
           gh release create "$GITHUB_REF_NAME" \

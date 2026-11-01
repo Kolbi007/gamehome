@@ -6,6 +6,8 @@
     <TargetPlatformMinVersion>$(GameHomeWindowsMinVersion)</TargetPlatformMinVersion>
     <SupportedOSPlatformVersion>$(GameHomeWindowsMinVersion)</SupportedOSPlatformVersion>
     <IsAotCompatible>true</IsAotCompatible>
+    <!-- Kreves av LibraryImport-generatoren for Win32-kall. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\GameHome.Core\GameHome.Core.csproj" />

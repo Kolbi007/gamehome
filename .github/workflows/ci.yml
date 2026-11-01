@@ -42,17 +42,18 @@ jobs:
 
   # Windows: hele løsningen og signert test-MSIX for Legion Go.
   windows:
-    name: App (Windows, ${{ matrix.arch }}${{ matrix.aot && ', AOT' || '' }})
+    name: App (Windows, ${{ matrix.arch }}${{ !matrix.aot && ', JIT' || '' }})
     runs-on: windows-latest
     strategy:
       fail-fast: false
       matrix:
+        # Native AOT er standard (ADR 0005).
         arch: [x64, arm64]
-        aot: [false]
+        aot: [true]
         include:
-          # Native AOT-variant for måling i fase 0B. Ikke med i release før den er valgt.
+          # JIT-variant for sammenligning og feilsøking. Ikke med i release.
           - arch: x64
-            aot: true
+            aot: false
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -63,17 +64,26 @@ jobs:
         if: matrix.arch == 'x64'
         run: dotnet test --project tests/GameHome.Core.Tests -c Release
 
+      # Versjonen øker for hvert bygg, så en ny MSIX alltid oppgraderer den som er installert:
+      #   release:  vX.Y.Z           -> X.Y.Z.0
+      #   CI-bygg:  0.1.<run_number> -> 0.1.N.0 (AOT, standard) og 0.1.N.1 (JIT, oppgraderer over AOT fra samme bygg)
+      # Releaser må ha høyere minor enn 0.1 (for eksempel v0.2.0) for å ligge over CI-byggene.
       - name: Set package version
-        if: inputs.version != ''
         shell: pwsh
         run: |
-          $v = '${{ inputs.version }}'.TrimStart('v')
-          if ($v -notmatch '^\d+\.\d+\.\d+$') { throw "Ugyldig versjon: $v (forventet vX.Y.Z)" }
+          $revision = if ('${{ matrix.aot }}' -eq 'true') { 0 } else { 1 }
+          if ('${{ inputs.version }}') {
+            $v = '${{ inputs.version }}'.TrimStart('v')
+            if ($v -notmatch '^\d+\.\d+\.\d+$') { throw "Ugyldig versjon: $v (forventet vX.Y.Z)" }
+          } else {
+            $v = "0.1.${{ github.run_number }}"
+          }
+          $full = "$v.$revision"
           $m = 'src/GameHome.App/Package.appxmanifest'
           $xml = Get-Content $m -Raw
-          $xml = [regex]::Replace($xml, '(<Identity [^>]*Version=")[^"]+', "`${1}$v.0")
+          $xml = [regex]::Replace($xml, '(<Identity [^>]*Version=")[^"]+', "`${1}$full")
           Set-Content $m $xml -NoNewline
-          Write-Host "Pakkeversjon: $v.0"
+          Write-Host "Pakkeversjon: $full"
 
       - name: Import signing certificate
         id: cert
@@ -124,7 +134,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: gamehome-msix-${{ matrix.arch }}${{ matrix.aot && '-aot' || '' }}
+          name: gamehome-msix-${{ matrix.arch }}${{ !matrix.aot && '-jit' || '' }}
           path: |
             artifacts/msix/**/*.msix
             certs/GameHome-Dev.cer
