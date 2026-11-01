@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (c) 2026 The GameHome contributors
 
-using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.CompilerServices;
@@ -29,7 +28,7 @@ public sealed partial class MainWindow : Window
     private const double TriggerThreshold = 0.5;
 
     private readonly FileLog _log;
-    private readonly ObservableCollection<string> _events = [];
+    private readonly List<string> _events = [];
     private readonly DispatcherQueueTimer _gamepadTimer;
     private readonly DispatcherQueueTimer _metricsTimer;
     private GamepadButtons _previousButtons;
@@ -47,9 +46,8 @@ public sealed partial class MainWindow : Window
         _log.Write("start", "XAML lastet");
         ExtendsContentIntoTitleBar = true;
 
-        EventList.ItemsSource = _events;
         _log.Written += OnLogWritten;
-        _log.Write("start", "Loggliste koblet");
+        _log.Write("start", "Logg koblet til skjermen");
 
         Root.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(OnKeyDown), handledEventsToo: true);
         Root.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(OnPointerPressed), handledEventsToo: true);
@@ -240,5 +238,7 @@ public sealed partial class MainWindow : Window
         {
             _events.RemoveAt(_events.Count - 1);
         }
+
+        EventText.Text = string.Join('\n', _events);
     });
 }

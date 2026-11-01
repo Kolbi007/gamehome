@@ -51,12 +51,8 @@
 
         <TextBlock x:Name="LastInput" Grid.Row="2" HorizontalAlignment="Center" FontSize="22" Foreground="White" Text="Trykk på en knapp på kontrolleren eller en flis" />
 
-        <ListView x:Name="EventList" Grid.Row="3" IsTabStop="False" SelectionMode="None" IsItemClickEnabled="False">
-            <ListView.ItemTemplate>
-                <DataTemplate x:DataType="x:String">
-                    <TextBlock Text="{x:Bind}" FontFamily="Consolas" FontSize="14" Foreground="#C8CDD3" />
-                </DataTemplate>
-            </ListView.ItemTemplate>
-        </ListView>
+        <!-- Vanlig tekst, ikke liste: en .NET-samling som ItemsSource krever ekstra AOT-generering (se loggen 2026-11-02). -->
+        <TextBlock x:Name="EventText" Grid.Row="3" FontFamily="Consolas" FontSize="14" Foreground="#C8CDD3" TextWrapping="NoWrap" />
+
     </Grid>
 </Window>
