@@ -28,6 +28,16 @@
     <AppxPackageSigningEnabled Condition="'$(PackageCertificateKeyFile)' != '' or '$(PackageCertificateThumbprint)' != ''">true</AppxPackageSigningEnabled>
   </PropertyGroup>
 
+  <!--
+    Native AOT-variant (-p:GameHomeAot=true): forhåndskompilert maskinkode, ubrukt kode fjernes.
+    Måles mot vanlig .NET i fase 0B før den blir standard. Krever C++-byggeverktøy (MSVC) på byggemaskinen.
+  -->
+  <PropertyGroup Condition="'$(GameHomeAot)' == 'true'">
+    <PublishAot>true</PublishAot>
+    <PublishReadyToRun>false</PublishReadyToRun>
+    <PublishTrimmed>true</PublishTrimmed>
+  </PropertyGroup>
+
   <ItemGroup>
     <Manifest Include="$(ApplicationManifest)" />
     <Content Include="Assets\**\*.png" />
