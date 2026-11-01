@@ -18,19 +18,32 @@ using VirtualKey = Windows.System.VirtualKey;
 namespace GameHome.App;
 
 /// <summary>
-/// Testflate. Kontrolleren leses med Windows.Gaming.Input bare mens vinduet har fokus; når vinduet mister
-/// fokus stopper lesingen helt (ingen bakgrunnsarbeid mens et spill kjører).
+/// Testflate. Kontrolleren leses med Windows.Gaming.Input bare mens vinduet har fokus. Hurtigtasten for
+/// øktmenyen er registrert bare mens en testøkt kjører.
 /// </summary>
 public sealed partial class MainWindow : Window
 {
     private const int MaxVisibleEvents = 14;
     private const double StickThreshold = 0.6;
     private const double TriggerThreshold = 0.5;
+    private const string LegionGoController = "vid_17ef&pid_61eb";
+    private static readonly TimeSpan HidCaptureDuration = TimeSpan.FromSeconds(15);
+
+    // Kandidater for M2. Legion Space kan legge M2 på én av dem; loggen viser hvilken som kom.
+    private static readonly (int Id, HotkeyModifiers Modifiers, uint Key, string Name)[] SessionHotkeys =
+    [
+        (1, HotkeyModifiers.None, 0x7C, "F13"),
+        (2, HotkeyModifiers.Control | HotkeyModifiers.Alt | HotkeyModifiers.Shift, 0x7B, "Ctrl+Alt+Shift+F12"),
+        (3, HotkeyModifiers.Control | HotkeyModifiers.Shift, 0x7B, "Ctrl+Shift+F12"),
+    ];
 
     private readonly FileLog _log;
     private readonly List<string> _events = [];
     private readonly DispatcherQueueTimer _gamepadTimer;
     private readonly DispatcherQueueTimer _metricsTimer;
+    private readonly HotkeyListener _hotkeys;
+    private readonly List<HidReportListener> _hidListeners = [];
+    private Process? _session;
     private GamepadButtons _previousButtons;
     private bool _previousLeftTrigger;
     private bool _previousRightTrigger;
@@ -47,11 +60,11 @@ public sealed partial class MainWindow : Window
         ExtendsContentIntoTitleBar = true;
 
         _log.Written += OnLogWritten;
-        _log.Write("start", "Logg koblet til skjermen");
 
         Root.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(OnKeyDown), handledEventsToo: true);
         Root.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(OnPointerPressed), handledEventsToo: true);
         Activated += OnWindowActivated;
+        Closed += (_, _) => StopEverything();
 
         _gamepadTimer = DispatcherQueue.CreateTimer();
         _gamepadTimer.Interval = TimeSpan.FromMilliseconds(16);
@@ -62,22 +75,230 @@ public sealed partial class MainWindow : Window
         _metricsTimer.Interval = TimeSpan.FromSeconds(2);
         _metricsTimer.Tick += (_, _) => UpdateMemory();
 
+        _hotkeys = new HotkeyListener(WinRT.Interop.WindowNative.GetWindowHandle(this));
+        _hotkeys.Pressed += OnSessionHotkey;
+
         Gamepad.GamepadAdded += (_, _) => _log.Write("kontroller", "Kontroller tilkoblet");
         Gamepad.GamepadRemoved += (_, _) => _log.Write("kontroller", "Kontroller frakoblet");
-        _log.Write("start", "Kontroller-hendelser koblet");
 
         var variant = RuntimeFeature.IsDynamicCodeSupported ? "JIT" : "Native AOT";
         InfoText.Text = $"Versjon {typeof(MainWindow).Assembly.GetName().Version} · {variant} · logg: gamehome.log";
+        _log.Write("start", "Vindu klart");
     }
+
+    private bool SessionActive => _session is { HasExited: false };
 
     /// <summary>Henter vinduet frem, for eksempel når <c>gamehome://session</c> sendes videre hit.</summary>
     internal void BringToFront()
     {
         Activate();
-        var handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
-        var ok = Foreground.Bring(handle);
+        var ok = Foreground.Bring(WinRT.Interop.WindowNative.GetWindowHandle(this));
         _log.Write("fokus", ok ? "Tok forgrunnen" : "Windows avslo forgrunnen");
+        if (SessionActive)
+        {
+            ShowSessionPanel("protokoll");
+        }
     }
+
+    // ---- Testøkt og øktmeny (POC B) ----
+
+    private void StartTestSession()
+    {
+        if (SessionActive)
+        {
+            ShowSessionPanel("flis");
+            return;
+        }
+
+        try
+        {
+            // Tegnkart er et klassisk Win32-program og fungerer som stand-in for et spill.
+            _session = Process.Start(new ProcessStartInfo("charmap.exe") { UseShellExecute = true });
+        }
+        catch (System.ComponentModel.Win32Exception ex)
+        {
+            _log.Write("økt", $"Kunne ikke starte stand-in: {ex.Message}");
+            return;
+        }
+
+        if (_session is null)
+        {
+            _log.Write("økt", "Stand-in startet ikke");
+            return;
+        }
+
+        _session.EnableRaisingEvents = true;
+        _session.Exited += (_, _) => DispatcherQueue.TryEnqueue(EndTestSession);
+
+        var registered = SessionHotkeys.Where(h => _hotkeys.Register(h.Id, h.Modifiers, h.Key)).Select(h => h.Name).ToList();
+        _log.Write("økt", $"Testøkt startet (Tegnkart, PID {_session.Id}). Hurtigtaster: {string.Join(", ", registered)}");
+        LastInput.Text = "Testøkt kjører. Trykk M2 for øktmenyen.";
+    }
+
+    private void EndTestSession()
+    {
+        _hotkeys.UnregisterAll();
+        if (_session is not null)
+        {
+            _log.Write("økt", "Testøkt avsluttet (hurtigtaster fjernet)");
+            _session.Dispose();
+            _session = null;
+        }
+
+        HideSessionPanel();
+    }
+
+    private void OnSessionHotkey(object? sender, int id)
+    {
+        var name = SessionHotkeys.FirstOrDefault(h => h.Id == id).Name ?? id.ToString(CultureInfo.InvariantCulture);
+        _log.Write("hurtigtast", $"Mottatt: {name}");
+        Activate();
+        var ok = Foreground.Bring(WinRT.Interop.WindowNative.GetWindowHandle(this));
+        _log.Write("fokus", ok ? "Tok forgrunnen etter hurtigtast" : "Windows avslo forgrunnen etter hurtigtast");
+        ShowSessionPanel($"hurtigtast {name}");
+    }
+
+    private void ShowSessionPanel(string via)
+    {
+        SessionTitle.Text = "Tegnkart (testøkt)";
+        SessionPanel.Visibility = Visibility.Visible;
+        SetTilesEnabled(false);
+        ResumeButton.Focus(FocusState.Keyboard);
+        _log.Write("økt", $"«Kjører nå» vist via {via}");
+    }
+
+    private void HideSessionPanel()
+    {
+        SessionPanel.Visibility = Visibility.Collapsed;
+        SetTilesEnabled(true);
+        SessionTile.Focus(FocusState.Keyboard);
+    }
+
+    private void SetTilesEnabled(bool enabled)
+    {
+        foreach (var child in Tiles.Children.OfType<Button>())
+        {
+            child.IsEnabled = enabled;
+        }
+    }
+
+    private void ResumeButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_session is not { HasExited: false } session)
+        {
+            HideSessionPanel();
+            return;
+        }
+
+        session.Refresh();
+        var ok = Foreground.Bring(session.MainWindowHandle);
+        _log.Write("fokus", ok ? "Tilbake til spillet: stand-in fikk forgrunnen" : "Tilbake til spillet: Windows avslo");
+        HideSessionPanel();
+    }
+
+    private void EndSessionButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_session is { HasExited: false } session)
+        {
+            session.CloseMainWindow();
+            _log.Write("økt", "Ba stand-in avslutte normalt (WM_CLOSE)");
+        }
+        else
+        {
+            EndTestSession();
+        }
+    }
+
+    private void ClosePanelButton_Click(object sender, RoutedEventArgs e) => HideSessionPanel();
+
+    // ---- Legion-knapp via Lenovos HID-kanaler (diagnostikk) ----
+
+    private void StartHidCapture()
+    {
+        if (_hidListeners.Count > 0)
+        {
+            return;
+        }
+
+        var interfaces = HidReportListener.FindInterfaces(LegionGoController);
+        _log.Write("hid", string.Create(CultureInfo.InvariantCulture, $"Fant {interfaces.Count} HID-grensesnitt for Legion Go-kontrolleren"));
+        foreach (var path in interfaces)
+        {
+            var label = ShortHidName(path);
+            var listener = HidReportListener.TryOpen(path, out var error);
+            if (listener is null)
+            {
+                _log.Write("hid", $"{label}: {error}");
+                continue;
+            }
+
+            var previous = string.Empty;
+            var lastLogged = DateTime.MinValue;
+            var suppressed = 0;
+            listener.ReportReceived += (_, hex) =>
+            {
+                // Logg bare endringer, og høyst fem per sekund per grensesnitt.
+                if (hex == previous)
+                {
+                    return;
+                }
+
+                previous = hex;
+                if ((DateTime.UtcNow - lastLogged).TotalMilliseconds < 200)
+                {
+                    suppressed++;
+                    return;
+                }
+
+                lastLogged = DateTime.UtcNow;
+                _log.Write("hid", string.Create(CultureInfo.InvariantCulture, $"{label} (+{suppressed}): {hex}"));
+                suppressed = 0;
+            };
+            listener.Failed += (_, message) => _log.Write("hid", $"{label}: {message}");
+            listener.Start();
+            _hidListeners.Add(listener);
+            _log.Write("hid", $"{label}: lytter");
+        }
+
+        LastInput.Text = "Lytter i 15 sekunder. Trykk venstre Legion-knapp nå.";
+        var stopTimer = DispatcherQueue.CreateTimer();
+        stopTimer.Interval = HidCaptureDuration;
+        stopTimer.IsRepeating = false;
+        stopTimer.Tick += (_, _) => StopHidCapture();
+        stopTimer.Start();
+    }
+
+    private void StopHidCapture()
+    {
+        foreach (var listener in _hidListeners)
+        {
+            listener.Dispose();
+        }
+
+        if (_hidListeners.Count > 0)
+        {
+            _log.Write("hid", "Lytting stoppet");
+        }
+
+        _hidListeners.Clear();
+    }
+
+    private static string ShortHidName(string path)
+    {
+        var start = path.IndexOf("mi_", StringComparison.OrdinalIgnoreCase);
+        var name = start >= 0 ? path.Substring(start, Math.Min(15, path.Length - start)) : path;
+        return name.Split('#')[0];
+    }
+
+    private void StopEverything()
+    {
+        StopHidCapture();
+        _hotkeys.UnregisterAll();
+        _session?.Dispose();
+        _session = null;
+    }
+
+    // ---- Fokus, input og målinger ----
 
     private void OnWindowActivated(object sender, WindowActivatedEventArgs args)
     {
@@ -97,7 +318,7 @@ public sealed partial class MainWindow : Window
             StartupText.Text = string.Create(CultureInfo.InvariantCulture, $"Oppstart: {startup.TotalMilliseconds:F0} ms");
             _log.Write("ytelse", string.Create(CultureInfo.InvariantCulture,
                 $"Oppstart til første aktivering: {startup.TotalMilliseconds:F0} ms, minne: {memoryMb:F0} MB"));
-            Tile1.Focus(FocusState.Keyboard);
+            SessionTile.Focus(FocusState.Keyboard);
         }
 
         UpdateMemory();
@@ -175,6 +396,12 @@ public sealed partial class MainWindow : Window
         {
             new ButtonAutomationPeer(button).Invoke();
         }
+
+        // B lukker øktpanelet.
+        if (pressed.HasFlag(GamepadButtons.B) && SessionPanel.Visibility == Visibility.Visible)
+        {
+            HideSessionPanel();
+        }
     }
 
     private void UpdateMemory()
@@ -224,10 +451,21 @@ public sealed partial class MainWindow : Window
 
     private void Tile_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is Button tile)
+        if (sender is not Button tile)
         {
-            LastInput.Text = $"Valgt: {tile.Content} ({_lastSource})";
-            _log.Write("valg", $"{tile.Content} valgt via {_lastSource}");
+            return;
+        }
+
+        LastInput.Text = $"Valgt: {tile.Content} ({_lastSource})";
+        _log.Write("valg", $"{tile.Content} valgt via {_lastSource}");
+
+        if (tile == SessionTile)
+        {
+            StartTestSession();
+        }
+        else if (tile == HidTile)
+        {
+            StartHidCapture();
         }
     }
 

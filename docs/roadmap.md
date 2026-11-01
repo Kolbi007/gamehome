@@ -24,7 +24,9 @@ Hver testrunde tar 15–45 minutter på Legion Go. Resultater skrives i `docs/te
 1. **FSE virker ikke uten utviklermodus:** GameHome blir en fullskjermsapp som starter ved pålogging. Resten står.
 2. **Venstre Legion-knapp kan ikke legges om:** vi prøver GameInputs system-knapp-callback, og deretter en bakknapp.
 3. **Playnite blir synlig ved stream:** da trengs en liten egen komponent på gaming-PC-en (+1–2 runder).
-4. **JIT eller Native AOT:** velges etter målinger av kaldstart og minne i 0B.
+4. **JIT eller Native AOT:** avgjort 2026-11-02, Native AOT (ADR 0005).
+6. **Venstre Legion-knapp** kan ikke legges om i Legion Space. Testes: kan GameHome lese den fra Lenovos HID-kanal
+   mens Legion Space kjører? Til da er M2 (lagt om til en tastekombinasjon) hurtigknappen for øktmenyen.
 5. **WinUIs innebygde kontrollerruting** (`GamepadKeyRouting`): testes når en WinUI-versjon med den er minst to uker
    gammel (tidligst rundt 2026-11-10). Virker den, erstatter den det meste av vår egen kontroller-adapter.
 
