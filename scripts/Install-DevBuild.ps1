@@ -5,8 +5,9 @@
 
 .DESCRIPTION
   Første gang: stoler på utviklersertifikatet (krever administrator).
-  Deretter: installerer eller oppgraderer pakken. Kan kjøres over SSH fra Mac:
-    ssh legion-go "pwsh -File C:\gamehome\scripts\Install-DevBuild.ps1 -MsixPath C:\gamehome\drop\GameHome.msix"
+  Deretter: installerer eller oppgraderer pakken.
+  Merk: Add-AppxPackage virker ikke fra en SSH-økt (0x80070005). Over SSH: kjør skriptet for å stole på
+  sertifikatet, og legg .msix-filen på skrivebordet så brukeren installerer den med et trykk.
 
 .PARAMETER MsixPath
   Sti til .msix-filen fra CI-artefaktet "gamehome-msix-x64".
@@ -14,10 +15,15 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)] [string] $MsixPath,
-    [string] $CerPath = (Join-Path $PSScriptRoot '..\certs\GameHome-Dev.cer')
+    [string] $CerPath
 )
 
 $ErrorActionPreference = 'Stop'
+# $PSScriptRoot er tom i standardverdier for parametere i Windows PowerShell 5.1; derfor settes stien her.
+if (-not $CerPath) {
+    $scriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+    $CerPath = Join-Path $scriptDir '..\certs\GameHome-Dev.cer'
+}
 $cer = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2 $CerPath
 $trusted = Get-ChildItem Cert:\LocalMachine\TrustedPeople | Where-Object Thumbprint -eq $cer.Thumbprint
 
