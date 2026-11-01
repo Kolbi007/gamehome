@@ -44,10 +44,12 @@ public sealed partial class MainWindow : Window
     {
         _log = log;
         InitializeComponent();
+        _log.Write("start", "XAML lastet");
         ExtendsContentIntoTitleBar = true;
 
         EventList.ItemsSource = _events;
         _log.Written += OnLogWritten;
+        _log.Write("start", "Loggliste koblet");
 
         Root.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(OnKeyDown), handledEventsToo: true);
         Root.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(OnPointerPressed), handledEventsToo: true);
@@ -64,6 +66,7 @@ public sealed partial class MainWindow : Window
 
         Gamepad.GamepadAdded += (_, _) => _log.Write("kontroller", "Kontroller tilkoblet");
         Gamepad.GamepadRemoved += (_, _) => _log.Write("kontroller", "Kontroller frakoblet");
+        _log.Write("start", "Kontroller-hendelser koblet");
 
         var variant = RuntimeFeature.IsDynamicCodeSupported ? "JIT" : "Native AOT";
         InfoText.Text = $"Versjon {typeof(MainWindow).Assembly.GetName().Version} · {variant} · logg: gamehome.log";

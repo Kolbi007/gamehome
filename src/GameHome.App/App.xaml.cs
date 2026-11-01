@@ -17,6 +17,10 @@ public partial class App : Application
     {
         InitializeComponent();
         Log = new FileLog(Path.Combine(ApplicationData.Current.LocalFolder.Path, "gamehome.log"));
+
+        // Krasj skal alltid etterlate et spor i loggen.
+        UnhandledException += (_, e) => Log.Write("krasj", $"{e.Exception.GetType().Name} 0x{e.Exception.HResult:X8}: {e.Message}\n{e.Exception.StackTrace}");
+        AppDomain.CurrentDomain.UnhandledException += (_, e) => Log.Write("krasj", $"AppDomain: {e.ExceptionObject}");
     }
 
     internal FileLog Log { get; }
@@ -27,8 +31,18 @@ public partial class App : Application
         current.Activated += OnRedirectedActivation;
 
         Log.Write("start", $"Aktivering: {Describe(current.GetActivatedEventArgs())}");
-        _window = new MainWindow(Log);
-        _window.Activate();
+        try
+        {
+            _window = new MainWindow(Log);
+            Log.Write("start", "Vindu laget");
+            _window.Activate();
+            Log.Write("start", "Vindu aktivert");
+        }
+        catch (Exception ex)
+        {
+            Log.Write("krasj", $"Oppstart: {ex.GetType().Name} 0x{ex.HResult:X8}: {ex.Message}\n{ex}");
+            throw;
+        }
     }
 
     // Fase 0A: Home- og Library-aktivering fra FSE logges her når adapteren er på plass.
