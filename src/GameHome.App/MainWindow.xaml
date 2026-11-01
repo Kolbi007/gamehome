@@ -14,10 +14,22 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <StackPanel Grid.Row="0" Spacing="4">
-            <TextBlock Text="GameHome · testflate" FontSize="36" FontWeight="SemiBold" Foreground="White" />
-            <TextBlock x:Name="InfoText" FontSize="16" Foreground="#A0A7B0" TextWrapping="Wrap" />
-        </StackPanel>
+        <Grid Grid.Row="0" ColumnSpacing="24">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Border Grid.Column="0" Background="#1A1E24" CornerRadius="8" Padding="16,10" VerticalAlignment="Top">
+                <StackPanel Spacing="2">
+                    <TextBlock x:Name="MemoryText" FontFamily="Consolas" FontSize="18" Foreground="White" Text="Minne: –" />
+                    <TextBlock x:Name="StartupText" FontFamily="Consolas" FontSize="14" Foreground="#A0A7B0" Text="Oppstart: –" />
+                </StackPanel>
+            </Border>
+            <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Center">
+                <TextBlock Text="GameHome · testflate" FontSize="36" FontWeight="SemiBold" Foreground="White" />
+                <TextBlock x:Name="InfoText" FontSize="16" Foreground="#A0A7B0" TextWrapping="Wrap" />
+            </StackPanel>
+        </Grid>
 
         <Grid x:Name="Tiles" Grid.Row="1" HorizontalAlignment="Center" ColumnSpacing="16" RowSpacing="16">
             <Grid.ColumnDefinitions>

@@ -26,11 +26,15 @@ public sealed partial class MainWindow : Window
 {
     private const int MaxVisibleEvents = 14;
     private const double StickThreshold = 0.6;
+    private const double TriggerThreshold = 0.5;
 
     private readonly FileLog _log;
     private readonly ObservableCollection<string> _events = [];
     private readonly DispatcherQueueTimer _gamepadTimer;
+    private readonly DispatcherQueueTimer _metricsTimer;
     private GamepadButtons _previousButtons;
+    private bool _previousLeftTrigger;
+    private bool _previousRightTrigger;
     private FocusNavigationDirection? _previousStick;
     private string _lastSource = "ukjent";
     private bool _xamlGamepadKeysSeen;
@@ -53,6 +57,11 @@ public sealed partial class MainWindow : Window
         _gamepadTimer.Interval = TimeSpan.FromMilliseconds(16);
         _gamepadTimer.Tick += (_, _) => PollGamepad();
 
+        // Ytelsespanelet oppdateres bare mens vinduet har fokus.
+        _metricsTimer = DispatcherQueue.CreateTimer();
+        _metricsTimer.Interval = TimeSpan.FromSeconds(2);
+        _metricsTimer.Tick += (_, _) => UpdateMemory();
+
         Gamepad.GamepadAdded += (_, _) => _log.Write("kontroller", "Kontroller tilkoblet");
         Gamepad.GamepadRemoved += (_, _) => _log.Write("kontroller", "Kontroller frakoblet");
 
@@ -74,7 +83,8 @@ public sealed partial class MainWindow : Window
         if (args.WindowActivationState == WindowActivationState.Deactivated)
         {
             _gamepadTimer.Stop();
-            _log.Write("fokus", "Mistet fokus (kontrollerlesing stoppet)");
+            _metricsTimer.Stop();
+            _log.Write("fokus", "Mistet fokus (kontrollerlesing og målinger stoppet)");
             return;
         }
 
@@ -83,11 +93,14 @@ public sealed partial class MainWindow : Window
             _startupLogged = true;
             var startup = DateTime.Now - Process.GetCurrentProcess().StartTime;
             var memoryMb = Environment.WorkingSet / (1024.0 * 1024.0);
+            StartupText.Text = string.Create(CultureInfo.InvariantCulture, $"Oppstart: {startup.TotalMilliseconds:F0} ms");
             _log.Write("ytelse", string.Create(CultureInfo.InvariantCulture,
                 $"Oppstart til første aktivering: {startup.TotalMilliseconds:F0} ms, minne: {memoryMb:F0} MB"));
             Tile1.Focus(FocusState.Keyboard);
         }
 
+        UpdateMemory();
+        _metricsTimer.Start();
         _gamepadTimer.Start();
         _log.Write("fokus", $"Fikk fokus ({args.WindowActivationState})");
     }
@@ -108,7 +121,15 @@ public sealed partial class MainWindow : Window
         var stickMoved = stick is not null && stick != _previousStick;
         _previousStick = stick;
 
-        if (pressed == GamepadButtons.None && !stickMoved)
+        // Avtrekkerne (L2/R2) er analoge verdier 0–1, ikke knapper.
+        var leftTrigger = reading.LeftTrigger > TriggerThreshold;
+        var rightTrigger = reading.RightTrigger > TriggerThreshold;
+        var leftTriggerPressed = leftTrigger && !_previousLeftTrigger;
+        var rightTriggerPressed = rightTrigger && !_previousRightTrigger;
+        _previousLeftTrigger = leftTrigger;
+        _previousRightTrigger = rightTrigger;
+
+        if (pressed == GamepadButtons.None && !stickMoved && !leftTriggerPressed && !rightTriggerPressed)
         {
             return;
         }
@@ -118,6 +139,16 @@ public sealed partial class MainWindow : Window
             .Where(b => b != GamepadButtons.None && pressed.HasFlag(b))
             .Select(b => b.ToString())
             .ToList();
+        if (leftTriggerPressed)
+        {
+            names.Add(string.Create(CultureInfo.InvariantCulture, $"L2 ({reading.LeftTrigger:F2})"));
+        }
+
+        if (rightTriggerPressed)
+        {
+            names.Add(string.Create(CultureInfo.InvariantCulture, $"R2 ({reading.RightTrigger:F2})"));
+        }
+
         if (stickMoved)
         {
             names.Add($"Venstre stikke {stick}");
@@ -143,6 +174,13 @@ public sealed partial class MainWindow : Window
         {
             new ButtonAutomationPeer(button).Invoke();
         }
+    }
+
+    private void UpdateMemory()
+    {
+        using var process = Process.GetCurrentProcess();
+        MemoryText.Text = string.Create(CultureInfo.InvariantCulture,
+            $"Minne: {process.WorkingSet64 / 1048576.0:F0} MB (privat {process.PrivateMemorySize64 / 1048576.0:F0} MB)");
     }
 
     private static FocusNavigationDirection? DPadDirection(GamepadButtons pressed) =>
