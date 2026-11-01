@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SPDX-License-Identifier: GPL-3.0-or-later
+  Fase 0A (eksperimentell): beskrivelse av den egendefinerte capability-en som gjør GameHome valgbar som
+  home app i Xbox mode. Den er ikke signert av Microsoft og godtas bare med utviklermodus på.
+  Mønsteret er offentlig i MIT-prosjektene AnyFSE og FullScreenExperienceShell (se docs/architecture.md).
+-->
+<CustomCapabilityDescriptor xmlns="http://schemas.microsoft.com/appx/2018/sccd">
+  <CustomCapabilities>
+    <CustomCapability Name="Microsoft.appCategory.gamingHome_8wekyb3d8bbwe" />
+  </CustomCapabilities>
+  <AuthorizedEntities AllowAny="true" />
+  <Catalog>FFFF</Catalog>
+</CustomCapabilityDescriptor>

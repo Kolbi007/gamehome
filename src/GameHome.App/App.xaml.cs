@@ -31,6 +31,7 @@ public partial class App : Application
         current.Activated += OnRedirectedActivation;
 
         Log.Write("start", $"Aktivering: {Describe(current.GetActivatedEventArgs())}");
+        Log.Write("fse", $"Valgt home app: {ReadGamingHomeApp()}");
         try
         {
             _window = new MainWindow(Log);
@@ -45,11 +46,28 @@ public partial class App : Application
         }
     }
 
-    // Fase 0A: Home- og Library-aktivering fra FSE logges her når adapteren er på plass.
+    // Fase 0A: alle aktiveringer mens GameHome kjører (Home i Game Bar, gamehome://, Start-menyen) logges og
+    // henter vinduet frem. Under en aktiv økt vises «Kjører nå».
     private void OnRedirectedActivation(object? sender, AppActivationArguments e)
     {
-        Log.Write("aktivering", $"Videresendt: {Describe(e)}");
-        _window?.DispatcherQueue.TryEnqueue(() => _window.BringToFront());
+        var what = Describe(e);
+        Log.Write("aktivering", $"Videresendt: {what}");
+        _window?.DispatcherQueue.TryEnqueue(() => _window.BringToFront(what));
+    }
+
+    // Bare lesing, for å se i loggen om Windows har registrert GameHome som valgt home app. GameHome skriver aldri hit.
+    private static string ReadGamingHomeApp()
+    {
+        try
+        {
+            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
+                @"Software\Microsoft\Windows\CurrentVersion\GamingConfiguration");
+            return key?.GetValue("GamingHomeApp")?.ToString() ?? "(ikke satt)";
+        }
+        catch (Exception ex)
+        {
+            return $"(kunne ikke lese: {ex.GetType().Name})";
+        }
     }
 
     private static string Describe(AppActivationArguments args) => args.Kind switch
