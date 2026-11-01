@@ -87,5 +87,6 @@
 
 ## Commit og PR
 
-- Små PR-er mot `main`. CI må være grønn. Copilot reviewer.
+- Små PR-er mot `main`. CI må være grønn før merge.
+- Copilot reviewer bare på forespørsel fra produkteier (manuelt, med `docs/review-prompt.md`). Foreslå review for større endringer: arkitektur, sikkerhet, nye kilder eller runners. Funn fra Copilot vurderes og besvares punkt for punkt, slik som for produktnotatet.
 - Commit-meldinger på engelsk, korte og i imperativ.

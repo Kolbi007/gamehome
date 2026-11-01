@@ -1,6 +1,7 @@
 # Instruksjoner for Copilot code review
 
-Du er reviewer for GameHome. Claude Code er hovedutvikler. Les `docs/architecture.md` og ADR-ene i `docs/adr/`.
+Du er reviewer for GameHome. Claude Code er hovedutvikler. Review skjer på forespørsel; den fullstendige
+instruksen og svarformatet står i `docs/review-prompt.md`. Les `CLAUDE.md`, `docs/product-brief.md` og ADR-ene i `docs/adr/`.
 
 Vurder spesielt:
 
