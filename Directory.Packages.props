@@ -1,0 +1,17 @@
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<!-- Sentral versjonsstyring. Bruk versjoner som er minst to uker gamle. -->
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Bare WinUI-delen av Windows App SDK 2.x, for å holde pakken liten (ingen AI/ML). -->
+    <PackageVersion Include="Microsoft.WindowsAppSDK.WinUI" Version="2.3.9" />
+    <PackageVersion Include="Microsoft.WindowsAppSDK.Foundation" Version="2.3.12" />
+    <!-- Festet til samme versjon som metapakken Microsoft.WindowsAppSDK 2.5.1 bruker (2.1.8 finnes ikke på nuget.org). -->
+    <PackageVersion Include="Microsoft.WindowsAppSDK.InteractiveExperiences" Version="2.1.9" />
+
+    <!-- Tester (Microsoft Testing Platform, slått på i global.json) -->
+    <PackageVersion Include="xunit.v3" Version="4.0.2" />
+  </ItemGroup>
+</Project>

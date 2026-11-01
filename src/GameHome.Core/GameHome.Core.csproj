@@ -1,0 +1,8 @@
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Modeller, regler, profiler, sesjoner og launch-orkestrering. Plattformnøytralt. -->
+  <PropertyGroup>
+    <TargetFramework>$(GameHomeNeutralTfm)</TargetFramework>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,15 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/GameHome.App/GameHome.App.csproj" />
+    <Project Path="src/GameHome.Core/GameHome.Core.csproj" />
+    <Project Path="src/GameHome.Data/GameHome.Data.csproj" />
+    <Project Path="src/GameHome.Metadata/GameHome.Metadata.csproj" />
+    <Project Path="src/GameHome.Runners/GameHome.Runners.csproj" />
+    <Project Path="src/GameHome.Sources/GameHome.Sources.csproj" />
+    <Project Path="src/GameHome.Windows.Fse/GameHome.Windows.Fse.csproj" />
+    <Project Path="src/GameHome.Windows/GameHome.Windows.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/GameHome.Core.Tests/GameHome.Core.Tests.csproj" />
+  </Folder>
+</Solution>

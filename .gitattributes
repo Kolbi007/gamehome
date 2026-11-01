@@ -1,0 +1,5 @@
+# Normaliser linjeskift (utvikling p? Mac og Windows)
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.png binary
+*.cer binary

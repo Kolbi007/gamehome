@@ -1,0 +1,22 @@
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<Project>
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <TreatWarningsAsErrors Condition="'$(CI)' == 'true'">true</TreatWarningsAsErrors>
+    <Deterministic>true</Deterministic>
+    <Company>GameHome contributors</Company>
+    <Product>GameHome</Product>
+    <Copyright>Copyright (c) 2026 The GameHome contributors</Copyright>
+    <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
+
+    <!-- Plattformnøytrale prosjekter bygges og testes på Mac og Linux. -->
+    <GameHomeNeutralTfm>net10.0</GameHomeNeutralTfm>
+    <!-- Windows-prosjekter. 26100 kreves for FSE-API-ene. -->
+    <GameHomeWindowsTfm>net10.0-windows10.0.26100.0</GameHomeWindowsTfm>
+    <GameHomeWindowsMinVersion>10.0.26100.0</GameHomeWindowsMinVersion>
+  </PropertyGroup>
+</Project>

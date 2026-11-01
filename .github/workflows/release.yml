@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Tagg vX.Y.Z på main gir en GitHub-release med signert MSIX for x64 og ARM64.
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    uses: ./.github/workflows/ci.yml
+    with:
+      version: ${{ github.ref_name }}
+    secrets: inherit
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          shopt -s globstar nullglob
+          msix=(dist/**/*.msix)
+          if [ ${#msix[@]} -eq 0 ]; then echo "Fant ingen MSIX" >&2; exit 1; fi
+          gh release create "$GITHUB_REF_NAME" \
+            "${msix[@]}" \
+            dist/gamehome-msix-x64/certs/GameHome-Dev.cer \
+            dist/gamehome-msix-x64/scripts/Install-DevBuild.ps1 \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "GameHome $GITHUB_REF_NAME" \
+            --prerelease \
+            --notes "Testbygg for Legion Go. Første gang: kjør Install-DevBuild.ps1 som administrator med stien til .msix-filen. Se README."

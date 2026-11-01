@@ -1,0 +1,13 @@
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Eksperimentell FSE-adapter (IHomeIntegration), isolert. Fylles i fase 0A. -->
+  <PropertyGroup>
+    <TargetFramework>$(GameHomeWindowsTfm)</TargetFramework>
+    <TargetPlatformMinVersion>$(GameHomeWindowsMinVersion)</TargetPlatformMinVersion>
+    <SupportedOSPlatformVersion>$(GameHomeWindowsMinVersion)</SupportedOSPlatformVersion>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\GameHome.Core\GameHome.Core.csproj" />
+  </ItemGroup>
+</Project>

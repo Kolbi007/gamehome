@@ -1,0 +1,11 @@
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- SQLite, art-cache og overstyringer (fase 1). Plattformnøytralt. -->
+  <PropertyGroup>
+    <TargetFramework>$(GameHomeNeutralTfm)</TargetFramework>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\GameHome.Core\GameHome.Core.csproj" />
+  </ItemGroup>
+</Project>

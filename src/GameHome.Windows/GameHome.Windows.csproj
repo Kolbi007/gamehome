@@ -1,0 +1,13 @@
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Win32: Job Objects, skjerm- og strøm-API-er, single-instance, register. -->
+  <PropertyGroup>
+    <TargetFramework>$(GameHomeWindowsTfm)</TargetFramework>
+    <TargetPlatformMinVersion>$(GameHomeWindowsMinVersion)</TargetPlatformMinVersion>
+    <SupportedOSPlatformVersion>$(GameHomeWindowsMinVersion)</SupportedOSPlatformVersion>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\GameHome.Core\GameHome.Core.csproj" />
+  </ItemGroup>
+</Project>

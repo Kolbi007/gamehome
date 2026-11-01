@@ -1,0 +1,11 @@
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Kilder: Steam, Xbox, LocalFolder, Moonlight, Roms. Parsere er plattformnøytrale; registeroppslag ligger i GameHome.Windows. -->
+  <PropertyGroup>
+    <TargetFramework>$(GameHomeNeutralTfm)</TargetFramework>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\GameHome.Core\GameHome.Core.csproj" />
+  </ItemGroup>
+</Project>
