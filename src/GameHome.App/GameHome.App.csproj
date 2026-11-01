@@ -48,7 +48,11 @@
   <ItemGroup>
     <Manifest Include="$(ApplicationManifest)" />
     <Content Include="Assets\**\*.png" />
-    <!-- Fase 0A: FSE-registrering. SCCD må ligge i pakkeroten; Public er mappen app-utvidelsen peker på. -->
+    <!--
+      Fase 0A: FSE-registrering. SCCD må ligge i pakkeroten; Public er mappen app-utvidelsen peker på.
+      SCCD-filen skal ikke ha kommentarer eller andre tegn enn ASCII: Windows avviser den da med 0x8007007A.
+      Den er ikke signert av Microsoft og godtas bare med utviklermodus. Mønster fra AnyFSE (MIT).
+    -->
     <Content Include="CustomCapability.SCCD" />
     <Content Include="Public\**\*" />
   </ItemGroup>
