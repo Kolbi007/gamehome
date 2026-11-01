@@ -33,3 +33,5 @@ Hver testrunde tar 15–45 minutter på Legion Go. Resultater skrives i `docs/te
 - 2026-11-01: repo, CI, signert test-MSIX, SSH til Legion Go, testflate.
 - 2026-11-01, 0B runde 1 (JIT): installasjon og oppgradering virker. Kontroller og berøring virker. Kaldstart 2,1 s
   (mål under 1,5 s). WinUI leverer ikke kontrollertaster selv. Se `docs/tests/2026-11-01-legion-go.md`.
+- 2026-11-02, 0B runde 2: L2/R2 virker. Native AOT: oppstart 300 ms mot 1 663 ms, minne 107 MB mot 139 MB,
+  pakke 24 MB mot 79 MB. En AOT-krasj (ItemsSource) er funnet og rettet.
