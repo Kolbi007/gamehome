@@ -42,12 +42,17 @@ jobs:
 
   # Windows: hele løsningen og signert test-MSIX for Legion Go.
   windows:
-    name: App (Windows, ${{ matrix.arch }})
+    name: App (Windows, ${{ matrix.arch }}${{ matrix.aot && ', AOT' || '' }})
     runs-on: windows-latest
     strategy:
       fail-fast: false
       matrix:
         arch: [x64, arm64]
+        aot: [false]
+        include:
+          # Native AOT-variant for måling i fase 0B. Ikke med i release før den er valgt.
+          - arch: x64
+            aot: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -101,10 +106,16 @@ jobs:
           if ('${{ steps.cert.outputs.thumbprint }}') {
             $publishArgs += '-p:PackageCertificateThumbprint=${{ steps.cert.outputs.thumbprint }}'
           }
+          if ('${{ matrix.aot }}' -eq 'true') { $publishArgs += '-p:GameHomeAot=true' }
           dotnet @publishArgs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $msix = Get-ChildItem artifacts\msix -Recurse -Filter *.msix | Select-Object -First 1
-          "Størrelse: {0:N1} MB" -f ($msix.Length / 1MB) >> $env:GITHUB_STEP_SUMMARY
+          $pub = Get-ChildItem src\GameHome.App\bin -Recurse -Directory -Filter publish | Select-Object -First 1
+          $unpacked = (Get-ChildItem $pub.FullName -Recurse -File | Measure-Object Length -Sum).Sum
+          $variant = if ('${{ matrix.aot }}' -eq 'true') { 'Native AOT' } else { 'JIT + ReadyToRun' }
+          "### $arch, $variant" >> $env:GITHUB_STEP_SUMMARY
+          "- MSIX: {0:N1} MB" -f ($msix.Length / 1MB) >> $env:GITHUB_STEP_SUMMARY
+          "- Utpakket: {0:N1} MB" -f ($unpacked / 1MB) >> $env:GITHUB_STEP_SUMMARY
 
       - name: Remove signing certificate
         if: always() && steps.cert.outputs.thumbprint != ''
@@ -113,7 +124,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: gamehome-msix-${{ matrix.arch }}
+          name: gamehome-msix-${{ matrix.arch }}${{ matrix.aot && '-aot' || '' }}
           path: |
             artifacts/msix/**/*.msix
             certs/GameHome-Dev.cer
