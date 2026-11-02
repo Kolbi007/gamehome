@@ -1328,7 +1328,9 @@ public sealed partial class MainWindow : Window
                 }
                 catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException or UnauthorizedAccessException)
                 {
-                    _log.Write("bilder", $"Henting av bilder for «{title}» feilet: {ex.Message}");
+                    // Nettverksfeil (for eksempel Wi-Fi som har falt ut): prøv igjen neste gang Home blir aktiv.
+                    _artTried.Remove(game.Id);
+                    _log.Write("bilder", $"Henting av bilder for «{title}» feilet, prøver igjen senere: {ex.Message}");
                 }
 
                 ArtProgress.Value = i + 1;
@@ -1777,6 +1779,12 @@ public sealed partial class MainWindow : Window
 
         UpdateMemory();
         _metricsTimer.Start();
+
+        // Spill som fortsatt mangler bilder (for eksempel etter en nettverksfeil), prøves igjen når Home blir aktiv.
+        if (_firstSteamSync is not null)
+        {
+            _ = FetchMissingArtAsync();
+        }
 
         // Første skanning venter til Home er tegnet fra cache, så oppstarten ikke endrer flisene midt i første visning.
         if (_firstSteamSync is null)
