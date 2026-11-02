@@ -131,6 +131,7 @@ public sealed partial class MainWindow : Window
 
         _hotkeys = new HotkeyListener(WinRT.Interop.WindowNative.GetWindowHandle(this));
         _hotkeys.Pressed += OnSessionHotkey;
+        _hotkeys.Failed += (_, message) => _log.Write("krasj", $"Fanget i kall fra Windows: {message}");
 
         Gamepad.GamepadAdded += (_, _) => _log.Write("kontroller", "Kontroller tilkoblet");
         Gamepad.GamepadRemoved += (_, _) => _log.Write("kontroller", "Kontroller frakoblet");
@@ -4213,36 +4214,56 @@ public sealed partial class MainWindow : Window
             _handBacks = 0;
         }
 
-        var timer = DispatcherQueue.CreateTimer();
-        timer.Interval = TimeSpan.FromMilliseconds(400);
-        timer.IsRepeating = false;
-        timer.Tick += (_, _) =>
+        // Feltet holder tidtakeren i live til den har gått (en lokal variabel kan ryddes bort av GC før den går).
+        _handBackTimer?.Stop();
+        _handBackTimer = DispatcherQueue.CreateTimer();
+        _handBackTimer.Interval = TimeSpan.FromMilliseconds(400);
+        _handBackTimer.IsRepeating = false;
+        _handBackTimer.Tick += (timer, _) =>
         {
             timer.Stop();
-            // Mens lasteskjermen dekker Moonlights tilkobling (_streamCover), skal GameHome ligge øverst; ikke gi tilbake da.
-            if (!ReferenceEquals(_session, local) || !_windowActive || _handBacks >= 5 || _streamCover is not null
-                || (AnyOverlayOpen && LoadingPanel.Visibility != Visibility.Visible))
+            try
             {
-                return;
+                HandForegroundBack(local);
             }
-
-            var window = local.MainWindowHandle;
-            if (window == 0)
+            catch (Exception ex)
             {
-                return;
+                // Aldri la dette ta ned appen (0.1.101.0 forsvant her uten spor under strøm).
+                _log.Write("krasj", $"Gi forgrunnen tilbake feilet: {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}");
             }
-
-            _handBacks++;
-            HideLoading("forgrunnen gis tilbake til spillet");
-            if (local is LocalProcessSession process)
-            {
-                Foreground.AllowFor((uint)process.GameProcessId);
-            }
-
-            var (ok, restored) = Foreground.BringGame(window);
-            _log.Write("fokus", $"GameHome ble aktiv uten at noen ba om det; forgrunnen gitt tilbake til spillet ({(ok ? "ok" : "avslått")}{(restored ? ", gjenopprettet" : "")}, {_handBacks}/5)");
         };
-        timer.Start();
+        _handBackTimer.Start();
+    }
+
+    private DispatcherQueueTimer? _handBackTimer;
+
+    private void HandForegroundBack(IForegroundSession local)
+    {
+        // Mens lasteskjermen dekker Moonlights tilkobling (_streamCover), skal GameHome ligge øverst; ikke gi tilbake da.
+        if (!ReferenceEquals(_session, local) || !_windowActive || _handBacks >= 5 || _streamCover is not null
+            || (AnyOverlayOpen && LoadingPanel.Visibility != Visibility.Visible))
+        {
+            return;
+        }
+
+        // Strøm: bare selve streamvinduet (SDL), og bare når det er synlig. Moonlights skjulte hovedvindu røres ikke.
+        var window = local is StreamSession stream ? stream.StreamWindowHandle : local.MainWindowHandle;
+        _log.Write("fokus", string.Create(CultureInfo.InvariantCulture,
+            $"GameHome ble aktiv uten at noen ba om det; vindu for spillet: 0x{window:X}"));
+        if (window == 0)
+        {
+            return;
+        }
+
+        _handBacks++;
+        HideLoading("forgrunnen gis tilbake til spillet");
+        if (local is LocalProcessSession process)
+        {
+            Foreground.AllowFor((uint)process.GameProcessId);
+        }
+
+        var (ok, restored) = Foreground.BringGame(window);
+        _log.Write("fokus", $"Forgrunnen gitt tilbake til spillet ({(ok ? "ok" : "avslått")}{(restored ? ", gjenopprettet" : "")}, {_handBacks}/5)");
     }
 
     private void PollGamepad()

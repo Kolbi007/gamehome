@@ -146,7 +146,7 @@ public sealed class LocalProcessSession : IForegroundSession
                 _process.Refresh();
                 return _process.HasExited ? 0 : _process.MainWindowHandle;
             }
-            catch (InvalidOperationException)
+            catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException)
             {
                 return 0;
             }

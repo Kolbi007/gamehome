@@ -42,6 +42,9 @@ public sealed class HotkeyListener
     /// <summary>Kalles på vinduets tråd med id-en til hurtigtasten.</summary>
     public event EventHandler<int>? Pressed;
 
+    /// <summary>Feil som ble fanget i kallene fra Windows (for loggen).</summary>
+    public event EventHandler<string>? Failed;
+
     /// <summary>Om reserven (tastaturkroken) er aktiv.</summary>
     public bool HookActive => _hook != 0;
 
@@ -99,6 +102,20 @@ public sealed class HotkeyListener
 
     [UnmanagedCallersOnly]
     private static nint SubclassProc(nint hwnd, uint message, nint wParam, nint lParam, nuint subclassId, nuint refData)
+    {
+        // Et unntak her (fra Windows inn i .NET) avslutter prosessen uten spor; det skal aldri skje.
+        try
+        {
+            return SubclassCore(hwnd, message, wParam, lParam);
+        }
+        catch (Exception ex)
+        {
+            s_current?.Failed?.Invoke(s_current, $"Hurtigtast: {ex.GetType().Name}: {ex.Message}");
+            return 0; // Meldingen er allerede behandlet (unntaket kom fra behandlingen); ikke send den videre på nytt.
+        }
+    }
+
+    private static nint SubclassCore(nint hwnd, uint message, nint wParam, nint lParam)
     {
         if (s_current is not { } listener)
         {
@@ -161,7 +178,20 @@ public sealed class HotkeyListener
     }
 
     [UnmanagedCallersOnly]
-    private static unsafe nint KeyboardProc(int code, nint wParam, nint lParam)
+    private static nint KeyboardProc(int code, nint wParam, nint lParam)
+    {
+        try
+        {
+            return KeyboardCore(code, wParam, lParam);
+        }
+        catch (Exception ex)
+        {
+            s_current?.Failed?.Invoke(s_current, $"Tastaturkrok: {ex.GetType().Name}: {ex.Message}");
+            return NativeMethods.CallNextHookEx(0, code, wParam, lParam);
+        }
+    }
+
+    private static unsafe nint KeyboardCore(int code, nint wParam, nint lParam)
     {
         // Må svare raskt: ingen arbeid her utover å sammenligne og poste en melding.
         if (code >= 0 && s_current is { } listener && (wParam == 0x0100 || wParam == 0x0104)) // WM_KEYDOWN / WM_SYSKEYDOWN
