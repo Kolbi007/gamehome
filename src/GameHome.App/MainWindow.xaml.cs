@@ -63,6 +63,7 @@ public sealed partial class MainWindow : Window
     private IForegroundSession? _session;
     private DateTime _lastSteamSync = DateTime.MinValue;
     private bool _steamSyncRunning;
+    private DispatcherQueueTimer? _firstSteamSync;
     private Game? _sessionGame;
     private DateTime _sessionStarted;
     private string? _focusGameId;
@@ -160,22 +161,49 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Bringer flisene i takt med biblioteket uten å fjerne fliser som fortsatt finnes. Å tømme og lage alle flisene
+    /// på nytt mens en av dem hadde fokus, krasjet appen rett etter oppstart (0.1.27.0 og 0.1.28.0).
+    /// </summary>
     private void BuildGameTiles()
     {
-        GameTiles.Children.Clear();
-        foreach (var game in _library.VisibleGames)
+        var visible = _library.VisibleGames;
+        var ids = visible.Select(g => g.Id).ToHashSet(StringComparer.Ordinal);
+
+        for (var i = GameTiles.Children.Count - 1; i >= 0; i--)
         {
-            var tile = new Button
+            if (GameTiles.Children[i] is not Button { Tag: string id } || !ids.Contains(id))
             {
-                Content = TileText(game),
-                Tag = game.Id,
-                Width = 280,
-                Height = 160,
-                FontSize = 22,
-            };
-            tile.Click += GameTile_Click;
-            GameTiles.Children.Add(tile);
+                GameTiles.Children.RemoveAt(i);
+            }
         }
+
+        for (var i = 0; i < visible.Count; i++)
+        {
+            var existing = TileFor(visible[i].Id);
+            if (existing is null)
+            {
+                GameTiles.Children.Insert(i, CreateTile(visible[i]));
+            }
+            else
+            {
+                existing.Content = TileText(visible[i]);
+            }
+        }
+    }
+
+    private Button CreateTile(Game game)
+    {
+        var tile = new Button
+        {
+            Content = TileText(game),
+            Tag = game.Id,
+            Width = 280,
+            Height = 160,
+            FontSize = 22,
+        };
+        tile.Click += GameTile_Click;
+        return tile;
     }
 
     private string TileText(Game game) =>
@@ -437,12 +465,15 @@ public sealed partial class MainWindow : Window
         }
 
         SaveLibrary();
-        var focused = (FocusManager.GetFocusedElement(Root.XamlRoot) as Button)?.Tag as string;
         BuildGameTiles();
-        SetHomeEnabled(MessagePanel.Visibility != Visibility.Visible && SessionPanel.Visibility != Visibility.Visible);
-        if (MessagePanel.Visibility != Visibility.Visible && SessionPanel.Visibility != Visibility.Visible)
+        _log.Write("steam", "Flisene oppdatert");
+        var enabled = MessagePanel.Visibility != Visibility.Visible && SessionPanel.Visibility != Visibility.Visible;
+        SetHomeEnabled(enabled);
+
+        // Flisen med fokus finnes fortsatt; fokus flyttes bare hvis ingenting har fokus.
+        if (enabled && FocusManager.GetFocusedElement(Root.XamlRoot) is not Button)
         {
-            FocusHome(focused ?? (result.Added.Count > 0 ? result.Added[0].Id : null));
+            FocusHome(result.Added.Count > 0 ? result.Added[0].Id : null);
         }
     }
 
@@ -687,7 +718,20 @@ public sealed partial class MainWindow : Window
 
         UpdateMemory();
         _metricsTimer.Start();
-        SyncSteamInBackground();
+
+        // Første skanning venter til Home er tegnet fra cache, så oppstarten ikke endrer flisene midt i første visning.
+        if (_firstSteamSync is null)
+        {
+            _firstSteamSync = DispatcherQueue.CreateTimer();
+            _firstSteamSync.Interval = TimeSpan.FromSeconds(1);
+            _firstSteamSync.IsRepeating = false;
+            _firstSteamSync.Tick += (_, _) => SyncSteamInBackground();
+            _firstSteamSync.Start();
+        }
+        else
+        {
+            SyncSteamInBackground();
+        }
         _gamepadTimer.Start();
         _log.Write("fokus", $"Fikk fokus ({args.WindowActivationState})");
     }
