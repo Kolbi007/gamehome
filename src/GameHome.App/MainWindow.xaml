@@ -13,6 +13,7 @@
           teksten lesbar; ingen pynt utover det.
         -->
         <Image x:Name="AmbientImage" Stretch="UniformToFill" HorizontalAlignment="Right" VerticalAlignment="Top" Opacity="0" />
+        <Image x:Name="AmbientImageB" Stretch="UniformToFill" HorizontalAlignment="Right" VerticalAlignment="Top" Opacity="0" />
         <Rectangle>
             <Rectangle.Fill>
                 <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
@@ -69,7 +70,7 @@
             <StackPanel x:Name="HeroInfo" Grid.Row="1" VerticalAlignment="Bottom" Spacing="12" Margin="0,0,0,8" MaxWidth="820" HorizontalAlignment="Left">
                 <StackPanel.Resources>
                     <Storyboard x:Name="HeroFadeIn">
-                        <DoubleAnimation Storyboard.TargetName="HeroInfo" Storyboard.TargetProperty="Opacity" From="0.0" To="1" Duration="0:0:0.2">
+                        <DoubleAnimation Storyboard.TargetName="HeroInfo" Storyboard.TargetProperty="Opacity" From="0.35" To="1" Duration="0:0:0.28">
                             <DoubleAnimation.EasingFunction>
                                 <CubicEase EasingMode="EaseOut" />
                             </DoubleAnimation.EasingFunction>
@@ -363,6 +364,12 @@
                 <TextBlock x:Name="OptionsTitle" FontFamily="{StaticResource GhFontDisplay}" FontSize="{StaticResource GhSizeTitle}" FontWeight="SemiBold"
                            Foreground="{StaticResource GhTextPrimaryBrush}" TextWrapping="Wrap" Margin="0,0,0,12" />
                 <Button x:Name="OptionDefaultMode" Style="{StaticResource GhPanelButton}" Click="OptionDefaultMode_Click" />
+                <Button x:Name="OptionSource" Style="{StaticResource GhPanelButton}" Click="OptionSource_Click">
+                    <StackPanel Spacing="2">
+                        <TextBlock x:Name="OptionSourceText" />
+                        <TextBlock x:Name="OptionSourceHint" FontSize="{StaticResource GhSizeSmall}" Foreground="{StaticResource GhTextTertiaryBrush}" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Button>
                 <Button x:Name="OptionRefreshArt" Style="{StaticResource GhPanelButton}" Content="Hent bilder på nytt" Click="OptionRefreshArt_Click" />
                 <Button x:Name="OptionRefreshInfo" Style="{StaticResource GhPanelButton}" Content="Hent info på nytt" Click="OptionRefreshInfo_Click" />
                 <Button x:Name="OptionPowerProfile" Style="{StaticResource GhPanelButton}" Click="OptionPowerProfile_Click">
@@ -399,8 +406,13 @@
                     <Button x:Name="HidTile" Content="Lytt på Legion-knapp" Click="HidTile_Click" Height="52" Padding="20,0" FontSize="{StaticResource GhSizeCaption}" />
                     <Button x:Name="DebugCloseButton" Content="Lukk" Click="DebugCloseButton_Click" Height="52" Padding="20,0" FontSize="{StaticResource GhSizeCaption}" />
                 </StackPanel>
-                <TextBlock x:Name="LastInput" Grid.Row="3" FontSize="{StaticResource GhSizeBody}" Foreground="{StaticResource GhTextPrimaryBrush}" TextWrapping="Wrap"
-                           Text="A starter spillet, Y viser info, ☰ gir valg. M2 under spill åpner menyen." />
+                <StackPanel Grid.Row="3" Spacing="10">
+                    <!-- Resultatet av «Test tilkobling» vises her, ikke i et eget panel. -->
+                    <TextBlock x:Name="DebugResultText" FontSize="{StaticResource GhSizeBody}" Foreground="{StaticResource GhTextPrimaryBrush}" TextWrapping="Wrap"
+                               Visibility="Collapsed" />
+                    <TextBlock x:Name="LastInput" FontSize="{StaticResource GhSizeCaption}" Foreground="{StaticResource GhTextSecondaryBrush}" TextWrapping="Wrap"
+                               Text="A starter spillet, Y viser info, ☰ gir valg. M2 under spill åpner menyen." />
+                </StackPanel>
                 <!-- Vanlig tekst, ikke liste: en .NET-samling som ItemsSource krever ekstra AOT-generering (se loggen 2026-11-02). -->
                 <TextBlock x:Name="EventText" Grid.Row="4" FontFamily="Consolas" FontSize="13" Foreground="{StaticResource GhTextTertiaryBrush}" TextWrapping="NoWrap" />
             </Grid>

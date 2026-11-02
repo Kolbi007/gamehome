@@ -455,27 +455,49 @@ public sealed partial class MainWindow : Window
 
     /// <summary>
     /// Bakgrunnen: spillets hero-bilde i full størrelse, eller (uten hero) omslaget dekodet svært lite (48 px) og strukket
-    /// ut, som gir en myk uskarphet. Toner inn på 250 ms.
+    /// ut, som gir en myk uskarphet. Krysstoning på 380 ms: det nye bildet toner inn over det gamle, som toner ut, så
+    /// skjermen aldri blinker mørk mellom to spill. Det gamle bildet slippes etterpå (bare to bilder i minnet).
     /// </summary>
     private async Task LoadAmbientAsync(string path, bool sharp)
     {
-        if (await LoadImageAsync(path, sharp ? ScreenPx(0.85) : 48) is { } bitmap && string.Equals(_ambientPath, path, StringComparison.OrdinalIgnoreCase))
+        if (await LoadImageAsync(path, sharp ? ScreenPx(0.85) : 48) is not { } bitmap
+            || !string.Equals(_ambientPath, path, StringComparison.OrdinalIgnoreCase))
         {
-            AmbientImage.Source = bitmap;
-            var animation = new Microsoft.UI.Xaml.Media.Animation.DoubleAnimation
-            {
-                From = 0,
-                To = sharp ? 0.9 : 0.5,
-                Duration = new Duration(TimeSpan.FromMilliseconds(250)),
-                EasingFunction = new Microsoft.UI.Xaml.Media.Animation.CubicEase { EasingMode = Microsoft.UI.Xaml.Media.Animation.EasingMode.EaseOut },
-            };
-            var story = new Microsoft.UI.Xaml.Media.Animation.Storyboard();
-            Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTarget(animation, AmbientImage);
+            return;
+        }
+
+        var incoming = _ambientFrontIsA ? AmbientImageB : AmbientImage;
+        var outgoing = _ambientFrontIsA ? AmbientImage : AmbientImageB;
+        _ambientFrontIsA = !_ambientFrontIsA;
+        incoming.Source = bitmap;
+        Canvas.SetZIndex(incoming, 1);
+        Canvas.SetZIndex(outgoing, 0);
+
+        var ease = new Microsoft.UI.Xaml.Media.Animation.SineEase { EasingMode = Microsoft.UI.Xaml.Media.Animation.EasingMode.EaseInOut };
+        var duration = new Duration(TimeSpan.FromMilliseconds(380));
+        var story = new Microsoft.UI.Xaml.Media.Animation.Storyboard();
+        void Fade(Image target, double to)
+        {
+            var animation = new Microsoft.UI.Xaml.Media.Animation.DoubleAnimation { To = to, Duration = duration, EasingFunction = ease };
+            Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTarget(animation, target);
             Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTargetProperty(animation, "Opacity");
             story.Children.Add(animation);
-            story.Begin();
         }
+
+        incoming.Opacity = 0;
+        Fade(incoming, sharp ? 0.9 : 0.5);
+        Fade(outgoing, 0);
+        story.Completed += (_, _) =>
+        {
+            if (outgoing.Opacity == 0)
+            {
+                outgoing.Source = null;
+            }
+        };
+        story.Begin();
     }
+
+    private bool _ambientFrontIsA = true;
 
     // ---- Hovedfeltet: spillet i fokus ----
 
@@ -945,6 +967,17 @@ public sealed partial class MainWindow : Window
         }
 
         var title = GameLibrary.DisplayTitle(game);
+        if (SourceFor(game) == SourceHost)
+        {
+            // Playnite på PC-en gir bare omslag via Vibepollo, ikke tekst; info hentes da ikke.
+            if (_detailsGame?.Id == game.Id)
+            {
+                DetailsSource.Text = $"Kilden er satt til {HostLabel}, som bare gir omslag. Velg Steam Store eller Automatisk under Valg for info.";
+            }
+
+            return;
+        }
+
         if (_detailsGame?.Id == game.Id)
         {
             DetailsSource.Text = "Henter info fra Steam Store …";
@@ -1051,6 +1084,7 @@ public sealed partial class MainWindow : Window
         OptionDefaultMode.Visibility = hasBoth ? Visibility.Visible : Visibility.Collapsed;
         OptionDefaultMode.Content = DefaultModeText(game);
         OptionPowerProfileText.Text = HandheldCompanionStatus(game);
+        ShowSource(game);
         OptionsPanel.Visibility = Visibility.Visible;
         FadeIn(OptionsPanel);
         SetHomeEnabled(false);
@@ -1088,6 +1122,59 @@ public sealed partial class MainWindow : Window
         _log.Write("valg", $"«{GameLibrary.DisplayTitle(game)}»: {OptionDefaultMode.Content}");
     }
 
+    // ---- Kilde for bilder og info, per spill ----
+
+    private const string SourceAuto = "auto";
+    private const string SourceSteam = "steam";
+    private const string SourceHost = "host";
+    private const string SourceIgdb = "igdb";
+
+    private static string SourceFor(Game game) =>
+        ApplicationData.Current.LocalSettings.Values["source." + game.Id] as string ?? SourceAuto;
+
+    private static string SourceName(string source) => source switch
+    {
+        SourceSteam => "Steam Store",
+        SourceHost => $"{HostLabel} (Playnite)",
+        SourceIgdb => "IGDB",
+        _ => $"Steam Store eller {HostLabel}",
+    };
+
+    private void ShowSource(Game game)
+    {
+        var source = SourceFor(game);
+        OptionSourceText.Text = source == SourceAuto ? "Kilde: automatisk" : $"Kilde: {SourceName(source)}";
+        OptionSourceHint.Text = source switch
+        {
+            SourceSteam => "Bilder og info fra Steams butikk.",
+            SourceHost => $"Omslaget Playnite har på {HostLabel}. Ingen tekst.",
+            SourceIgdb => "Krever en gratis IGDB-nøkkel, som ikke er satt opp ennå. Bruker automatisk så lenge.",
+            _ => $"Steam Store først, så omslaget fra {HostLabel}.",
+        };
+    }
+
+    /// <summary>Bytter kilde: automatisk → Steam Store → Gaming Laptop → IGDB (ikke satt opp) → automatisk.</summary>
+    private void OptionSource_Click(object sender, RoutedEventArgs e)
+    {
+        if (_optionsGame is not { } game)
+        {
+            return;
+        }
+
+        var next = SourceFor(game) switch
+        {
+            SourceAuto => SourceSteam,
+            SourceSteam => SourceHost,
+            SourceHost => SourceIgdb,
+            _ => SourceAuto,
+        };
+        ApplicationData.Current.LocalSettings.Values["source." + game.Id] = next;
+        ShowSource(game);
+        OptionsStatus.Text = next == SourceIgdb ? "" : "Trykk «Hent bilder på nytt» eller «Hent info på nytt» for å bruke kilden.";
+        MenuSounds.Move();
+        _log.Write("valg", $"Kilde for «{GameLibrary.DisplayTitle(game)}»: {next}");
+    }
+
     private async void OptionRefreshArt_Click(object sender, RoutedEventArgs e)
     {
         if (_optionsGame is not { } game)
@@ -1100,11 +1187,17 @@ public sealed partial class MainWindow : Window
         var title = GameLibrary.DisplayTitle(game);
         try
         {
-            var store = new SteamStoreClient(ArtHttp);
-            var steam = _library.PlayActionsFor(game.Id).FirstOrDefault(a => a.RunnerId == GameLibrary.SteamRunnerId);
-            var appId = steam is not null && int.TryParse(steam.Target, CultureInfo.InvariantCulture, out var id) ? id : await store.FindAppIdAsync(title);
-            ArtSet? art = appId is { } steamId ? await DownloadArtAsync(game, SteamStoreClient.ImageUrls(steamId)) : null;
-            if (art is null)
+            var source = SourceFor(game);
+            ArtSet? art = null;
+            if (source != SourceHost)
+            {
+                var store = new SteamStoreClient(ArtHttp);
+                var steam = _library.PlayActionsFor(game.Id).FirstOrDefault(a => a.RunnerId == GameLibrary.SteamRunnerId);
+                var appId = steam is not null && int.TryParse(steam.Target, CultureInfo.InvariantCulture, out var id) ? id : await store.FindAppIdAsync(title);
+                art = appId is { } steamId ? await DownloadArtAsync(game, SteamStoreClient.ImageUrls(steamId)) : null;
+            }
+
+            if (art is null && source != SourceSteam)
             {
                 _vibepolloApps ??= Vibepollo is { } api ? await api.GetAppsAsync() : [];
                 art = await DownloadVibepolloCoverAsync(game, _vibepolloApps) is { } cover ? game.Art with { Cover = cover } : null;
@@ -1112,7 +1205,7 @@ public sealed partial class MainWindow : Window
 
             if (art is null)
             {
-                OptionsStatus.Text = $"Fant ingen bilder for «{title}» på Steam eller hos {HostLabel}.";
+                OptionsStatus.Text = $"Fant ingen bilder for «{title}» hos {SourceName(source)}.";
                 return;
             }
 
@@ -1241,8 +1334,18 @@ public sealed partial class MainWindow : Window
     /// Starter et spill. Feil underveis logges og gir en melding med valg; de skal aldri forsvinne stille og etterlate
     /// en lasteskjerm som henger (0.1.68.0).
     /// </summary>
+    private bool _launching;
+
     private async Task LaunchAsync(Game game, PlayAction? chosen = null)
     {
+        // Ett trykk, én start: ekstra trykk mens noe starter eller avsluttes, ignoreres (0.1.87.0 startet Mega Man tre ganger).
+        if (_launching)
+        {
+            _log.Write("økt", $"Start av «{GameLibrary.DisplayTitle(game)}» ignorert: en start pågår allerede");
+            return;
+        }
+
+        _launching = true;
         try
         {
             await LaunchCoreAsync(game, chosen);
@@ -1253,6 +1356,10 @@ public sealed partial class MainWindow : Window
             HideLoading("feil under start");
             ShowMessage($"{GameLibrary.DisplayTitle(game)} startet ikke", ex.Message,
                 "Prøv igjen", () => _ = LaunchAsync(game, chosen), "Lukk", () => FocusHome(game.Id));
+        }
+        finally
+        {
+            _launching = false;
         }
     }
 
@@ -2356,14 +2463,10 @@ public sealed partial class MainWindow : Window
         LogChoice(TestHostTile);
         var hosts = MoonlightClient.FindHosts();
         var host = hosts.Count > 0 ? hosts[0] : null;
-        HostGames.Children.Clear();
-        HostTitle.Text = host is null ? "Test tilkobling" : $"Test {host.DisplayName}";
-        HostPanel.Visibility = Visibility.Visible;
-        SetHomeEnabled(false);
-        HostCloseButton.Focus(FocusState.Keyboard);
+        DebugResultText.Visibility = Visibility.Visible;
         if (host?.Address is null)
         {
-            HostStatus.Text = "Moonlight kjenner ingen PC med adresse ennå.";
+            DebugResultText.Text = "Moonlight kjenner ingen PC med adresse ennå.";
             return;
         }
 
@@ -2374,7 +2477,7 @@ public sealed partial class MainWindow : Window
         void Show(string line)
         {
             lines.Add(line);
-            HostStatus.Text = string.Join('\n', lines);
+            DebugResultText.Text = string.Join('\n', lines);
         }
 
         Show("Sjekker om den svarer …");
@@ -2384,7 +2487,7 @@ public sealed partial class MainWindow : Window
             progress: p => DispatcherQueue.TryEnqueue(() =>
             {
                 lines[^1] = WakeStatusText(host, p);
-                HostStatus.Text = string.Join('\n', lines);
+                DebugResultText.Text = string.Join('\n', lines);
             }));
 
         var summary = result switch
@@ -2558,23 +2661,47 @@ public sealed partial class MainWindow : Window
     /// <summary>Lukker appen som kjører på PC-en via API-et og starter så det valgte spillet.</summary>
     private async Task CloseHostAppThenLaunchAsync(Game game, PlayAction action)
     {
-        var closed = false;
-        if (Vibepollo is { } api)
+        if (_launching)
         {
-            try
-            {
-                closed = await api.CloseAppAsync();
-            }
-            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException)
-            {
-                _log.Write("vibepollo", $"Kunne ikke avslutte appen på PC-en: {ex.Message}");
-            }
+            return;
         }
 
-        _log.Write("vibepollo", closed ? "Appen på PC-en ble avsluttet før ny start" : "Avslutning før ny start feilet; prøver å starte likevel");
-        if (closed)
+        // Vis med en gang at noe skjer: Vibepollo kan bruke over 10 s på å svare mens spillet lukkes (målt 2026-11-02).
+        var other = _hostRunningApp ?? "spillet";
+        _launching = true;
+        ShowLoading(game, action);
+        LoadingStatus.Text = $"Avslutter {other} på {HostLabel} …";
+        try
         {
+            var closed = false;
+            if (Vibepollo is { } api)
+            {
+                try
+                {
+                    closed = await api.CloseAppAsync();
+                }
+                catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException)
+                {
+                    _log.Write("vibepollo", $"Svar på avslutning uteble ({ex.Message}); sjekker status");
+                }
+            }
+
+            _log.Write("vibepollo", closed ? $"«{other}» avsluttet på PC-en før ny start" : "Avslutning ikke bekreftet; venter på status før ny start");
+
+            // Også uten bekreftelse: vent til PC-en melder at ingenting kjører, så Moonlight ikke spør om å avslutte.
             await WaitUntilHostIdleAsync();
+        }
+        finally
+        {
+            _launching = false;
+        }
+
+        if (_hostRunningApp is { } still)
+        {
+            HideLoading("PC-en lukket ikke spillet");
+            ShowMessage($"{still} kjører fortsatt på {HostLabel}", $"Fikk ikke avsluttet {still}. Start {still} og avslutt det fra M2-menyen, eller prøv igjen.",
+                "Prøv igjen", () => _ = CloseHostAppThenLaunchAsync(game, action), "Lukk", () => FocusHome(game.Id));
+            return;
         }
 
         await LaunchAsync(game, action);
@@ -2610,10 +2737,10 @@ public sealed partial class MainWindow : Window
         FocusHome(game.Id);
     }
 
-    /// <summary>Venter (høyst 10 s) til Vibepollo melder at ingen app kjører, så neste start ikke møter Moonlights «quit»-spørsmål.</summary>
+    /// <summary>Venter (høyst 15 s) til Vibepollo melder at ingen app kjører, så neste start ikke møter Moonlights «quit»-spørsmål.</summary>
     private async Task WaitUntilHostIdleAsync()
     {
-        for (var i = 0; i < 20; i++)
+        for (var i = 0; i < 30; i++)
         {
             await RefreshHostStatusAsync(force: true);
             if (_hostRunningApp is null)
@@ -2624,7 +2751,7 @@ public sealed partial class MainWindow : Window
             await Task.Delay(500);
         }
 
-        _log.Write("vibepollo", $"«{_hostRunningApp}» kjører fortsatt på PC-en etter 10 s");
+        _log.Write("vibepollo", $"«{_hostRunningApp}» kjører fortsatt på PC-en etter 15 s");
     }
 
     /// <summary>Om spillet kjører på gaming-PC-en uten at GameHome strømmer det (for eksempel etter «Koble fra»).</summary>

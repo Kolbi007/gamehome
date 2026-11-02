@@ -70,14 +70,15 @@ public sealed class VibepolloClient : IDisposable
         _http = new HttpClient(handler)
         {
             BaseAddress = new Uri($"https://{address}:47990/"),
-            Timeout = TimeSpan.FromSeconds(10),
+            Timeout = TimeSpan.FromSeconds(35), // Øvre grense; hvert kall har sin egen, kortere frist der det passer.
         };
         _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
     }
 
     public async Task<IReadOnlyList<VibepolloApp>> GetAppsAsync(CancellationToken ct = default)
     {
-        await using var stream = await _http.GetStreamAsync(new Uri("api/apps", UriKind.Relative), ct).ConfigureAwait(false);
+        using var timeout = Short(ct);
+        await using var stream = await _http.GetStreamAsync(new Uri("api/apps", UriKind.Relative), timeout.Token).ConfigureAwait(false);
         var list = await JsonSerializer.DeserializeAsync(stream, VibepolloJson.Default.VibepolloAppList, ct).ConfigureAwait(false);
         return list?.Apps ?? [];
     }
@@ -85,23 +86,36 @@ public sealed class VibepolloClient : IDisposable
     /// <summary>Omslaget som PNG, eller null hvis appen ikke har eget omslag.</summary>
     public async Task<byte[]?> GetCoverAsync(string uuid, CancellationToken ct = default)
     {
-        using var response = await _http.GetAsync(new Uri($"api/apps/{Uri.EscapeDataString(uuid)}/cover", UriKind.Relative), ct)
+        using var timeout = Short(ct);
+        using var response = await _http.GetAsync(new Uri($"api/apps/{Uri.EscapeDataString(uuid)}/cover", UriKind.Relative), timeout.Token)
             .ConfigureAwait(false);
         return response.IsSuccessStatusCode ? await response.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false) : null;
     }
 
     public async Task<VibepolloStatus?> GetStatusAsync(CancellationToken ct = default)
     {
-        await using var stream = await _http.GetStreamAsync(new Uri("api/session/status", UriKind.Relative), ct).ConfigureAwait(false);
+        using var timeout = Short(ct);
+        await using var stream = await _http.GetStreamAsync(new Uri("api/session/status", UriKind.Relative), timeout.Token).ConfigureAwait(false);
         return await JsonSerializer.DeserializeAsync(stream, VibepolloJson.Default.VibepolloStatus, ct).ConfigureAwait(false);
     }
 
     /// <summary>Avslutter appen som kjører på gaming-PC-en. Kun etter bekreftelse fra brukeren.</summary>
+    /// <remarks>Vibepollo svarer først når appen er lukket, som kan ta over 10 s; derfor egen, lengre frist (30 s).</remarks>
     public async Task<bool> CloseAppAsync(CancellationToken ct = default)
     {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(30));
         using var content = new StringContent("{}", System.Text.Encoding.UTF8, "application/json");
-        using var response = await _http.PostAsync(new Uri("api/apps/close", UriKind.Relative), content, ct).ConfigureAwait(false);
+        using var response = await _http.PostAsync(new Uri("api/apps/close", UriKind.Relative), content, timeout.Token).ConfigureAwait(false);
         return response.IsSuccessStatusCode;
+    }
+
+    /// <summary>Vanlige kall: høyst 8 s, så en PC som ikke svarer aldri holder Home igjen.</summary>
+    private static CancellationTokenSource Short(CancellationToken ct)
+    {
+        var source = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        source.CancelAfter(TimeSpan.FromSeconds(8));
+        return source;
     }
 
     public void Dispose() => _http.Dispose();
