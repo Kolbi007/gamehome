@@ -23,19 +23,45 @@
 #>
 param(
     [ValidateSet('Hide', 'Restore', 'Status', 'Cover')]
-    [string] $Action = 'Status'
+    [string] $Action = 'Status',
+
+    # Intern: Hide er startet i bakgrunnen og skal gjøre jobben nå.
+    [switch] $Now
 )
 
 $ErrorActionPreference = 'Stop'
 $stateDir = Join-Path $env:LOCALAPPDATA 'GameHome'
 $stateFile = Join-Path $stateDir 'stream-desktop.json'
 $coverPidFile = Join-Path $stateDir 'stream-cover.pid'
+$hidePidFile = Join-Path $stateDir 'stream-hide.pid'
 $logFile = Join-Path $stateDir 'stream-desktop.log'
 
 function Write-Log([string] $message) {
     try {
         New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
         Add-Content -Path $logFile -Value ("{0:yyyy-MM-dd HH:mm:ss} {1} {2}" -f (Get-Date), $Action, $message) -Encoding UTF8
+    } catch { }
+}
+
+# Hide kjøres i bakgrunnen, så Vibepollo ikke venter på skriptet (målt 2,7 s) før spillet startes. Spillet bruker
+# uansett mye lengre tid på å vise seg, så skrivebordet er ryddet lenge før det.
+if ($Action -eq 'Hide' -and -not $Now) {
+    try {
+        New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
+        $p = Start-Process -FilePath "$PSHOME\powershell.exe" -WindowStyle Hidden -PassThru -ArgumentList @(
+            '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", '-Action', 'Hide', '-Now')
+        Set-Content -Path $hidePidFile -Value $p.Id
+    } catch {
+        Write-Log "kunne ikke starte i bakgrunnen: $($_.Exception.Message)"
+    }
+    exit 0
+}
+
+# Restore venter på en Hide som fortsatt jobber (spillet avsluttet svært raskt), så ingenting blir liggende skjult.
+if ($Action -eq 'Restore' -and (Test-Path $hidePidFile)) {
+    try {
+        $hide = Get-Process -Id ([int](Get-Content $hidePidFile -Raw)) -ErrorAction SilentlyContinue
+        if ($hide -and $hide.ProcessName -eq 'powershell') { [void]$hide.WaitForExit(10000) }
     } catch { }
 }
 
@@ -306,6 +332,7 @@ public static class GameHomeDesktop
             if (-not $autoHide) { [GameHomeDesktop]::TaskbarAutoHide = $true }
             Start-Cover
             Write-Log "ikoner var $icons, autoskjul var $autoHide, minimerte vinduer: $firstHide, dekkbilde åpnet"
+            Remove-Item -Path $hidePidFile -Force -ErrorAction SilentlyContinue
         }
         'Restore' {
             Stop-Cover

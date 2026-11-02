@@ -104,21 +104,22 @@ lasteskjerm ligger over Moonlight til streamvinduet vises og mens spillet avslut
 | Fra → til | Tid | Hvem |
 | --- | --- | --- |
 | Moonlight ber om start → virtuell skjerm klar | 1,7 s | Vibepollo |
-| Prep-skriptet (Hide) | 2,7 s | Vårt skript (kompilerer hjelpekode ved hver kjøring) |
-| Playnite får beskjed → Steam får startkommandoen | **15 s** | Playnite |
+| Prep-skriptet (Hide) | 2,7 s → **0,3 s** | Vårt skript; gjør nå jobben i bakgrunnen (rettet 2026-11-02) |
+| Steams startprogram → Steam-klienten mottar kommandoen | **15 s** (0 s første gang) | Steam |
 | Steam → spillprosessen startet | 2 s | Steam |
 | Spillprosessen → spillvinduet (Steam-overlegget starter) | 26 s | Spillet selv |
 | Stabile bilder | ca. 20 s til | Spillet (intro og innlasting) |
 
-Spillets egen oppstart (ca. 45 s) er vanlig for et stort spill og kan ikke påvirkes. Det vi kan påvirke:
+Spillets egen oppstart (ca. 45 s) er vanlig for et stort spill og kan ikke påvirkes.
 
-1. **Playnites 15 s (hypotese):** et Playnite-tillegg som kjører når et spill starter, kan forsinke. Kandidater er
-   SunshineAppExport (eldre eksport til Sunshine, overflødig med Vibepollos tillegg) og HowLongToBeat. Test: slå av
-   SunshineAppExport og mål på nytt.
-2. **Steam-spill uten Playnite (hypotese):** Vibepollo har egen Steam-synk (`steam_enabled`, `steam_auto_sync`, av i
-   dag). Steam-spill kan da startes direkte via Steam. Må leses i kildekoden før den slås på (duplikater med
-   Playnite-synken, avslutning og sporing av spillet).
-3. **Prep-skriptet:** hjelpekoden kan kompileres én gang og gjenbrukes, så skriptet tar under 1 s.
+**De 15 sekundene ligger i Steam, ikke i Playnite.** Playnite starter `steam.exe -silent steam://launch/…` umiddelbart
+(Playnites `extensions.log`), men Steam-klienten logger kommandoen først 15 s senere (`console_log.txt`). Første start
+etter at Steam var startet gikk på 0 s; de tre neste tok nøyaktig 15 s. Det ligner en tidsgrense i overleveringen fra
+Steams startprogram til klienten som allerede kjører. Playnite-tilleggene er ikke årsaken (SunshineAppExport har bare
+menyvalg). Vibepollos Steam-synk ville brukt samme `steam://`-vei og gir derfor ingen gevinst.
+
+Billig test senere (ingen endring): avslutt og start Steam på gaming-PC-en, og mål to starter etter hverandre. Er den
+første igjen rask, er det en Steam-egenskap vi lever med, eller melder til Valve.
 
 **Avslutning uten Moonlights vindu (hypotese, senere):** med et API-token i Vibepollo kan GameHome avslutte spillet med
 `POST /api/apps/close` i stedet for `Moonlight.exe quit`, så Moonlight ikke viser «Quitting». Tokenet kan også vise om
