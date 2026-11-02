@@ -10,7 +10,17 @@ using Microsoft.Win32;
 namespace GameHome.Windows;
 
 /// <summary>En host Moonlight er paret med. Bare navn og adresser; nøkler og sertifikater leses aldri.</summary>
-public sealed record MoonlightHost(string Uuid, string Name, string? Address);
+public sealed record MoonlightHost(string Uuid, string Name, string? Address)
+{
+    /// <summary>
+    /// Navn som vises i GameHome. Windows-standardnavn som LAPTOP-1G28Q2RP sier lite; de vises som «Gaming Laptop» eller
+    /// «Gaming PC». Andre navn vises som de er.
+    /// </summary>
+    public string DisplayName =>
+        Name.StartsWith("LAPTOP-", StringComparison.OrdinalIgnoreCase) ? "Gaming Laptop"
+        : Name.StartsWith("DESKTOP-", StringComparison.OrdinalIgnoreCase) ? "Gaming PC"
+        : Name;
+}
 
 /// <summary>Resultatet av et Moonlight-kall fra kommandolinjen.</summary>
 public sealed record MoonlightResult(int ExitCode, string Output, string Errors, TimeSpan Elapsed, bool TimedOut);
@@ -114,6 +124,118 @@ public static class MoonlightClient
         var stdout = await SafeRead(output).ConfigureAwait(false);
         var stderr = await SafeRead(errors).ConfigureAwait(false);
         return new MoonlightResult(timedOut ? -2 : process.ExitCode, stdout, stderr, watch.Elapsed, timedOut);
+    }
+
+    /// <summary>
+    /// <c>list &lt;host&gt; --csv</c>. Moonlight skriver listen og blir så hengende (bakgrunnsnedlasting av forsidebilder,
+    /// målt 2026-11-02: listen kom, prosessen avsluttet ikke på 70 s). Listen regnes derfor som ferdig når headeren er
+    /// kommet og det har vært stille i ett sekund; da lukkes Moonlight.
+    /// </summary>
+    public static async Task<MoonlightResult> ListAppsAsync(string host, TimeSpan timeout, CancellationToken ct = default)
+    {
+        var exe = FindExe() ?? throw new LaunchException(LaunchFailure.FileMissing, "Moonlight er ikke installert");
+        var start = new ProcessStartInfo(exe)
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        start.ArgumentList.Add("list");
+        start.ArgumentList.Add(host);
+        start.ArgumentList.Add("--csv");
+
+        var watch = Stopwatch.StartNew();
+        var lines = new List<string>();
+        var errors = new System.Text.StringBuilder();
+        var headerSeen = false;
+        var lastLine = Stopwatch.StartNew();
+        var gate = new object();
+
+        using var process = new Process { StartInfo = start };
+        process.OutputDataReceived += (_, e) =>
+        {
+            if (e.Data is null)
+            {
+                return;
+            }
+
+            lock (gate)
+            {
+                lines.Add(e.Data);
+                headerSeen |= e.Data.StartsWith("Name,", StringComparison.Ordinal);
+                lastLine.Restart();
+            }
+        };
+        process.ErrorDataReceived += (_, e) =>
+        {
+            if (e.Data is not null)
+            {
+                lock (gate)
+                {
+                    errors.AppendLine(e.Data);
+                }
+            }
+        };
+
+        if (!process.Start())
+        {
+            throw new LaunchException(LaunchFailure.StartFailed, "Moonlight startet ikke");
+        }
+
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+
+        var complete = false;
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        limit.CancelAfter(timeout);
+        try
+        {
+            while (!process.HasExited)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(250), limit.Token).ConfigureAwait(false);
+                lock (gate)
+                {
+                    complete = headerSeen && lastLine.Elapsed > TimeSpan.FromSeconds(1);
+                }
+
+                if (complete)
+                {
+                    break;
+                }
+            }
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+        }
+
+        var exited = process.HasExited;
+        if (!exited)
+        {
+            try
+            {
+                process.Kill(entireProcessTree: true);
+            }
+            catch (InvalidOperationException)
+            {
+            }
+        }
+        else
+        {
+            process.WaitForExit(); // tømmer gjenværende utdata
+        }
+
+        string output;
+        string stderr;
+        lock (gate)
+        {
+            output = string.Join('\n', lines);
+            stderr = errors.ToString();
+            complete |= headerSeen;
+        }
+
+        var exitCode = exited ? process.ExitCode : complete ? 0 : -2;
+        return new MoonlightResult(exitCode, output, stderr, watch.Elapsed, TimedOut: !exited && !complete);
     }
 
     private static async Task<string> SafeRead(Task<string> read)

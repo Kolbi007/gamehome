@@ -123,10 +123,14 @@ public sealed partial class MainWindow : Window
 
         var variant = RuntimeFeature.IsDynamicCodeSupported ? "JIT" : "Native AOT";
         InfoText.Text = $"Versjon {typeof(MainWindow).Assembly.GetName().Version} · {variant}";
+        HostTile.Content = $"Spill fra {HostLabel}";
         _log.Write("start", "Vindu klart");
     }
 
     private bool SessionActive => _session is not null && !_session.Completion.IsCompleted;
+
+    /// <summary>Navnet på gaming-PC-en slik GameHome viser det, for eksempel «Gaming Laptop».</summary>
+    private static string HostLabel => MoonlightClient.FindHosts() is [var host, ..] ? host.DisplayName : "gaming-PC-en";
 
     /// <summary>
     /// Henter vinduet frem når en ny aktivering sendes hit, for eksempel Home i Game Bar eller <c>gamehome://session</c>.
@@ -384,7 +388,7 @@ public sealed partial class MainWindow : Window
             var remote = available.First(a => a.IsRemote);
             ShowMessage($"Spill {title}", "Velg hvordan du vil spille.",
                 "Spill her", () => _ = LaunchAsync(game, local),
-                "Stream fra PC-en", () => _ = LaunchAsync(game, remote),
+                $"Stream fra {HostLabel}", () => _ = LaunchAsync(game, remote),
                 onCancel: () => FocusHome(game.Id));
             return;
         }
@@ -554,7 +558,7 @@ public sealed partial class MainWindow : Window
         LoadingStatus.Text = action.RunnerId switch
         {
             GameLibrary.SteamRunnerId => "Starter via Steam …",
-            GameLibrary.MoonlightRunnerId => "Kobler til gaming-PC-en …",
+            GameLibrary.MoonlightRunnerId => $"Kobler til {HostLabel} …",
             _ => "Starter …",
         };
         LoadingChoices.Visibility = Visibility.Collapsed;
@@ -697,11 +701,12 @@ public sealed partial class MainWindow : Window
             $"Startet for {(DateTime.UtcNow - _sessionStarted).TotalMinutes:F0} min siden");
         var streaming = _session is StreamSession;
         ResumeButton.Content = streaming ? "Tilbake til streamen" : "Tilbake til spillet";
-        EndSessionButton.Content = streaming ? "Koble fra (spillet fortsetter på PC-en)" : "Avslutt spillet";
+        EndSessionButton.Content = streaming ? $"Koble fra (spillet fortsetter på {HostLabel})" : "Avslutt spillet";
+        EndRemoteButton.Content = $"Avslutt spillet på {HostLabel}";
         EndRemoteButton.Visibility = streaming ? Visibility.Visible : Visibility.Collapsed;
         if (streaming)
         {
-            SessionDetail.Text = "Strømmer fra gaming-PC-en";
+            SessionDetail.Text = $"Strømmer fra {HostLabel}";
         }
 
         SessionPanel.Visibility = Visibility.Visible;
@@ -830,11 +835,12 @@ public sealed partial class MainWindow : Window
         }
 
         var host = hosts[0];
-        HostStatus.Text = $"Henter spill fra {host.Name} …";
+        HostTitle.Text = $"Spill fra {host.DisplayName}";
+        HostStatus.Text = $"Henter spill fra {host.DisplayName} …";
         MoonlightResult result;
         try
         {
-            result = await MoonlightClient.RunAsync(["list", host.Uuid, "--csv"], TimeSpan.FromSeconds(70));
+            result = await MoonlightClient.ListAppsAsync(host.Uuid, TimeSpan.FromSeconds(70));
         }
         catch (LaunchException ex)
         {
@@ -858,14 +864,14 @@ public sealed partial class MainWindow : Window
         if (result.ExitCode != 0)
         {
             HostStatus.Text = result.TimedOut
-                ? $"{host.Name} svarte ikke. Er PC-en på?"
-                : $"Fikk ikke kontakt med {host.Name}. {FirstLine(result.Errors)}";
+                ? $"{host.DisplayName} svarte ikke. Er den slått på?"
+                : $"Fikk ikke kontakt med {host.DisplayName}. {FirstLine(result.Errors)}";
             return;
         }
 
         HostStatus.Text = games.Count == 0
-            ? $"Fant ingen installerte spill på {host.Name}. Sjekk at Vibepollo synker alle installerte Playnite-spill."
-            : $"{games.Count} installerte spill på {host.Name}. Velg et spill for å legge det til i Home.";
+            ? $"Fant ingen installerte spill på {host.DisplayName}. Sjekk at Vibepollo synker alle installerte Playnite-spill."
+            : $"{games.Count} installerte spill på {host.DisplayName}. Velg et spill for å legge det til i Home.";
         foreach (var app in games)
         {
             var button = new Button
@@ -921,11 +927,11 @@ public sealed partial class MainWindow : Window
 
         var title = _sessionGame is null ? "spillet" : GameLibrary.DisplayTitle(_sessionGame);
         SessionPanel.Visibility = Visibility.Collapsed;
-        ShowMessage($"Avslutte {title} på PC-en?", "Spillet lukkes på gaming-PC-en. Ulagret fremgang kan gå tapt.",
-            "Avslutt på PC-en", () =>
+        ShowMessage($"Avslutte {title} på {HostLabel}?", $"Spillet lukkes på {HostLabel}. Ulagret fremgang kan gå tapt.",
+            $"Avslutt på {HostLabel}", () =>
             {
                 _log.Write("økt", "Avslutt fjernspill bekreftet");
-                LastInput.Text = $"Avslutter {title} på PC-en …";
+                LastInput.Text = $"Avslutter {title} på {HostLabel} …";
                 _ = stream.EndRemoteAppAsync();
                 FocusHome(_focusGameId);
             },

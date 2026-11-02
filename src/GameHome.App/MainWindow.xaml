@@ -47,7 +47,7 @@
 
             <StackPanel x:Name="ToolTiles" Grid.Row="2" Orientation="Horizontal" Spacing="16">
                 <Button x:Name="AddGameTile" Content="+ Legg til spill" Click="AddGameTile_Click" Width="240" Height="72" FontSize="18" />
-                <Button x:Name="HostTile" Content="Spill på PC-en" Click="HostTile_Click" Width="240" Height="72" FontSize="18" />
+                <Button x:Name="HostTile" Content="Spill fra gaming-PC" Click="HostTile_Click" Width="240" Height="72" FontSize="18" />
                 <Button x:Name="HidTile" Content="Lytt på Legion-knapp" Click="HidTile_Click" Width="240" Height="72" FontSize="18" />
             </StackPanel>
 
@@ -105,7 +105,7 @@
                 <TextBlock x:Name="SessionDetail" FontSize="16" Foreground="#A0A7B0" TextWrapping="Wrap" />
                 <Button x:Name="ResumeButton" Content="Tilbake til spillet" Click="ResumeButton_Click" HorizontalAlignment="Stretch" Height="72" FontSize="22" />
                 <Button x:Name="EndSessionButton" Content="Avslutt spillet" Click="EndSessionButton_Click" HorizontalAlignment="Stretch" Height="72" FontSize="22" />
-                <Button x:Name="EndRemoteButton" Content="Avslutt spillet på PC-en" Click="EndRemoteButton_Click" HorizontalAlignment="Stretch" Height="72" FontSize="22" Visibility="Collapsed" />
+                <Button x:Name="EndRemoteButton" Content="Avslutt spillet på gaming-PC-en" Click="EndRemoteButton_Click" HorizontalAlignment="Stretch" Height="72" FontSize="22" Visibility="Collapsed" />
                 <Button x:Name="ClosePanelButton" Content="Lukk panelet" Click="ClosePanelButton_Click" HorizontalAlignment="Stretch" Height="72" FontSize="22" />
                 <Button x:Name="SessionPowerButton" Click="PowerMenuButton_Click" Width="52" Height="52" HorizontalAlignment="Right" Margin="0,8,0,0"
                         AutomationProperties.Name="Strøm" ToolTipService.ToolTip="Strøm">
@@ -123,7 +123,7 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
-                <TextBlock Grid.Row="0" Text="Spill på PC-en" FontSize="34" FontWeight="SemiBold" Foreground="White" />
+                <TextBlock x:Name="HostTitle" Grid.Row="0" Text="Spill fra gaming-PC" FontSize="34" FontWeight="SemiBold" Foreground="White" />
                 <TextBlock x:Name="HostStatus" Grid.Row="1" FontSize="18" Foreground="#C8CDD3" TextWrapping="Wrap" />
                 <ScrollViewer Grid.Row="2" MaxHeight="520" VerticalScrollBarVisibility="Auto">
                     <StackPanel x:Name="HostGames" Spacing="8" />
@@ -153,6 +153,12 @@
                     <StackPanel Orientation="Horizontal" Spacing="12">
                         <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE7E8;" FontSize="20" />
                         <TextBlock Text="Slå av" />
+                    </StackPanel>
+                </Button>
+                <Button Tag="exit" Click="PowerOption_Click" HorizontalAlignment="Stretch" Height="64" FontSize="20">
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE8BB;" FontSize="20" />
+                        <TextBlock Text="Avslutt GameHome" />
                     </StackPanel>
                 </Button>
                 <Button x:Name="PowerCancelButton" Content="Avbryt" Click="PowerCancel_Click" HorizontalAlignment="Stretch" Height="64" FontSize="20" />
