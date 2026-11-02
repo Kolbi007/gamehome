@@ -77,10 +77,12 @@ public static class HostWaker
 
         onWaking?.Invoke();
         var sent = 0;
-        var lastSend = TimeSpan.MinValue;
+
+        // Ingen pakke sendt ennå. (TimeSpan.MinValue her ga overflyt i 0.1.68.0–0.1.69.0, så vekkingen stoppet.)
+        TimeSpan? lastSend = null;
         while (watch.Elapsed < limit && !ct.IsCancellationRequested)
         {
-            if (watch.Elapsed - lastSend >= ResendEvery)
+            if (lastSend is null || watch.Elapsed - lastSend.Value >= ResendEvery)
             {
                 sent += Send(host.Mac, host.Address);
                 lastSend = watch.Elapsed;
