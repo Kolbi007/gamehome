@@ -440,6 +440,19 @@ public static class GameHomeDesktop
         }
     }
 
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr window);
+
+    /// <summary>
+    /// Gir oppgavelinjen forgrunnen, som Windows-tasten gjør. Ellers ligger den bak et spill i fullskjerm (målt
+    /// 2026-11-02 med Broforce). Prosessen som mottok hurtigtasten, har lov til å bytte forgrunn.
+    /// </summary>
+    public static bool BringTaskbarToFront()
+    {
+        var tray = FindWindow("Shell_TrayWnd", null);
+        return tray != IntPtr.Zero && SetForegroundWindow(tray);
+    }
+
     public static bool TaskbarVisible
     {
         get { var tray = FindWindow("Shell_TrayWnd", null); return tray != IntPtr.Zero && IsWindowVisible(tray); }
@@ -524,6 +537,7 @@ public class GameHomeHotkey : NativeWindow, IDisposable
                 $show = -not [GameHomeDesktop]::TaskbarVisible
                 [GameHomeDesktop]::SetTaskbarVisible($show)
                 if ([GameHomeDesktop]::IconsVisible -ne $show) { [void][GameHomeDesktop]::ToggleIcons() }
+                if ($show) { [void][GameHomeDesktop]::BringTaskbarToFront() }
                 Write-Log $(if ($show) { 'feilsøking: oppgavelinje og ikoner vist' } else { 'feilsøking: oppgavelinje og ikoner skjult' })
             })
 

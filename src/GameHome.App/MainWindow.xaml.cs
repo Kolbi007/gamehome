@@ -121,7 +121,11 @@ public sealed partial class MainWindow : Window
 
         _metricsTimer = DispatcherQueue.CreateTimer();
         _metricsTimer.Interval = TimeSpan.FromSeconds(2);
-        _metricsTimer.Tick += (_, _) => UpdateMemory();
+        _metricsTimer.Tick += (_, _) =>
+        {
+            UpdateMemory();
+            _ = RefreshHostStatusAsync(); // Høyst hvert 10. sekund, bare mens Home er aktiv og ingen økt kjører.
+        };
 
         _hotkeys = new HotkeyListener(WinRT.Interop.WindowNative.GetWindowHandle(this));
         _hotkeys.Pressed += OnSessionHotkey;
@@ -685,6 +689,23 @@ public sealed partial class MainWindow : Window
 
         var title = GameLibrary.DisplayTitle(game);
 
+        // Ferskt svar fra PC-en før en stream startes: kjører noe der allerede (for eksempel etter «Koble fra»)?
+        var remoteAction = _library.AvailableActionsFor(game.Id).FirstOrDefault(a => a.IsRemote);
+        if (remoteAction is not null && (chosen is null || chosen.IsRemote))
+        {
+            await RefreshHostStatusAsync(force: true);
+        }
+
+        // Spillet kjører fortsatt på PC-en: fortsett der du slapp, eller avslutt det.
+        if (chosen is null && remoteAction is not null && IsRunningOnHost(game))
+        {
+            ShowMessage($"{title} kjører på {HostLabel}", "Du koblet fra uten å avslutte. Fortsett der du slapp, eller avslutt spillet på PC-en.",
+                "Fortsett", () => _ = LaunchAsync(game, remoteAction),
+                $"Avslutt på {HostLabel}", () => _ = CloseHostAppAsync(game),
+                onCancel: () => FocusHome(game.Id));
+            return;
+        }
+
         // Flere spillemåter: brukeren velger. B avbryter, så et feiltrykk aldri starter en stream.
         var available = _library.AvailableActionsFor(game.Id);
         if (chosen is null && available.Count > 1)
@@ -811,6 +832,12 @@ public sealed partial class MainWindow : Window
         SessionPanel.Visibility = Visibility.Collapsed;
         SetHomeEnabled(true);
         RefreshTileTexts();
+
+        // Etter «Koble fra» kjører spillet videre på PC-en; vis det på flisen med en gang.
+        if (session is StreamSession)
+        {
+            _ = RefreshHostStatusAsync(force: true);
+        }
 
         // Tilbake til samme flis.
         Activate();
@@ -1905,9 +1932,9 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>Henter hva som kjører på PC-en (høyst hvert 10. sekund, aldri under en økt) og oppdaterer flisene.</summary>
-    private async Task RefreshHostStatusAsync()
+    private async Task RefreshHostStatusAsync(bool force = false)
     {
-        if (SessionActive || Vibepollo is not { } api || DateTime.UtcNow - _lastHostStatus < TimeSpan.FromSeconds(10))
+        if (SessionActive || Vibepollo is not { } api || (!force && DateTime.UtcNow - _lastHostStatus < TimeSpan.FromSeconds(10)))
         {
             return;
         }
@@ -1948,9 +1975,59 @@ public sealed partial class MainWindow : Window
         }
 
         _log.Write("vibepollo", closed ? "Appen på PC-en ble avsluttet før ny start" : "Avslutning før ny start feilet; prøver å starte likevel");
-        _hostRunningApp = null;
-        RefreshTileTexts();
+        if (closed)
+        {
+            await WaitUntilHostIdleAsync();
+        }
+
         await LaunchAsync(game, action);
+    }
+
+    /// <summary>Lukker appen på PC-en (etter at brukeren har bekreftet) og oppdaterer flisene.</summary>
+    private async Task CloseHostAppAsync(Game game)
+    {
+        var closed = false;
+        if (Vibepollo is { } api)
+        {
+            try
+            {
+                closed = await api.CloseAppAsync();
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException)
+            {
+                _log.Write("vibepollo", $"Kunne ikke avslutte appen på PC-en: {ex.Message}");
+            }
+        }
+
+        _log.Write("vibepollo", closed ? $"«{GameLibrary.DisplayTitle(game)}» avsluttet på PC-en fra Home" : "Avslutning fra Home feilet");
+        if (closed)
+        {
+            await WaitUntilHostIdleAsync();
+        }
+        else
+        {
+            ShowMessage($"Fikk ikke avsluttet på {HostLabel}", $"{HostLabel} svarte ikke. Prøv igjen, eller start spillet og avslutt fra M2-menyen.",
+                "OK", () => FocusHome(game.Id), "Lukk", () => FocusHome(game.Id));
+        }
+
+        FocusHome(game.Id);
+    }
+
+    /// <summary>Venter (høyst 10 s) til Vibepollo melder at ingen app kjører, så neste start ikke møter Moonlights «quit»-spørsmål.</summary>
+    private async Task WaitUntilHostIdleAsync()
+    {
+        for (var i = 0; i < 20; i++)
+        {
+            await RefreshHostStatusAsync(force: true);
+            if (_hostRunningApp is null)
+            {
+                return;
+            }
+
+            await Task.Delay(500);
+        }
+
+        _log.Write("vibepollo", $"«{_hostRunningApp}» kjører fortsatt på PC-en etter 10 s");
     }
 
     /// <summary>Om spillet kjører på gaming-PC-en uten at GameHome strømmer det (for eksempel etter «Koble fra»).</summary>
