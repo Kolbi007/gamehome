@@ -159,11 +159,11 @@ public class GameHomeCover : Form
         Activate();
         HideTaskbar();
 
-        // Lysbølgen: én runde på 2,6 s, 30 bilder i sekundet. Tegner bare linjens felt på nytt.
+        // Lysbølgen: én rolig runde på 3,6 s, 30 bilder i sekundet. Tegner bare linjens felt på nytt.
         _animation.Interval = 33;
         _animation.Tick += (s, a) =>
         {
-            _sweep += 1.6f / (2.6f * 30f);
+            _sweep += 1.6f / (3.6f * 30f);
             if (_sweep > 1.3f) _sweep = -0.3f;
             var r = ClientRectangle;
             Invalidate(new Rectangle(0, (int)(r.Height * 0.62) - 8, r.Width, 16 + r.Height / 270));
@@ -216,7 +216,7 @@ public class GameHomeCover : Form
             {
                 glow.InterpolationColors = new ColorBlend
                 {
-                    Colors = new[] { Color.FromArgb(0, 170, 210, 255), Color.FromArgb(220, 200, 230, 255), Color.FromArgb(0, 170, 210, 255) },
+                    Colors = new[] { Color.FromArgb(0, 170, 210, 255), Color.FromArgb(120, 190, 220, 255), Color.FromArgb(0, 170, 210, 255) },
                     Positions = new[] { 0f, 0.5f, 1f },
                 };
                 g.FillRectangle(glow, band);

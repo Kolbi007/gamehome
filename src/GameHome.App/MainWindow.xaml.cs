@@ -772,7 +772,16 @@ public sealed partial class MainWindow : Window
 
         _streamCover.Stop();
         _streamCover = null;
-        Foreground.SetTopmost(WinRT.Interop.WindowNative.GetWindowHandle(this), false);
+        var window = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        Foreground.SetTopmost(window, false);
+
+        // Kjører spillet og har et annet vindu forgrunnen, skal GameHome ligge bak det, ikke foran.
+        if (SessionActive && !Foreground.IsForeground(window))
+        {
+            Foreground.SendToBack(window);
+            _log.Write("laster", "GameHome lagt bakerst; spillet ligger foran");
+        }
+
         HideLoading(why);
     }
 
