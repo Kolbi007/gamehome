@@ -41,6 +41,17 @@ public static class Foreground
         NativeMethods.SetWindowPos(windowHandle, topmost ? -1 : -2, 0, 0, 0, 0,
             NativeMethods.SwpNoMove | NativeMethods.SwpNoSize | NativeMethods.SwpNoActivate);
 
+    /// <summary>
+    /// Legger vinduet bakerst uten å aktivere noe. Når «alltid øverst» slås av, legger Windows vinduet øverst blant de
+    /// vanlige vinduene, altså foran spillet (målt 2026-11-02 med Ball x Pit); dette flytter det bak igjen.
+    /// </summary>
+    public static void SendToBack(nint windowHandle) =>
+        NativeMethods.SetWindowPos(windowHandle, 1, 0, 0, 0, 0,
+            NativeMethods.SwpNoMove | NativeMethods.SwpNoSize | NativeMethods.SwpNoActivate);
+
+    /// <summary>Om vinduet er forgrunnsvinduet.</summary>
+    public static bool IsForeground(nint windowHandle) => NativeMethods.GetForegroundWindow() == windowHandle;
+
     /// <summary>Om prosessen har et synlig toppnivåvindu av klassen, for eksempel Moonlights streamvindu.</summary>
     public static bool HasVisibleWindow(int processId, string className)
     {

@@ -123,10 +123,13 @@ public sealed partial class MainWindow : Window
         _library = LoadLibrary();
         BuildGameTiles();
 
-        var variant = RuntimeFeature.IsDynamicCodeSupported ? "JIT" : "Native AOT";
-        InfoText.Text = $"Versjon {typeof(MainWindow).Assembly.GetName().Version} · {variant}";
+        // Pakkeversjonen er den som installeres og oppgraderes (0.1.N.0); assembly-versjonen er alltid 1.0.0.0.
+        var version = global::Windows.ApplicationModel.Package.Current.Id.Version;
+        var versionText = string.Create(CultureInfo.InvariantCulture, $"{version.Major}.{version.Minor}.{version.Build}.{version.Revision}");
+        InfoText.Text = $"Versjon {versionText}";
         HostTile.Content = $"Spill fra {HostLabel}";
-        _log.Write("start", "Vindu klart");
+        var variant = RuntimeFeature.IsDynamicCodeSupported ? "JIT" : "Native AOT";
+        _log.Write("start", $"Vindu klart (versjon {versionText}, {variant})");
     }
 
     private bool SessionActive => _session is not null && !_session.Completion.IsCompleted;
@@ -461,6 +464,10 @@ public sealed partial class MainWindow : Window
         {
             StartStreamCover(stream);
         }
+        else if (session is SteamSession steam)
+        {
+            StartSteamCover(steam);
+        }
 
         var registered = SessionHotkeys.Where(h => _hotkeys.Register(h.Id, h.Modifiers, h.Key)).Select(h => h.Name).ToList();
         _log.Write("økt", $"Startet «{title}» ({action.RunnerId} {action.Target}, {session.Status}). Hurtigtaster: {string.Join(", ", registered)}");
@@ -702,6 +709,37 @@ public sealed partial class MainWindow : Window
         _log.Write("laster", "Lasteskjermen ligger over Moonlight til streamen viser bilde");
     }
 
+    /// <summary>
+    /// Som <see cref="StartStreamCover"/>, men for Steam-spill på Legion Go: Steams lille startvindu legger seg ellers
+    /// over lasteskjermen. Fjernes når spillets eget vindu finnes, når økten slutter, eller etter 30 s, så en dialog
+    /// fra Steam (for eksempel sky-lagring) aldri skjules lenge.
+    /// </summary>
+    private void StartSteamCover(SteamSession steam)
+    {
+        Foreground.SetTopmost(WinRT.Interop.WindowNative.GetWindowHandle(this), true);
+        _streamCover?.Stop();
+        _streamCover = DispatcherQueue.CreateTimer();
+        _streamCover.Interval = TimeSpan.FromMilliseconds(500);
+        var started = DateTime.UtcNow;
+        _streamCover.Tick += (_, _) =>
+        {
+            if (!ReferenceEquals(steam, _session) || steam.Completion.IsCompleted)
+            {
+                EndStreamCover("økten sluttet");
+            }
+            else if (steam.State == SteamSessionState.Running && steam.MainWindowHandle != 0)
+            {
+                EndStreamCover("spillets vindu finnes");
+            }
+            else if (DateTime.UtcNow - started > TimeSpan.FromSeconds(30))
+            {
+                EndStreamCover("spillvindu ikke funnet etter 30 s");
+            }
+        };
+        _streamCover.Start();
+        _log.Write("laster", "Lasteskjermen ligger over Steam til spillets vindu finnes");
+    }
+
     /// <summary>Som <see cref="StartStreamCover"/>, men mens spillet avsluttes: ligger øverst til økten er slutt, høyst 30 s.</summary>
     private void StartQuitCover(StreamSession stream)
     {
@@ -734,7 +772,16 @@ public sealed partial class MainWindow : Window
 
         _streamCover.Stop();
         _streamCover = null;
-        Foreground.SetTopmost(WinRT.Interop.WindowNative.GetWindowHandle(this), false);
+        var window = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        Foreground.SetTopmost(window, false);
+
+        // Kjører spillet og har et annet vindu forgrunnen, skal GameHome ligge bak det, ikke foran.
+        if (SessionActive && !Foreground.IsForeground(window))
+        {
+            Foreground.SendToBack(window);
+            _log.Write("laster", "GameHome lagt bakerst; spillet ligger foran");
+        }
+
         HideLoading(why);
     }
 
