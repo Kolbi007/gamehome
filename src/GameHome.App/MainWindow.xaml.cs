@@ -700,6 +700,29 @@ public sealed partial class MainWindow : Window
         _log.Write("laster", "Lasteskjermen ligger over Moonlight til streamen viser bilde");
     }
 
+    /// <summary>Som <see cref="StartStreamCover"/>, men mens spillet avsluttes: ligger øverst til økten er slutt, høyst 30 s.</summary>
+    private void StartQuitCover(StreamSession stream)
+    {
+        Foreground.SetTopmost(WinRT.Interop.WindowNative.GetWindowHandle(this), true);
+        _streamCover?.Stop();
+        _streamCover = DispatcherQueue.CreateTimer();
+        _streamCover.Interval = TimeSpan.FromMilliseconds(250);
+        var started = DateTime.UtcNow;
+        _streamCover.Tick += (_, _) =>
+        {
+            if (stream.Completion.IsCompleted)
+            {
+                EndStreamCover("spillet og Moonlight er avsluttet");
+            }
+            else if (DateTime.UtcNow - started > TimeSpan.FromSeconds(30))
+            {
+                EndStreamCover("avslutning tok over 30 s; viser Moonlight");
+            }
+        };
+        _streamCover.Start();
+        _log.Write("laster", "Lasteskjermen dekker Moonlight mens spillet avsluttes");
+    }
+
     private void EndStreamCover(string why)
     {
         if (_streamCover is null)
@@ -1007,8 +1030,18 @@ public sealed partial class MainWindow : Window
             {
                 _log.Write("økt", "Avslutt fjernspill bekreftet");
                 LastInput.Text = $"Avslutter {title} på {HostLabel} …";
+
+                // Moonlight viser sitt eget «Quitting»-vindu mens spillet avsluttes; lasteskjermen dekker det til
+                // Moonlight er lukket og økten er slutt.
+                if (_sessionGame is { } game
+                    && _library.PlayActionsFor(game.Id).FirstOrDefault(a => a.RunnerId == GameLibrary.MoonlightRunnerId) is { } streamAction)
+                {
+                    ShowLoading(game, streamAction);
+                    LoadingStatus.Text = $"Avslutter på {HostLabel} …";
+                    StartQuitCover(stream);
+                }
+
                 _ = stream.EndRemoteAppAsync();
-                FocusHome(_focusGameId);
             },
             "Avbryt", () => ShowSessionPanel("avslutt fjernspill avbrutt"));
     }
