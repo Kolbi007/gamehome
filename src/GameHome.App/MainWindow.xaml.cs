@@ -147,7 +147,7 @@ public sealed partial class MainWindow : Window
         var version = global::Windows.ApplicationModel.Package.Current.Id.Version;
         var versionText = string.Create(CultureInfo.InvariantCulture, $"{version.Major}.{version.Minor}.{version.Build}.{version.Revision}");
         InfoText.Text = $"Versjon {versionText}";
-        HostTileText.Text = $"Spill fra {HostLabel}";
+
         var variant = RuntimeFeature.IsDynamicCodeSupported ? "JIT" : "Native AOT";
         _log.Write("start", $"Vindu klart (versjon {versionText}, {variant})");
     }
@@ -821,9 +821,18 @@ public sealed partial class MainWindow : Window
         target.Loaded += OnLoaded;
     }
 
-    private async void AddGameTile_Click(object sender, RoutedEventArgs e)
+    /// <summary>Ett sted å legge til spill: her på Legion Go (programfil) eller fra gaming-PC-en (installerte spill der).</summary>
+    private void AddGameTile_Click(object sender, RoutedEventArgs e)
     {
-        LogChoice(AddGameTile);
+        _log.Write("valg", $"Legg til spill valgt via {_lastSource}");
+        ShowMessage("Legg til spill", $"Hvor er spillet installert?",
+            "Her på Legion Go", () => _ = AddLocalGameAsync(),
+            $"På {HostLabel}", () => _ = OpenHostPanelAsync(),
+            onCancel: () => AddGameTile.Focus(FocusState.Keyboard));
+    }
+
+    private async Task AddLocalGameAsync()
+    {
         var picker = new global::Windows.Storage.Pickers.FileOpenPicker
         {
             SuggestedStartLocation = global::Windows.Storage.Pickers.PickerLocationId.ComputerFolder,
@@ -2082,9 +2091,8 @@ public sealed partial class MainWindow : Window
 
     // ---- Spill på PC-en (Moonlight) ----
 
-    private async void HostTile_Click(object sender, RoutedEventArgs e)
+    private async Task OpenHostPanelAsync()
     {
-        LogChoice(HostTile);
         HostGames.Children.Clear();
         HostPanel.Visibility = Visibility.Visible;
         SetHomeEnabled(false);
@@ -2101,7 +2109,7 @@ public sealed partial class MainWindow : Window
         }
 
         var host = hosts[0];
-        HostTitle.Text = $"Spill fra {host.DisplayName}";
+        HostTitle.Text = $"Legg til fra {host.DisplayName}";
         HostStatus.Text = $"Henter spill fra {host.DisplayName} …";
         var wake = await HostWaker.EnsureAwakeAsync(host, TimeSpan.FromSeconds(90), onWaking: () => DispatcherQueue.TryEnqueue(() =>
         {

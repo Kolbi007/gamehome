@@ -102,12 +102,6 @@
                         <TextBlock Text="Legg til spill" />
                     </StackPanel>
                 </Button>
-                <Button x:Name="HostTile" Click="HostTile_Click" Height="48" Padding="18,0" FontSize="{StaticResource GhSizeCaption}" CornerRadius="24">
-                    <StackPanel Orientation="Horizontal" Spacing="10">
-                        <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE7F4;" FontSize="14" />
-                        <TextBlock x:Name="HostTileText" Text="Spill fra gaming-PC" />
-                    </StackPanel>
-                </Button>
                 <Button x:Name="DebugTile" Click="DebugTile_Click" Height="48" Padding="18,0" FontSize="{StaticResource GhSizeCaption}" CornerRadius="24">
                     <StackPanel Orientation="Horizontal" Spacing="10">
                         <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xEBE8;" FontSize="14" />
