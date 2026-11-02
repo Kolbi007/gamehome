@@ -2085,6 +2085,14 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        // Programfil: mangler den DirectX-tillegg eller Visual C++? Sjekkes én gang per fil (huskes til filen endres).
+        if (action.RunnerId == GameLibrary.ExecutableRunnerId && !_dependencySkip.Contains(action.Target)
+            && CheckDependencies(action.Target) is { Ok: false } dependencies)
+        {
+            ShowMissingDependencies(game, action, dependencies, afterCrash: false);
+            return;
+        }
+
         // Et annet spill kjører fortsatt på PC-en (for eksempel etter «Koble fra»): spør før det lukkes.
         if (action.IsRemote && _hostRunningApp is { } other
             && GameLibrary.TitleKey(other) != GameLibrary.TitleKey(action.Target))
@@ -2209,11 +2217,225 @@ public sealed partial class MainWindow : Window
         FocusHome(game?.Id ?? _focusGameId);
         LastInput.Text = $"Velkommen tilbake fra {title}.";
 
+        // Windows fant ikke en DLL spillet trenger (0xC0000135) eller fant feil versjon (0xC000007B): sjekk på nytt og forklar.
+        if (game is not null && end.ExitCode is Dependencies.DllNotFound or Dependencies.BadImage
+            && _library.PlayActionsFor(game.Id).FirstOrDefault(a => a.RunnerId == GameLibrary.ExecutableRunnerId) is { } exeAction)
+        {
+            _dependencies.Forget(exeAction.Target);
+            SaveDependencies();
+            if (CheckDependencies(exeAction.Target) is { Ok: false } result)
+            {
+                ShowMissingDependencies(game, exeAction, result, afterCrash: true);
+            }
+            else
+            {
+                ShowMessage($"{title} mangler en fil", "Windows fant ikke en fil spillet trenger, men GameHome ser ikke hvilken pakke det er. " +
+                    "Ofte er det DirectX (juni 2010). Det er trygt å installere den; Windows hopper over det som allerede finnes.",
+                    "Installer DirectX (juni 2010)", () => _ = InstallRedistributableAsync(game, exeAction, Dependencies.DirectX),
+                    "Lukk", () => FocusHome(game.Id));
+            }
+
+            return;
+        }
+
         if (end.Reason == SessionEndReason.LaunchFailed && game is not null)
         {
             ShowMessage($"{title} startet ikke", end.Detail ?? "Spillet startet ikke.",
                 "Prøv igjen", () => _ = LaunchAsync(game), "Lukk", () => FocusHome(game.Id));
         }
+    }
+
+    // ---- Avhengigheter: DirectX-tillegg og Visual C++ (sjekkes én gang per programfil, huskes i dependencies.json) ----
+
+    private DependencyDocument? _dependenciesDocument;
+    private readonly HashSet<string> _dependencySkip = new(StringComparer.OrdinalIgnoreCase);
+
+    private DependencyDocument _dependencies => _dependenciesDocument ??= DependencyStore.Load(DependenciesPath);
+
+    private static string DependenciesPath => Path.Combine(ApplicationData.Current.LocalFolder.Path, "dependencies.json");
+
+    private void SaveDependencies()
+    {
+        try
+        {
+            DependencyStore.Save(DependenciesPath, _dependencies);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _log.Write("avhengigheter", $"Kunne ikke lagre dependencies.json: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Sjekker programfilen, men bare hvis den er ny, endret, eller manglet noe sist. Ellers null (kjent i orden).
+    /// Leser bare importtabellen; tar millisekunder.
+    /// </summary>
+    private DependencyResult? CheckDependencies(string exePath)
+    {
+        try
+        {
+            var info = new FileInfo(exePath);
+            if (!info.Exists || _dependencies.IsKnownGood(exePath, info.Length, info.LastWriteTimeUtc))
+            {
+                return null;
+            }
+
+            var gameDir = info.DirectoryName ?? "";
+            var system64 = Environment.GetFolderPath(Environment.SpecialFolder.System);
+            var system32 = Environment.GetFolderPath(Environment.SpecialFolder.SystemX86);
+            bool Exists(string dll, bool is64) =>
+                File.Exists(Path.Combine(gameDir, dll)) || File.Exists(Path.Combine(is64 ? system64 : system32, dll));
+
+            var watch = Stopwatch.StartNew();
+            DependencyResult result;
+            using (var stream = new FileStream(exePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 4096))
+            {
+                result = Dependencies.Check(stream, Exists);
+            }
+
+            _dependencies.Remember(exePath, info.Length, info.LastWriteTimeUtc, [.. result.Missing.Select(p => p.Id)]);
+            SaveDependencies();
+            var outcome = result.Ok
+                ? "alt finnes"
+                : $"mangler {string.Join(", ", result.MissingDlls)} ({string.Join(", ", result.Missing.Select(p => p.Name))})";
+            _log.Write("avhengigheter", string.Create(CultureInfo.InvariantCulture,
+                $"{info.Name} ({(result.Is64Bit ? "64" : "32")}-bit) sjekket på {watch.ElapsedMilliseconds} ms: {outcome}"));
+            return result;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _log.Write("avhengigheter", $"Kunne ikke sjekke {exePath}: {ex.Message}");
+            return null;
+        }
+    }
+
+    private void ShowMissingDependencies(Game game, PlayAction action, DependencyResult result, bool afterCrash)
+    {
+        var title = GameLibrary.DisplayTitle(game);
+        var package = result.Missing[0];
+        var names = string.Join(" og ", result.Missing.Select(p => p.Name));
+        var text = (afterCrash ? $"{title} stoppet fordi Windows ikke fant {string.Join(", ", result.MissingDlls)}. " : $"{title} trenger {string.Join(", ", result.MissingDlls)}, som ikke finnes på maskinen. ")
+            + $"Filene kommer fra {names} fra Microsoft. GameHome kan installere {package.Name} nå; Windows ber deg bekrefte.";
+        ShowMessage($"{title} mangler {package.Name}", text,
+            $"Installer {package.Name}", () => _ = InstallRedistributableAsync(game, action, package),
+            afterCrash ? "Lukk" : "Start likevel", () =>
+            {
+                if (afterCrash)
+                {
+                    FocusHome(game.Id);
+                    return;
+                }
+
+                _dependencySkip.Add(action.Target);
+                _ = LaunchAsync(game, action);
+            },
+            onCancel: () => FocusHome(game.Id));
+    }
+
+    /// <summary>
+    /// Installerer en Microsoft-pakke: installasjonsfilen spillet har med selv hvis den finnes, ellers nedlasting fra
+    /// Microsoft. Filen kjøres bare hvis Windows bekrefter at den er gyldig signert av Microsoft. Installasjonen vises
+    /// og bekreftes i Windows (UAC); GameHome installerer aldri noe i det stille.
+    /// </summary>
+    private async Task InstallRedistributableAsync(Game game, PlayAction action, Redistributable package)
+    {
+        var title = GameLibrary.DisplayTitle(game);
+        ArtProgressPanel.Visibility = Visibility.Visible;
+        ArtProgress.IsIndeterminate = true;
+        ArtProgressText.Text = $"Gjør klar {package.Name} …";
+        string? installer = null;
+        try
+        {
+            installer = FindBundledInstaller(action.Target, package);
+            if (installer is not null)
+            {
+                _log.Write("avhengigheter", $"Bruker installasjonsfilen som fulgte med spillet: {installer}");
+            }
+            else
+            {
+                ArtProgressText.Text = $"Laster ned {package.Name} fra Microsoft …";
+                var folder = Path.Combine(ApplicationData.Current.LocalCacheFolder.Path, "redist");
+                Directory.CreateDirectory(folder);
+                installer = Path.Combine(folder, package.Id + ".exe");
+                using var response = await ArtHttp.GetAsync(new Uri(package.DownloadUrl));
+                response.EnsureSuccessStatusCode();
+                await using (var file = File.Create(installer))
+                {
+                    await response.Content.CopyToAsync(file);
+                }
+
+                _log.Write("avhengigheter", $"Lastet ned {package.Name} fra {package.DownloadUrl}");
+            }
+
+            if (!Authenticode.IsSignedByMicrosoft(installer))
+            {
+                _log.Write("avhengigheter", $"Installasjonsfilen for {package.Name} er ikke gyldig signert av Microsoft; kjøres ikke ({installer})");
+                ShowMessage("Installasjonen ble stoppet", $"Filen for {package.Name} er ikke gyldig signert av Microsoft, så GameHome kjører den ikke.",
+                    "OK", () => FocusHome(game.Id), "Lukk", () => FocusHome(game.Id));
+                return;
+            }
+
+            ArtProgressText.Text = $"Installerer {package.Name} (bekreft i Windows) …";
+            using var process = Process.Start(new ProcessStartInfo(installer) { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(installer) });
+            if (process is not null)
+            {
+                await process.WaitForExitAsync();
+                _log.Write("avhengigheter", string.Create(CultureInfo.InvariantCulture, $"{package.Name}: installasjonen avsluttet med kode {process.ExitCode}"));
+            }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException or UnauthorizedAccessException
+            or System.ComponentModel.Win32Exception)
+        {
+            // Win32Exception: brukeren sa nei i Windows' bekreftelse, eller filen kunne ikke startes.
+            _log.Write("avhengigheter", $"{package.Name} ble ikke installert: {ex.Message}");
+            ShowMessage($"{package.Name} ble ikke installert", ex.Message, "OK", () => FocusHome(game.Id), "Lukk", () => FocusHome(game.Id));
+            return;
+        }
+        finally
+        {
+            ArtProgress.IsIndeterminate = false;
+            ArtProgressPanel.Visibility = Visibility.Collapsed;
+        }
+
+        // Sjekk på nytt og husk resultatet: neste start hopper over sjekken hvis alt nå finnes.
+        _dependencies.Forget(action.Target);
+        var after = CheckDependencies(action.Target);
+        if (after is null or { Ok: true })
+        {
+            _dependencies.InstalledPackages[package.Id] = DateTime.UtcNow;
+            SaveDependencies();
+            ShowMessage($"{package.Name} er på plass", $"{title} har det den trenger.",
+                $"Start {title}", () => _ = LaunchAsync(game, action), "Lukk", () => FocusHome(game.Id));
+        }
+        else
+        {
+            ShowMissingDependencies(game, action, after, afterCrash: false);
+        }
+    }
+
+    /// <summary>
+    /// Installasjonsfil som fulgte med spillet (for eksempel _CommonRedist\DirectX\Jun2010\DXSETUP.exe). For Visual C++
+    /// må stien nevne årstallet, så en 2008-fil ikke brukes for 2010. Søker høyst tre mapper ned fra spillmappen.
+    /// </summary>
+    private static string? FindBundledInstaller(string exePath, Redistributable package)
+    {
+        var root = Path.GetDirectoryName(Path.GetDirectoryName(exePath)) ?? Path.GetDirectoryName(exePath);
+        if (root is null || !Directory.Exists(root))
+        {
+            return null;
+        }
+
+        var name = new System.Text.RegularExpressions.Regex(package.LocalInstaller, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        var years = package.Id switch
+        {
+            var id when id.StartsWith("vc2015", StringComparison.Ordinal) => new[] { "2015", "2017", "2019", "2022" },
+            var id when id.StartsWith("vc", StringComparison.Ordinal) => new[] { id[2..6] },
+            _ => Array.Empty<string>(),
+        };
+        var options = new EnumerationOptions { RecurseSubdirectories = true, MaxRecursionDepth = 3, IgnoreInaccessible = true };
+        return Directory.EnumerateFiles(root, "*.exe", options)
+            .Take(5000)
+            .FirstOrDefault(f => name.IsMatch(Path.GetFileName(f)) && (years.Length == 0 || years.Any(y => f.Contains(y, StringComparison.Ordinal))));
     }
 
     // ---- Steam ----
