@@ -74,6 +74,7 @@ public sealed partial class MainWindow : Window
     private Game? _sessionGame;
     private DateTime _sessionStarted;
     private string? _focusGameId;
+    private string? _rememberedTile;
     private Action? _messagePrimary;
     private Action? _messageSecondary;
 
@@ -172,6 +173,42 @@ public sealed partial class MainWindow : Window
     /// Bringer flisene i takt med biblioteket uten å fjerne fliser som fortsatt finnes. Å tømme og lage alle flisene
     /// på nytt mens en av dem hadde fokus, krasjet appen rett etter oppstart (0.1.27.0 og 0.1.28.0).
     /// </summary>
+    private const string RememberedTileSetting = "home.lastTile";
+
+    /// <summary>Husker flisen med fokus. Lagres i appens lokale innstillinger; skrives bare når fokus endres.</summary>
+    private void RememberTile(string gameId)
+    {
+        _focusGameId = gameId;
+        if (_rememberedTile == gameId)
+        {
+            return;
+        }
+
+        _rememberedTile = gameId;
+        try
+        {
+            ApplicationData.Current.LocalSettings.Values[RememberedTileSetting] = gameId;
+        }
+        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or UnauthorizedAccessException)
+        {
+            _log.Write("fokus", $"Kunne ikke huske flisen: {ex.Message}");
+        }
+    }
+
+    private string? LoadRememberedTile()
+    {
+        try
+        {
+            _rememberedTile = ApplicationData.Current.LocalSettings.Values[RememberedTileSetting] as string;
+        }
+        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or UnauthorizedAccessException)
+        {
+            _log.Write("fokus", $"Kunne ikke lese husket flis: {ex.Message}");
+        }
+
+        return _rememberedTile;
+    }
+
     private void BuildGameTiles()
     {
         var visible = _library.VisibleGames;
@@ -210,6 +247,7 @@ public sealed partial class MainWindow : Window
             FontSize = 22,
         };
         tile.Click += GameTile_Click;
+        tile.GotFocus += (_, _) => RememberTile(game.Id);
         return tile;
     }
 
@@ -886,7 +924,14 @@ public sealed partial class MainWindow : Window
             StartupText.Text = string.Create(CultureInfo.InvariantCulture, $"Oppstart: {startup.TotalMilliseconds:F0} ms");
             _log.Write("ytelse", string.Create(CultureInfo.InvariantCulture,
                 $"Oppstart til første aktivering: {startup.TotalMilliseconds:F0} ms, minne: {memoryMb:F0} MB"));
-            FocusHome(null);
+
+            // Tilbake til flisen brukeren sto på sist, også etter omstart.
+            var remembered = LoadRememberedTile();
+            var found = remembered is not null && TileFor(remembered) is not null;
+            _log.Write("fokus", remembered is null ? "Ingen husket flis; fokus på første"
+                : found ? $"Husket flis: «{_library.Find(remembered) is { } g ? GameLibrary.DisplayTitle(g) : remembered}»"
+                : "Husket flis finnes ikke lenger; fokus på første");
+            FocusHome(found ? remembered : null);
         }
 
         UpdateMemory();
