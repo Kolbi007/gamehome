@@ -427,6 +427,71 @@ Bygges bare hvis testene over viser et behov integrasjonen ikke dekker. Designet
 
 **Innlogging etter vekking:** hosten kan stå på låseskjermen. Vibepollo kan fange innloggingsskjermen, så innlogging med PIN via streamen er å foretrekke framfor autologon, som lagrer passordet på maskinen.
 
+## Fase 2: funn fra kildekoden (2026-11-02)
+
+Lest fra åpen kildekode (GPLv3), bare lest, ingenting bygget eller kjørt: moonlight-qt `1ced9dd9` og Vibepollo
+`d46e23c7` (med Playnite-tillegget i `plugins/playnite/SunshinePlaynite`). Stier under er relative til repoene.
+Alt er **hypoteser** til det er testet på Legion Go. Installert på gaming-PC-en: Vibepollo 2.0.2-nightly
+(2026-10-30) og Playnite-tillegget 0.5.2.
+
+### Moonlight-kommandolinjen
+
+| Kommando | Funn | Kilde |
+| --- | --- | --- |
+| `list <host> --csv` | Header `Name, ID, HDR Support, App Collection Game, Hidden, Direct Launch, Boxart URL`, så én rad per app. Navn står i anførselstegn, men anførselstegn inni navnet escapes ikke. Exit 0 ved suksess, -1 når hosten ikke finnes eller ikke er paret, 1 ved feil i app-listen. Søket gir opp etter 30 s. | `app/cli/listapps.cpp:9,63-141`, `app/main.cpp:1033-1039` |
+| `stream <host> "<app>"` | Navnet må matche eksakt, uten hensyn til store/små bokstaver. App-ID kan ikke brukes. Kjører en annen app, vises en Ja/Nei-dialog; ukjent app gir en feildialog. Prosessen avslutter når streamen er ferdig. Trenger skrivebord (QML-vindu). | `app/cli/startstream.cpp:103-151`, `app/gui/CliStartStreamSegue.qml:20-90`, `app/gui/StreamSegue.qml:76-78` |
+| `quit <host>` | Ingen bekreftelse, exit 0 ved suksess. Feil vises som dialog som må lukkes. Trenger skrivebord. | `app/cli/quitstream.cpp:67-103` |
+| `--quit-after` | Avslutter appen på hosten når streamen slutter normalt. Brukes ikke som standard, fordi «koble fra» og «avslutt fjernspill» skal være separate. | `app/streaming/session.cpp:1271-1274` |
+| Paring og vertsliste | `HKCU\Software\Moonlight Game Streaming Project\Moonlight` (QSettings). Kommandolinjen bruker samme paring som Moonlight-appen; hosten kan oppgis med navn, UUID eller IP. GameHome leser aldri nøkler eller sertifikater herfra. | `app/main.cpp:431-443`, `app/backend/computerseeker.cpp:50-66` |
+
+**Hvorfor `list` hang over SSH (hypotese):** Moonlight er et GUI-program og starter SDL-video, `QGuiApplication` og
+en QML-motor også for `list` (`app/main.cpp:681-700,765,995`). I SSH-økten (sesjon 0, uten skrivebord) blir det
+sannsynligvis stående. Konsekvens for GameHome: kall Moonlight fra GameHome (som kjører på skrivebordet) med
+`CreateNoWindow`, les både stdout og stderr asynkront (stderr brukes til logging og kan ellers fylles og blokkere,
+`app/main.cpp:146-152,463-479`), og avbryt selv etter 70 s.
+
+### Vibepollo og Playnite
+
+- **Hvilke spill synkes:** standard er bare de **10 sist spilte** innenfor 30 dager (`playnite_recent_games`,
+  `playnite_recent_max_age_days`). `playnite_sync_all_installed` finnes, men er av. Automatisk lagt til spill slettes
+  etter 14 dager hvis de ikke er spilt (`playnite_autosync_delete_after_days`, 0 slår det av).
+  Kilde: `src/config_playnite.h:18-73`, `src/platform/windows/playnite_sync_policy.cpp:293-395,575-590`.
+- **Synkede spill skrives til `apps.json`** med Playnite-navnet og Playnite-ID-en som UUID, og kommer dermed med i
+  Moonlights `list` (`src/confighttp.cpp:263-283`, `src/platform/windows/playnite_sync_policy.cpp:95-185`). At listen
+  i dag bare har Desktop og Steam Big Picture tyder på at synken ikke har kjørt mens Playnite var oppe.
+- **Oppstart:** Vibepollo kjører `tools\playnite-launcher.exe --game-id <id>`, som starter Playnite ved behov og ber
+  tillegget starte spillet (`src/process.cpp:2549-2631`, `tools/playnite_launcher/launcher.cpp:93-103,1022-1037`).
+  Playnite startes uten argumenter, så **Playnites egne innstillinger avgjør om det vises**. Endret 2026-11-02 etter
+  godkjenning: start minimert i systemstatusfeltet, ikke i fullskjerm, og minimer etter at et spill er startet (kopi
+  av innstillingene ligger ved siden av `config.json`).
+- **Avslutning:** når spillet slutter, avslutter hjelperen og streamen ender. `quit` sender `stop` til Playnite, og
+  hjelperen lukker prosessene i spillets mappe, først normalt, så med tvang (`src/process.cpp:3259-3280`,
+  `tools/playnite_launcher/launcher.cpp:1208-1214,1672-1679`).
+- **Synk krever at Playnite er oppe når Vibepollo kobler til** (ved oppstart, endring av innstillinger, API-kall og
+  under en økt), ikke hele tiden (`src/platform/windows/playnite_integration.cpp:330-341,518-556,817`).
+- **Web-API** på HTTPS 47990, LAN tillatt som standard: `GET /api/apps`, `POST /api/apps/launch` (starter uten stream),
+  `POST /api/apps/close`, `GET /api/session/status`, `POST /api/playnite/force_sync`. **API-token** med regex-avgrensede
+  stier og metoder, sendt som `Authorization: Bearer`; bare hashen lagres (`src/confighttp.cpp:5937-5953,6461-6600`,
+  `src/http_auth.cpp:201-256`). Ingen Wake-on-LAN-endepunkt.
+- **Moonlight-protokollen** godtar `appuuid` ved `/launch`, men Moonlights kommandolinje bruker bare navn
+  (`src/nvhttp.cpp:3288-3289`).
+
+### Anbefalt løsning (fase 2)
+
+| Hvor | Hva |
+| --- | --- |
+| **GameHome (Legion Go)** | Ny kilde `moonlight`: `list <host> --csv` gir host-spillene, cachet i biblioteket. Hvert spill får en `Stream`-PlayAction med `HostId`; samme tittel som et lokalt spill blir en ekstra spillemåte på samme flis, usikre treff går til «Nye funn». Start med `stream <host> "<navn>"`; økten er Moonlight-prosessen. «Avslutt fjernspill» = `quit <host>` etter bekreftelse. Egen CSV-leser som tåler anførselstegn i navn, og egen tidsgrense. |
+| **Gaming-PC-en** | **Én innstilling i Vibepollo:** synk alle installerte Playnite-spill (`playnite_sync_all_installed=true`) og slå av automatisk sletting (`playnite_autosync_delete_after_days=0`). Playnite minimert i bakgrunnen (gjort). Ellers ingenting nytt. |
+| **Legion Go** | Moonlight er installert og paret (gjort). |
+| **Senere, valgfritt** | API-token i Vibepollo med bare lesetilgang til `/api/session/status` og `/api/apps`, lagret i Credential Locker, for å vise «kjører på PC-en» og hente UUID. Wake-on-LAN sendes av GameHome selv med MAC-adressen fra Moonlights vertsliste. |
+
+**Hull og hva vi gjør med dem**
+
+- Dialoger i `stream` og `quit` når noe er galt (annen app kjører, ukjent app): GameHome sjekker listen før start og
+  kjører `quit` først ved behov. Bruker kan svare på Moonlights dialog med kontrolleren. Ingen fork.
+- CSV uten escaping av anførselstegn: vår leser håndterer det. Mulig PR til moonlight-qt senere (riktig CSV-escaping,
+  eventuelt en `--no-dialogs`-modus). Fork er siste utvei og ikke nødvendig nå.
+
 ## Retro-modus
 
 Systemer og emulatorer defineres som YAML-data, ikke kode, slik at nye systemer kan legges til via pull request uten kodeendring. v1 starter med ett system og én emulator. Definisjoner lånt fra ES-DE eller Playnite (begge MIT på repo-nivå) sjekkes per fil og registreres med kilde-commit i `THIRD-PARTY-NOTICES.md`.
