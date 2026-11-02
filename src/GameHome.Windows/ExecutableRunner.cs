@@ -99,19 +99,28 @@ public sealed class LocalProcessSession : IForegroundSession
         _directory = directory ?? Path.GetDirectoryName(action.Target) ?? string.Empty;
         _process = process;
 
-        // Prosessene som fantes før start: bare nye prosesser undersøkes når spillet letes etter (billig).
-        _before = [.. Process.GetProcesses().Select(p =>
-        {
-            using (p)
-            {
-                return p.Id;
-            }
-        })];
         Watch(process);
 
         // Launcher som blir liggende (for eksempel en oppstarter som starter spillet og venter): finn spillet i samme
         // mappe, så økten slutter når spillet slutter, og M2 og «Tilbake til spillet» treffer spillets vindu.
-        _search = new Timer(_ => SearchForGame(), null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
+        // Av som standard (FocusExperiments): undersøkes som mulig årsak til fokusfeil ved strømstart 2026-11-02.
+        if (FocusExperiments.FollowGameProcess)
+        {
+            // Prosessene som fantes før start: bare nye prosesser undersøkes når spillet letes etter (billig).
+            _before = [.. Process.GetProcesses().Select(p =>
+            {
+                using (p)
+                {
+                    return p.Id;
+                }
+            })];
+            _search = new Timer(_ => SearchForGame(), null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
+        }
+        else
+        {
+            _before = [];
+            _search = new Timer(_ => { }, null, Timeout.Infinite, Timeout.Infinite);
+        }
     }
 
     public string SessionId { get; } = Guid.NewGuid().ToString("N");

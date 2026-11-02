@@ -143,6 +143,7 @@ public sealed partial class MainWindow : Window
         MenuSounds.Enabled = ApplicationData.Current.LocalSettings.Values[SoundSetting] is not false;
         SoundToggleText.Text = MenuSounds.Enabled ? "Menylyder: på" : "Menylyder: av";
         UpdateClock();
+        LoadFocusFlags();
         BuildGameTiles();
 
         // Pakkeversjonen er den som installeres og oppgraderes (0.1.N.0); assembly-versjonen er alltid 1.0.0.0.
@@ -2001,6 +2002,41 @@ public sealed partial class MainWindow : Window
 
     private void WifiReconnectTile_Click(object sender, RoutedEventArgs e) => _ = ReconnectWifiAsync();
 
+    // ---- Fokusbrytere (2026-11-02): av som standard; slås på én om gangen for å finne fokusfeilen ----
+
+    private static bool ReadFlag(string name) => ApplicationData.Current.LocalSettings.Values["focus." + name] is true;
+
+    private void LoadFocusFlags()
+    {
+        FocusExperiments.KeyboardHook = ReadFlag("hook");
+        FocusExperiments.FollowGameProcess = ReadFlag("follow");
+        FocusExperiments.HandForegroundBack = ReadFlag("handback");
+        FocusExperiments.WindowOrder = ReadFlag("order");
+        ShowFocusFlags();
+        _log.Write("start", $"Fokusbrytere: {FocusExperiments.Describe()}");
+    }
+
+    private void ShowFocusFlags()
+    {
+        FlagHook.Content = $"Tastaturkrok (M2-reserve): {(FocusExperiments.KeyboardHook ? "på" : "av")}";
+        FlagFollow.Content = $"Følg spillprosess: {(FocusExperiments.FollowGameProcess ? "på" : "av")}";
+        FlagHandBack.Content = $"Gi forgrunnen tilbake: {(FocusExperiments.HandForegroundBack ? "på" : "av")}";
+        FlagOrder.Content = $"Vindusrekkefølge: {(FocusExperiments.WindowOrder ? "på" : "av")}";
+    }
+
+    private void FocusFlag_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string name })
+        {
+            return;
+        }
+
+        var value = !ReadFlag(name);
+        ApplicationData.Current.LocalSettings.Values["focus." + name] = value;
+        LoadFocusFlags();
+        _log.Write("feilsøk", $"Fokusbryter «{name}» satt til {(value ? "på" : "av")}; gjelder fra neste spillstart");
+    }
+
     private void DebugTile_Click(object sender, RoutedEventArgs e)
     {
         DebugPanel.Visibility = Visibility.Visible;
@@ -2223,9 +2259,9 @@ public sealed partial class MainWindow : Window
         }
 
         var registered = SessionHotkeys.Where(h => _hotkeys.Register(h.Id, h.Modifiers, h.Key)).Select(h => h.Name).ToList();
-        var hook = _hotkeys.StartHook();
+        var hook = FocusExperiments.KeyboardHook && _hotkeys.StartHook();
         _log.Write("økt", $"Startet «{title}» ({action.RunnerId} {action.Target}, {session.Status}). Hurtigtaster: {string.Join(", ", registered)}"
-            + (hook ? " (+ tastaturkrok som reserve)" : " (tastaturkrok ikke tilgjengelig)"));
+            + (hook ? " (+ tastaturkrok som reserve)" : "") + $"; fokusbrytere: {FocusExperiments.Describe()}");
         RefreshTileTexts();
         LastInput.Text = $"{title} starter. M2 åpner menyen.";
     }
@@ -2267,7 +2303,10 @@ public sealed partial class MainWindow : Window
         Activate();
         var ok = Foreground.Bring(WinRT.Interop.WindowNative.GetWindowHandle(this));
         _log.Write("fokus", ok ? "Tilbake i Home etter spillet" : "Windows avslo forgrunnen etter spillet");
-        KeepHomeOnTop("etter spillet");
+        if (FocusExperiments.WindowOrder)
+        {
+            KeepHomeOnTop("etter spillet");
+        }
 
         // Alltid flisen til spillet som nettopp sluttet, ikke den som tilfeldigvis fikk fokus mens menyene var åpne.
         if (game is not null)
@@ -2906,7 +2945,16 @@ public sealed partial class MainWindow : Window
         var window = WinRT.Interop.WindowNative.GetWindowHandle(this);
         Foreground.SetTopmost(window, false);
 
-        if (SessionActive && _session is StreamSession stream)
+        if (!FocusExperiments.WindowOrder)
+        {
+            // Som 0.1.95.0 (virket): har et annet vindu forgrunnen, legges GameHome bak.
+            if (SessionActive && !Foreground.IsForeground(window))
+            {
+                Foreground.SendToBack(window);
+                _log.Write("laster", "GameHome lagt bakerst; spillet ligger foran");
+            }
+        }
+        else if (SessionActive && _session is StreamSession stream)
         {
             // Strøm: Moonlight lukker tilkoblingsvinduene sine når bildet kommer, og hver gang får GameHome (dekket øverst)
             // forgrunnen et øyeblikk. Streamvinduet (SDL i fullskjerm) minimerer seg da selv, og Legion Space ble liggende
@@ -3020,7 +3068,7 @@ public sealed partial class MainWindow : Window
 
         // Kom hurtigtasten via reserven (spillet slår av hurtigtaster), gir ikke Windows forgrunnen. Da minimeres spillet,
         // som Alt+Tab, og Windows aktiverer neste vindu, GameHome. «Tilbake til spillet» gjenoppretter det.
-        if (!ok && _session is LocalProcessSession { MainWindowHandle: var game and not 0 })
+        if (!ok && FocusExperiments.KeyboardHook && _session is LocalProcessSession { MainWindowHandle: var game and not 0 })
         {
             Foreground.Minimize(game);
             Activate();
@@ -3033,7 +3081,10 @@ public sealed partial class MainWindow : Window
         }
 
         ShowSessionPanel($"hurtigtast {name}");
-        KeepHomeOnTop("M2");
+        if (FocusExperiments.WindowOrder)
+        {
+            KeepHomeOnTop("M2");
+        }
     }
 
     private void ShowSessionPanel(string via)
@@ -4283,7 +4334,15 @@ public sealed partial class MainWindow : Window
         // Mens lasteskjermen dekker Moonlights tilkobling, blir GameHome aktiv når Moonlights tilkoblingsvindu lukkes
         // (målt 2026-11-02 med Mega Man 11). Da skal dekket bli liggende til streamen viser bilde, ikke avsluttes her;
         // ellers ble GameHome liggende foran streamen og fikk kontrolleren.
-        if (LoadingPanel.Visibility == Visibility.Visible && _loadingCovered && _streamCover is null)
+        if (!FocusExperiments.WindowOrder)
+        {
+            // Som 0.1.95.0 (virket): lasteskjermen fjernes når GameHome blir aktiv igjen.
+            if (LoadingPanel.Visibility == Visibility.Visible && _loadingCovered)
+            {
+                HideLoading("GameHome aktiv igjen");
+            }
+        }
+        else if (LoadingPanel.Visibility == Visibility.Visible && _loadingCovered && _streamCover is null)
         {
             HideLoading("GameHome aktiv igjen");
         }
@@ -4367,7 +4426,7 @@ public sealed partial class MainWindow : Window
     {
         // Gjelder også strøm: Moonlight bytter fra tilkoblingsvinduet til streamvinduet, og et øyeblikk får GameHome
         // forgrunnen (målt 2026-11-02 med Mega Man 11; kontrolleren gikk da til GameHome i stedet for spillet).
-        if (_session is not { } local || !SessionActive || DateTime.UtcNow - _sessionStarted > TimeSpan.FromSeconds(90))
+        if (!FocusExperiments.HandForegroundBack || _session is not { } local || !SessionActive || DateTime.UtcNow - _sessionStarted > TimeSpan.FromSeconds(90))
         {
             return;
         }
