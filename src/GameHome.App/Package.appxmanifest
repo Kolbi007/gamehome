@@ -2,13 +2,19 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 <!--
   Identity Name er nøytralt og permanent. Publisher må være lik emnet i signeringssertifikatet
-  (scripts/New-DevCertificate.ps1). FSE-registreringen (windows.gamingApp og custom capability) legges til i fase 0A.
+  (scripts/New-DevCertificate.ps1).
+
+  Fase 0A (eksperimentell): app-utvidelsen windows.gamingApp og den egendefinerte capability-en gamingHome gjør
+  GameHome valgbar som home app i Xbox mode. Capability-en krever CustomCapability.SCCD i pakkeroten og at
+  utviklermodus er på ved installasjon. Uten FSE fungerer GameHome som vanlig app.
 -->
 <Package
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+  xmlns:uap4="http://schemas.microsoft.com/appx/manifest/uap/windows10/4"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
-  IgnorableNamespaces="uap rescap">
+  IgnorableNamespaces="uap uap3 uap4 rescap">
 
   <Identity Name="GameHome" Publisher="CN=GameHome Dev" Version="0.1.0.0" />
 
@@ -38,6 +44,10 @@
         <uap:SplashScreen Image="Assets\SplashScreen.png" BackgroundColor="#0B0D10" />
       </uap:VisualElements>
       <Extensions>
+        <uap3:Extension Category="windows.appExtension">
+          <uap3:AppExtension Name="windows.gamingApp" Id="App" DisplayName="GameHome"
+            Description="Controller-first spillbibliotek for Windows Xbox mode." PublicFolder="Public" />
+        </uap3:Extension>
         <uap:Extension Category="windows.protocol">
           <uap:Protocol Name="gamehome">
             <uap:DisplayName>GameHome</uap:DisplayName>
@@ -49,5 +59,6 @@
 
   <Capabilities>
     <rescap:Capability Name="runFullTrust" />
+    <uap4:CustomCapability Name="Microsoft.appCategory.gamingHome_8wekyb3d8bbwe" />
   </Capabilities>
 </Package>

@@ -10,8 +10,8 @@ Hver testrunde tar 15–45 minutter på Legion Go. Resultater skrives i `docs/te
 
 | Fase | Mål | Testrunder | Produkteier gjør | Status |
 | --- | --- | --- | --- | --- |
-| 0B: input og ytelse | Kontroller, JIT mot AOT, dvale mens spill kjører, Legion-knapp som hurtigtast, `gamehome://session`, «Tilbake til spillet» | 2–3 | Legge om venstre Legion-knapp i Legion Space | Pågår (runde 1–3 gjort) |
-| 0A: FSE | Valgbar som Gaming Home. Overlever omstart, oppgradering og at utviklermodus slås av. Hjem i Game Bar åpner «Kjører nå». | 1–2 | Slå på utviklermodus ved installasjon. Velge GameHome under «Choose home app». | Ikke startet |
+| 0B: input og ytelse | Kontroller, JIT mot AOT, dvale mens spill kjører, Legion-knapp som hurtigtast, `gamehome://session`, «Tilbake til spillet» | 2–3 | Legge om venstre Legion-knapp i Legion Space | **Ferdig** (3 runder) |
+| 0A: FSE | Valgbar som Gaming Home. Overlever omstart, oppgradering og at utviklermodus slås av. Hjem i Game Bar åpner «Kjører nå». | 1–2 | Slå på utviklermodus ved installasjon. Velge GameHome under «Choose home app». | **Bestått** (3 runder) |
 | 1: lokalt spill | Steam-spill og manuelt spill: start, kjører-signal, avslutning, retur til samme flis, feil gir valg, Home fra cache | 2–3 | Ha et Steam-spill installert | Ikke startet |
 | **Milepæl 1** | **Lokal barebones** | **≈ 6–8 totalt** | | |
 | 2: stream | 007 First Light via Moonlight og Vibepollo uten appvelger, Playnite eller skrivebord. Koble fra, koble til igjen, avslutt, vekking. | 3–4 | Moonlight på Legion Go. Vibepollo og Playnite på gaming-PC-en. | Ikke startet |
@@ -45,3 +45,7 @@ Hver testrunde tar 15–45 minutter på Legion Go. Resultater skrives i `docs/te
   pakke 24 MB mot 79 MB. En AOT-krasj (ItemsSource) er funnet og rettet.
 - 2026-11-02, 0B runde 3: øktmenyen virker med M2 som hurtigtast, inkludert «Tilbake til spillet» og «Avslutt økt».
   Venstre Legion-knapp kan leses via HID, men Legion Space reagerer også.
+- 2026-11-02, 0A: GameHome er valgbar som home app, Legion Go starter rett inn i GameHome, Home i Game Bar gir
+  «Kjører nå» (`windows.gaming:///home`). Overlever omstart, oppgradering og at utviklermodus slås av. Med Legion
+  Space slått av ved oppstart bruker Lenovos prosesser 64 MB, og høyre Legion-knapp og M2 virker fortsatt.
+  Beslutningspunkt 1 (FSE uten utviklermodus) er dermed ikke utløst.

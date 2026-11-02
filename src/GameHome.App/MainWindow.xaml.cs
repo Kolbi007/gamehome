@@ -88,15 +88,17 @@ public sealed partial class MainWindow : Window
 
     private bool SessionActive => _session is { HasExited: false };
 
-    /// <summary>Henter vinduet frem, for eksempel når <c>gamehome://session</c> sendes videre hit.</summary>
-    internal void BringToFront()
+    /// <summary>
+    /// Henter vinduet frem når en ny aktivering sendes hit, for eksempel Home i Game Bar eller <c>gamehome://session</c>.
+    /// </summary>
+    internal void BringToFront(string via)
     {
         Activate();
         var ok = Foreground.Bring(WinRT.Interop.WindowNative.GetWindowHandle(this));
         _log.Write("fokus", ok ? "Tok forgrunnen" : "Windows avslo forgrunnen");
         if (SessionActive)
         {
-            ShowSessionPanel("protokoll");
+            ShowSessionPanel(via);
         }
     }
 

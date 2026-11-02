@@ -1,0 +1,1 @@
+GameHome public folder for the windows.gamingApp app extension.
