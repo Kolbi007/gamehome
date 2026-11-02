@@ -9,6 +9,7 @@ using GameHome.Core.Library;
 using GameHome.Core.Model;
 using GameHome.Core.Runners;
 using GameHome.Data;
+using GameHome.Sources.Moonlight;
 using GameHome.Sources.Steam;
 using GameHome.Windows;
 using Microsoft.UI.Dispatching;
@@ -56,6 +57,7 @@ public sealed partial class MainWindow : Window
     {
         [GameLibrary.ExecutableRunnerId] = new ExecutableRunner(),
         [GameLibrary.SteamRunnerId] = new SteamRunner(),
+        [GameLibrary.MoonlightRunnerId] = new MoonlightRunner(),
     };
     private readonly List<string> _events = [];
     private readonly DispatcherQueueTimer _gamepadTimer;
@@ -77,6 +79,7 @@ public sealed partial class MainWindow : Window
     private string? _rememberedTile;
     private Action? _messagePrimary;
     private Action? _messageSecondary;
+    private Action? _messageCancel;
 
     private GamepadButtons _previousButtons;
     private bool _previousLeftTrigger;
@@ -363,7 +366,7 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async Task LaunchAsync(Game game)
+    private async Task LaunchAsync(Game game, PlayAction? chosen = null)
     {
         if (SessionActive)
         {
@@ -372,7 +375,21 @@ public sealed partial class MainWindow : Window
         }
 
         var title = GameLibrary.DisplayTitle(game);
-        var action = _library.DefaultPlayAction(game.Id);
+
+        // Flere spillemåter: brukeren velger. B avbryter, så et feiltrykk aldri starter en stream.
+        var available = _library.AvailableActionsFor(game.Id);
+        if (chosen is null && available.Count > 1)
+        {
+            var local = available.First(a => !a.IsRemote);
+            var remote = available.First(a => a.IsRemote);
+            ShowMessage($"Spill {title}", "Velg hvordan du vil spille.",
+                "Spill her", () => _ = LaunchAsync(game, local),
+                "Stream fra PC-en", () => _ = LaunchAsync(game, remote),
+                onCancel: () => FocusHome(game.Id));
+            return;
+        }
+
+        var action = chosen ?? _library.DefaultPlayAction(game.Id);
         if (action is null)
         {
             ShowMessage($"{title} kan ikke startes", "Spillet har ingen måte å startes på.",
@@ -534,7 +551,12 @@ public sealed partial class MainWindow : Window
         LoadingTitle.Visibility = Visibility.Visible;
         LoadingLogo.Source = null;
         LoadingHero.Source = null;
-        LoadingStatus.Text = action.RunnerId == GameLibrary.SteamRunnerId ? "Starter via Steam …" : "Starter …";
+        LoadingStatus.Text = action.RunnerId switch
+        {
+            GameLibrary.SteamRunnerId => "Starter via Steam …",
+            GameLibrary.MoonlightRunnerId => "Kobler til gaming-PC-en …",
+            _ => "Starter …",
+        };
         LoadingChoices.Visibility = Visibility.Collapsed;
         LoadingPanel.Visibility = Visibility.Visible;
         SetHomeEnabled(false);
@@ -673,7 +695,15 @@ public sealed partial class MainWindow : Window
         SessionTitle.Text = _sessionGame is null ? "Spill" : GameLibrary.DisplayTitle(_sessionGame);
         SessionDetail.Text = string.Create(CultureInfo.InvariantCulture,
             $"Startet for {(DateTime.UtcNow - _sessionStarted).TotalMinutes:F0} min siden");
-        EndSessionButton.Content = "Avslutt spillet";
+        var streaming = _session is StreamSession;
+        ResumeButton.Content = streaming ? "Tilbake til streamen" : "Tilbake til spillet";
+        EndSessionButton.Content = streaming ? "Koble fra (spillet fortsetter på PC-en)" : "Avslutt spillet";
+        EndRemoteButton.Visibility = streaming ? Visibility.Visible : Visibility.Collapsed;
+        if (streaming)
+        {
+            SessionDetail.Text = "Strømmer fra gaming-PC-en";
+        }
+
         SessionPanel.Visibility = Visibility.Visible;
         SetHomeEnabled(false);
         ResumeButton.Focus(FocusState.Keyboard);
@@ -749,7 +779,12 @@ public sealed partial class MainWindow : Window
 
     // ---- Meldinger med to valg ----
 
-    private void ShowMessage(string title, string text, string primary, Action onPrimary, string secondary, Action onSecondary)
+    /// <summary>
+    /// Viser en melding med to valg. B kjører <paramref name="onCancel"/>, eller det andre valget hvis den mangler. Bruk
+    /// <paramref name="onCancel"/> når begge valgene gjør noe, så B aldri starter noe.
+    /// </summary>
+    private void ShowMessage(string title, string text, string primary, Action onPrimary, string secondary, Action onSecondary,
+        Action? onCancel = null)
     {
         MessageTitle.Text = title;
         MessageText.Text = text;
@@ -757,19 +792,144 @@ public sealed partial class MainWindow : Window
         MessageSecondary.Content = secondary;
         _messagePrimary = onPrimary;
         _messageSecondary = onSecondary;
+        _messageCancel = onCancel ?? onSecondary;
         MessagePanel.Visibility = Visibility.Visible;
         SetHomeEnabled(false);
-        MessageSecondary.Focus(FocusState.Keyboard);
+        (onCancel is null ? MessageSecondary : MessagePrimary).Focus(FocusState.Keyboard);
         _log.Write("melding", title);
     }
 
     private void CloseMessage(Action? then)
     {
         MessagePanel.Visibility = Visibility.Collapsed;
-        SetHomeEnabled(SessionPanel.Visibility != Visibility.Visible);
+        SetHomeEnabled(SessionPanel.Visibility != Visibility.Visible && HostPanel.Visibility != Visibility.Visible);
         _messagePrimary = null;
         _messageSecondary = null;
+        _messageCancel = null;
         then?.Invoke();
+    }
+
+    // ---- Spill på PC-en (Moonlight) ----
+
+    private async void HostTile_Click(object sender, RoutedEventArgs e)
+    {
+        LogChoice(HostTile);
+        HostGames.Children.Clear();
+        HostPanel.Visibility = Visibility.Visible;
+        SetHomeEnabled(false);
+        HostCloseButton.Focus(FocusState.Keyboard);
+
+        var hosts = MoonlightClient.FindHosts();
+        if (MoonlightClient.FindExe() is null || hosts.Count == 0)
+        {
+            HostStatus.Text = MoonlightClient.FindExe() is null
+                ? "Moonlight er ikke installert på Legion Go."
+                : "Moonlight er ikke paret med en PC ennå. Åpne Moonlight og legg til PC-en én gang.";
+            _log.Write("host", HostStatus.Text);
+            return;
+        }
+
+        var host = hosts[0];
+        HostStatus.Text = $"Henter spill fra {host.Name} …";
+        MoonlightResult result;
+        try
+        {
+            result = await MoonlightClient.RunAsync(["list", host.Uuid, "--csv"], TimeSpan.FromSeconds(70));
+        }
+        catch (LaunchException ex)
+        {
+            HostStatus.Text = ex.Message;
+            _log.Write("host", $"list feilet: {ex.Message}");
+            return;
+        }
+
+        var apps = MoonlightAppList.ParseCsv(result.Output);
+        var games = apps.Where(a => a.IsGame).OrderBy(a => a.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
+        var extra = (result.TimedOut ? ", tidsgrense nådd" : "")
+            + (result.ExitCode != 0 && result.Errors.Length > 0 ? ", stderr: " + FirstLine(result.Errors) : "");
+        _log.Write("host", string.Create(CultureInfo.InvariantCulture,
+            $"list {host.Name}: exit {result.ExitCode}, {result.Elapsed.TotalSeconds:F1} s, {apps.Count} apper, {games.Count} spill{extra}"));
+
+        if (HostPanel.Visibility != Visibility.Visible)
+        {
+            return;
+        }
+
+        if (result.ExitCode != 0)
+        {
+            HostStatus.Text = result.TimedOut
+                ? $"{host.Name} svarte ikke. Er PC-en på?"
+                : $"Fikk ikke kontakt med {host.Name}. {FirstLine(result.Errors)}";
+            return;
+        }
+
+        HostStatus.Text = games.Count == 0
+            ? $"Fant ingen installerte spill på {host.Name}. Sjekk at Vibepollo synker alle installerte Playnite-spill."
+            : $"{games.Count} installerte spill på {host.Name}. Velg et spill for å legge det til i Home.";
+        foreach (var app in games)
+        {
+            var button = new Button
+            {
+                Content = HostGameText(host.Uuid, app.Name),
+                Tag = app.Name,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Left,
+                Height = 56,
+                FontSize = 20,
+            };
+            button.Click += (_, _) => AddHostGame(host, app.Name, button);
+            HostGames.Children.Add(button);
+        }
+
+        if (HostGames.Children.Count > 0 && HostGames.Children[0] is Button first)
+        {
+            first.Focus(FocusState.Keyboard);
+        }
+    }
+
+    private string HostGameText(string hostId, string name) => _library.HasStream(hostId, name) ? $"✓  {name}   (i Home)" : name;
+
+    private void AddHostGame(MoonlightHost host, string name, Button button)
+    {
+        var (game, newTile) = _library.AddStream(host.Uuid, name);
+        SaveLibrary();
+        BuildGameTiles();
+        button.Content = HostGameText(host.Uuid, name);
+        _focusGameId = game.Id;
+        _log.Write("host", newTile ? $"La til «{name}» fra {host.Name} i Home" : $"«{name}» fra {host.Name} er spillemåte på «{GameLibrary.DisplayTitle(game)}»");
+    }
+
+    private void HostCloseButton_Click(object sender, RoutedEventArgs e) => CloseHostPanel();
+
+    private void CloseHostPanel()
+    {
+        HostPanel.Visibility = Visibility.Collapsed;
+        SetHomeEnabled(true);
+        FocusHome(_focusGameId);
+    }
+
+    private static string FirstLine(string text) =>
+        text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).LastOrDefault() ?? string.Empty;
+
+    private void EndRemoteButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_session is not StreamSession stream || !SessionActive)
+        {
+            HideSessionPanel();
+            return;
+        }
+
+        var title = _sessionGame is null ? "spillet" : GameLibrary.DisplayTitle(_sessionGame);
+        SessionPanel.Visibility = Visibility.Collapsed;
+        ShowMessage($"Avslutte {title} på PC-en?", "Spillet lukkes på gaming-PC-en. Ulagret fremgang kan gå tapt.",
+            "Avslutt på PC-en", () =>
+            {
+                _log.Write("økt", "Avslutt fjernspill bekreftet");
+                LastInput.Text = $"Avslutter {title} på PC-en …";
+                _ = stream.EndRemoteAppAsync();
+                FocusHome(_focusGameId);
+            },
+            "Avbryt", () => ShowSessionPanel("avslutt fjernspill avbrutt"));
     }
 
     private void MessagePrimary_Click(object sender, RoutedEventArgs e) => CloseMessage(_messagePrimary);
@@ -1101,7 +1261,11 @@ public sealed partial class MainWindow : Window
         {
             if (MessagePanel.Visibility == Visibility.Visible)
             {
-                CloseMessage(_messageSecondary);
+                CloseMessage(_messageCancel);
+            }
+            else if (HostPanel.Visibility == Visibility.Visible)
+            {
+                CloseHostPanel();
             }
             else if (PowerPanel.Visibility == Visibility.Visible)
             {
