@@ -745,17 +745,24 @@ public sealed partial class MainWindow : Window
         return path is not null && File.Exists(path) ? path : null;
     }
 
-    /// <summary>Bildene for et spill: Steams lokale bildecache for Steam-spill på Legion Go, ellers det som er lagret.</summary>
+    /// <summary>
+    /// Bildene for et spill: brukerens egne valg (Velg bilder) først, så Steams lokale bildecache for Steam-spill på
+    /// Legion Go, så det som er hentet.
+    /// </summary>
     private ArtSet ArtFor(Game game)
     {
+        var baseArt = game.Art;
         var steam = _library.PlayActionsFor(game.Id).FirstOrDefault(a => a.RunnerId == GameLibrary.SteamRunnerId);
         if (steam is not null && SteamClient.FindRoot() is { } root)
         {
             var local = SteamArt.Find(root, steam.Target);
-            return new ArtSet(local.Cover ?? game.Art.Cover, local.Hero ?? game.Art.Hero, local.Logo ?? game.Art.Logo);
+            baseArt = new ArtSet(local.Cover ?? game.Art.Cover, local.Hero ?? game.Art.Hero, local.Logo ?? game.Art.Logo);
         }
 
-        return game.Art;
+        static string? Pick(string? chosen, string? fallback) => chosen is not null && File.Exists(chosen) ? chosen : fallback;
+        return game.Overrides.Art is { } mine
+            ? new ArtSet(Pick(mine.Cover, baseArt.Cover), Pick(mine.Hero, baseArt.Hero), Pick(mine.Logo, baseArt.Logo))
+            : baseArt;
     }
 
     private string TileText(Game game) =>
@@ -1154,6 +1161,378 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    // ---- Velg bilder: én fane per kilde, bakgrunn/logo/omslag i hver ----
+
+    private const string ArtHero = "hero";
+    private const string ArtLogo = "logo";
+    private const string ArtCover = "cover";
+
+    /// <summary>Et bildevalg: type, forhåndsbilde og selve bildet (adresse på nett eller fil på disk).</summary>
+    private sealed record ArtOption(string Kind, string Preview, string Full);
+
+    private Game? _artGame;
+    private string _artTab = "steam-store";
+
+    private void OptionArt_Click(object sender, RoutedEventArgs e)
+    {
+        if (_optionsGame is { } game)
+        {
+            CloseOptions(focusHome: false);
+            ShowArtPicker(game);
+        }
+    }
+
+    /// <summary>Kildene som gir mening for spillet: Steams butikk, Steams lokale bilder, gaming-PC-en og SteamGridDB.</summary>
+    private List<(string Id, string Name)> ArtSources(Game game)
+    {
+        var sources = new List<(string, string)> { ("steam-store", "Steam Store") };
+        if (_library.PlayActionsFor(game.Id).Any(a => a.RunnerId == GameLibrary.SteamRunnerId))
+        {
+            sources.Add(("steam-local", "Steam (lokalt)"));
+        }
+
+        if (_library.PlayActionsFor(game.Id).Any(a => a.IsRemote))
+        {
+            sources.Add(("host", HostLabel));
+        }
+
+        sources.Add(("steamgriddb", "SteamGridDB"));
+        return sources;
+    }
+
+    private void ShowArtPicker(Game game)
+    {
+        _artGame = _library.Find(game.Id) ?? game;
+        ArtTitle.Text = GameLibrary.DisplayTitle(_artGame);
+        _artTab = "steam-store";
+        BuildArtTabs();
+        ArtPanel.Visibility = Visibility.Visible;
+        FadeIn(ArtPanel);
+        SetHomeEnabled(false);
+        _ = FillArtTabAsync();
+    }
+
+    private void BuildArtTabs()
+    {
+        ArtTabs.Children.Clear();
+        if (_artGame is not { } game)
+        {
+            return;
+        }
+
+        foreach (var (id, name) in ArtSources(game))
+        {
+            var selected = id == _artTab;
+            var tab = new Button
+            {
+                Content = name,
+                Height = 44,
+                Padding = new Thickness(18, 0, 18, 0),
+                CornerRadius = new CornerRadius(22),
+                FontSize = 16,
+                FontWeight = selected ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal,
+                BorderThickness = new Thickness(selected ? 2 : 0),
+                BorderBrush = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["GhTextPrimaryBrush"],
+            };
+            tab.Click += (_, _) =>
+            {
+                _artTab = id;
+                BuildArtTabs();
+                _ = FillArtTabAsync();
+            };
+            ArtTabs.Children.Add(tab);
+            if (selected)
+            {
+                tab.Focus(FocusState.Keyboard);
+            }
+        }
+    }
+
+    /// <summary>Henter valgene for fanen og viser dem som tre rader: bakgrunn, logo og omslag.</summary>
+    private async Task FillArtTabAsync()
+    {
+        if (_artGame is not { } game)
+        {
+            return;
+        }
+
+        var tab = _artTab;
+        ArtSections.Children.Clear();
+        ArtStatus.Text = "Henter bilder …";
+        List<ArtOption> options = [];
+        try
+        {
+            options = await ArtOptionsAsync(game, tab);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException or UnauthorizedAccessException or JsonException)
+        {
+            ArtStatus.Text = $"Fikk ikke hentet bilder: {ex.Message}";
+            return;
+        }
+
+        if (tab != _artTab || ArtPanel.Visibility != Visibility.Visible)
+        {
+            return;
+        }
+
+        ArtStatus.Text = tab switch
+        {
+            "steamgriddb" => "SteamGridDB har mange bilder laget av brukere, men krever en gratis nøkkel som ikke er satt opp ennå (kommer i fase 4).",
+            _ when options.Count == 0 => "Ingen bilder fra denne kilden.",
+            _ => "Velg et bilde med A. Valget ditt vinner over automatiske bilder.",
+        };
+
+        var current = ArtFor(game);
+        foreach (var (kind, label) in new[] { (ArtHero, "Bakgrunn"), (ArtLogo, "Logo"), (ArtCover, "Omslag") })
+        {
+            var ofKind = options.Where(o => o.Kind == kind).ToList();
+            if (ofKind.Count == 0)
+            {
+                continue;
+            }
+
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, Padding = new Thickness(4, 6, 4, 6) };
+            foreach (var option in ofKind)
+            {
+                row.Children.Add(ArtOptionButton(game, option, IsChosen(game, option, current)));
+            }
+
+            var section = new StackPanel { Spacing = 6 };
+            section.Children.Add(new TextBlock { Text = label, FontSize = 16, Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["GhTextSecondaryBrush"] });
+            section.Children.Add(new ScrollViewer
+            {
+                Content = row,
+                HorizontalScrollMode = ScrollMode.Enabled,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Hidden,
+                VerticalScrollMode = ScrollMode.Disabled,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            });
+            ArtSections.Children.Add(section);
+        }
+    }
+
+    private async Task<List<ArtOption>> ArtOptionsAsync(Game game, string tab)
+    {
+        var options = new List<ArtOption>();
+        switch (tab)
+        {
+            case "steam-store":
+            {
+                var store = new SteamStoreClient(ArtHttp);
+                if ((SteamAppIdFor(game) ?? await store.FindAppIdAsync(GameLibrary.DisplayTitle(game))) is not { } appId)
+                {
+                    ArtStatus.Text = "Spillet er ikke funnet på Steam. Bruk «Finn riktig spill» under Valg først.";
+                    return options;
+                }
+
+                var urls = SteamStoreClient.ImageUrls(appId);
+                options.Add(new ArtOption(ArtHero, urls.Hero, urls.Hero));
+                options.AddRange((await store.GetScreenshotsAsync(appId)).Select(s => new ArtOption(ArtHero, s.Preview, s.Full)));
+                options.Add(new ArtOption(ArtLogo, urls.Logo, urls.Logo));
+                options.AddRange(SteamStoreClient.ExtraCoverUrls(appId).Select(u => new ArtOption(ArtCover, u, u)));
+                break;
+            }
+
+            case "steam-local":
+            {
+                var steam = _library.PlayActionsFor(game.Id).FirstOrDefault(a => a.RunnerId == GameLibrary.SteamRunnerId);
+                if (steam is not null && SteamClient.FindRoot() is { } root)
+                {
+                    var local = SteamArt.Find(root, steam.Target);
+                    if (local.Hero is { } h)
+                    {
+                        options.Add(new ArtOption(ArtHero, h, h));
+                    }
+
+                    if (local.Logo is { } l)
+                    {
+                        options.Add(new ArtOption(ArtLogo, l, l));
+                    }
+
+                    if (local.Cover is { } c)
+                    {
+                        options.Add(new ArtOption(ArtCover, c, c));
+                    }
+                }
+
+                break;
+            }
+
+            case "host":
+            {
+                _vibepolloApps ??= Vibepollo is { } api ? await api.GetAppsAsync() : [];
+                if (await DownloadVibepolloCoverAsync(game, _vibepolloApps) is { } cover)
+                {
+                    options.Add(new ArtOption(ArtCover, cover, cover));
+                    options.Add(new ArtOption(ArtHero, cover, cover));
+                }
+
+                break;
+            }
+        }
+
+        return options;
+    }
+
+    private static string ArtSourceKey(Game game, string kind) => $"artsrc.{game.Id}.{kind}";
+
+    private static bool IsChosen(Game game, ArtOption option, ArtSet current)
+    {
+        var chosenSource = ApplicationData.Current.LocalSettings.Values[ArtSourceKey(game, option.Kind)] as string;
+        if (chosenSource is not null)
+        {
+            return string.Equals(chosenSource, option.Full, StringComparison.OrdinalIgnoreCase);
+        }
+
+        var path = option.Kind switch { ArtHero => current.Hero, ArtLogo => current.Logo, _ => current.Cover };
+        return path is not null && string.Equals(path, option.Full, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private Button ArtOptionButton(Game game, ArtOption option, bool chosen)
+    {
+        var (width, height) = option.Kind switch
+        {
+            ArtLogo => (260.0, 110.0),
+            ArtCover => (200.0, 150.0),
+            _ => (288.0, 162.0),
+        };
+        var image = new Image
+        {
+            Width = width,
+            Height = height,
+            Stretch = option.Kind == ArtHero ? Microsoft.UI.Xaml.Media.Stretch.UniformToFill : Microsoft.UI.Xaml.Media.Stretch.Uniform,
+        };
+        if (Uri.TryCreate(option.Preview, UriKind.Absolute, out var uri) && uri.Scheme.StartsWith("http", StringComparison.Ordinal))
+        {
+            image.Source = new BitmapImage(uri) { DecodePixelWidth = Px(width) };
+        }
+        else
+        {
+            _ = LoadTileImageAsync(image, option.Preview, Px(width));
+        }
+
+        var accent = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["GhTextPrimaryBrush"];
+        var button = new Button
+        {
+            Content = new Grid { Children = { image }, Background = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["GhSurfaceBrush"] },
+            Padding = new Thickness(0),
+            CornerRadius = new CornerRadius(8),
+            BorderThickness = new Thickness(chosen ? 3 : 0),
+            BorderBrush = accent,
+        };
+        if (chosen)
+        {
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, "Valgt");
+        }
+
+        button.Click += async (_, _) => await ChooseArtAsync(game, option);
+        return button;
+    }
+
+    /// <summary>Lagrer valget: lastes ned ved behov og settes som brukerens eget bilde for typen.</summary>
+    private async Task ChooseArtAsync(Game game, ArtOption option)
+    {
+        ArtStatus.Text = "Bruker bildet …";
+        string? path = option.Full;
+        try
+        {
+            if (Uri.TryCreate(option.Full, UriKind.Absolute, out var uri) && uri.Scheme.StartsWith("http", StringComparison.Ordinal))
+            {
+                var folder = Path.Combine(ApplicationData.Current.LocalFolder.Path, "art");
+                Directory.CreateDirectory(folder);
+                var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(option.Full)))[..10];
+                path = Path.Combine(folder, $"{game.Id}-{option.Kind}-mine-{hash}{Path.GetExtension(uri.AbsolutePath)}");
+                if (!File.Exists(path))
+                {
+                    using var response = await ArtHttp.GetAsync(uri);
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        ArtStatus.Text = "Bildet finnes ikke på Steam for dette spillet.";
+                        return;
+                    }
+
+                    await using var file = File.Create(path);
+                    await response.Content.CopyToAsync(file);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException or UnauthorizedAccessException)
+        {
+            ArtStatus.Text = $"Fikk ikke hentet bildet: {ex.Message}";
+            return;
+        }
+
+        if (_library.Find(game.Id) is not { } current)
+        {
+            return;
+        }
+
+        var mine = current.Overrides.Art ?? ArtSet.Empty;
+        mine = option.Kind switch
+        {
+            ArtHero => mine with { Hero = path },
+            ArtLogo => mine with { Logo = path },
+            _ => mine with { Cover = path },
+        };
+        _library.SetOverrides(game.Id, current.Overrides with { Art = mine });
+        SaveLibrary();
+        ApplicationData.Current.LocalSettings.Values[ArtSourceKey(game, option.Kind)] = option.Full;
+        _log.Write("bilder", $"«{GameLibrary.DisplayTitle(game)}»: eget bilde for {option.Kind} ({option.Full})");
+        RefreshGameArt(game.Id);
+        _artGame = _library.Find(game.Id);
+        await FillArtTabAsync();
+        ArtStatus.Text = "Bildet er i bruk.";
+    }
+
+    private void RefreshGameArt(string gameId)
+    {
+        _ambientPath = null;
+        _heroLogoPath = null;
+        if (TileFor(gameId) is { } tile && _library.Find(gameId) is { } updated)
+        {
+            SetTileContent(tile, updated);
+            UpdateHero(updated);
+            if (TileImageFor(updated) is { } image)
+            {
+                var hero = ArtFor(updated).Hero is { } h && File.Exists(h) ? h : null;
+                _ambientPath = hero ?? image;
+                _ = LoadAmbientAsync(_ambientPath, sharp: hero is not null);
+            }
+        }
+    }
+
+    private void ArtResetButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_artGame is not { } game || _library.Find(game.Id) is not { } current)
+        {
+            return;
+        }
+
+        _library.SetOverrides(game.Id, current.Overrides with { Art = null });
+        SaveLibrary();
+        foreach (var kind in new[] { ArtHero, ArtLogo, ArtCover })
+        {
+            ApplicationData.Current.LocalSettings.Values.Remove(ArtSourceKey(game, kind));
+        }
+
+        _log.Write("bilder", $"«{GameLibrary.DisplayTitle(game)}»: tilbake til automatiske bilder");
+        RefreshGameArt(game.Id);
+        _artGame = _library.Find(game.Id);
+        _ = FillArtTabAsync();
+        ArtStatus.Text = "Tilbake til automatiske bilder.";
+    }
+
+    private void ArtCloseButton_Click(object sender, RoutedEventArgs e) => CloseArtPicker();
+
+    private void CloseArtPicker()
+    {
+        ArtPanel.Visibility = Visibility.Collapsed;
+        ArtSections.Children.Clear(); // Forhåndsbildene slippes.
+        ArtTabs.Children.Clear();
+        SetHomeEnabled(true);
+        FocusHome(_artGame?.Id ?? _focusGameId);
+    }
+
     // ---- Om spillet (Y) ----
 
     private Game? _detailsGame;
@@ -1164,7 +1543,8 @@ public sealed partial class MainWindow : Window
         || HostPanel.Visibility == Visibility.Visible || PowerPanel.Visibility == Visibility.Visible
         || LoadingPanel.Visibility == Visibility.Visible || DetailsPanel.Visibility == Visibility.Visible
         || OptionsPanel.Visibility == Visibility.Visible || DebugPanel.Visibility == Visibility.Visible
-        || FindPanel.Visibility == Visibility.Visible || NoticePanel.Visibility == Visibility.Visible;
+        || FindPanel.Visibility == Visibility.Visible || NoticePanel.Visibility == Visibility.Visible
+        || ArtPanel.Visibility == Visibility.Visible;
 
     private void ShowDetails(Game game)
     {
@@ -3597,6 +3977,10 @@ public sealed partial class MainWindow : Window
             if (MessagePanel.Visibility == Visibility.Visible)
             {
                 CloseMessage(_messageCancel);
+            }
+            else if (ArtPanel.Visibility == Visibility.Visible)
+            {
+                CloseArtPicker();
             }
             else if (FindPanel.Visibility == Visibility.Visible)
             {

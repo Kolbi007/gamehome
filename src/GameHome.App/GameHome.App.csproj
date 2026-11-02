@@ -45,6 +45,8 @@
   -->
   <PropertyGroup>
     <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+    <!-- CsWinRT genererer AOT-sikker kode for .NET-lister som kan krysse WinRT-grensen (CsWinRT1030). -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ServerGarbageCollector>false</ServerGarbageCollector>
   </PropertyGroup>
 

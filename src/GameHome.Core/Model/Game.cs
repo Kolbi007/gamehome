@@ -22,11 +22,13 @@ public sealed record ArtSet(string? Cover = null, string? Hero = null, string? L
 }
 
 /// <summary>Brukerens rettelser. Overskrives aldri av skanning eller metadata.</summary>
+/// <param name="Art">Bilder brukeren har valgt selv (per type). Vinner over Steams lokale bilder og hentede bilder.</param>
 public sealed record UserOverrides(
     string? Title = null,
     string? ProcessName = null,
     string? DefaultPlayActionId = null,
-    bool Hidden = false)
+    bool Hidden = false,
+    ArtSet? Art = null)
 {
     public static UserOverrides None { get; } = new();
 }

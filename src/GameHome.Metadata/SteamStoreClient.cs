@@ -161,6 +161,61 @@ public sealed class SteamStoreClient(HttpClient http)
         }
     }
 
+    /// <summary>Skjermbilder fra butikksiden (lite forhåndsbilde og full størrelse), til valg av bakgrunn.</summary>
+    public async Task<IReadOnlyList<(string Preview, string Full)>> GetScreenshotsAsync(int appId, CancellationToken ct = default)
+    {
+        await Gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var wait = TimeSpan.FromSeconds(1) - (DateTime.UtcNow - _lastCall);
+            if (wait > TimeSpan.Zero)
+            {
+                await Task.Delay(wait, ct).ConfigureAwait(false);
+            }
+
+            _lastCall = DateTime.UtcNow;
+            var id = appId.ToString(CultureInfo.InvariantCulture);
+            var json = await http.GetStringAsync(new Uri($"https://store.steampowered.com/api/appdetails?filters=screenshots&appids={id}"), ct).ConfigureAwait(false);
+            return ParseScreenshots(json, appId);
+        }
+        finally
+        {
+            Gate.Release();
+        }
+    }
+
+    public static IReadOnlyList<(string Preview, string Full)> ParseScreenshots(string json, int appId)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            if (!document.RootElement.TryGetProperty(appId.ToString(CultureInfo.InvariantCulture), out var entry)
+                || !entry.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object
+                || !data.TryGetProperty("screenshots", out var shots) || shots.ValueKind != JsonValueKind.Array)
+            {
+                return [];
+            }
+
+            return [.. shots.EnumerateArray()
+                .Select(s => (Preview: s.TryGetProperty("path_thumbnail", out var t) ? t.GetString() : null,
+                              Full: s.TryGetProperty("path_full", out var f) ? f.GetString() : null))
+                .Where(s => s.Preview is not null && s.Full is not null)
+                .Select(s => (s.Preview!, s.Full!))
+                .Take(8)];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
+    /// <summary>Flere offisielle butikkbilder enn standardsettet: bred «header» og kapsel som alternative omslag.</summary>
+    public static IReadOnlyList<string> ExtraCoverUrls(int appId)
+    {
+        var root = Cdn + appId.ToString(CultureInfo.InvariantCulture) + "/";
+        return [root + "library_600x900_2x.jpg", root + "header.jpg", root + "capsule_616x353.jpg"];
+    }
+
     public static SteamImageUrls ImageUrls(int appId)
     {
         var root = Cdn + appId.ToString(CultureInfo.InvariantCulture) + "/";

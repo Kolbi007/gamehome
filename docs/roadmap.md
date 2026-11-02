@@ -14,10 +14,30 @@ Hver testrunde tar 15–45 minutter på Legion Go. Resultater skrives i `docs/te
 | 0A: FSE | Valgbar som Gaming Home. Overlever omstart, oppgradering og at utviklermodus slås av. Hjem i Game Bar åpner «Kjører nå». | 1–2 | Slå på utviklermodus ved installasjon. Velge GameHome under «Choose home app». | **Bestått** (3 runder) |
 | 1: lokalt spill | Steam-spill og manuelt spill: start, kjører-signal, avslutning, retur til samme flis, feil gir valg, Home fra cache | 2–3 | Ha et Steam-spill installert | **Ferdig** |
 | **Milepæl 1** | **Lokal barebones** | **≈ 6–8 totalt** | | |
-| 2: stream | 007 First Light via Moonlight og Vibepollo uten appvelger, Playnite eller skrivebord. Koble fra, koble til igjen, avslutt, vekking. | 3–4 | Moonlight på Legion Go (gjort). Én Vibepollo-innstilling: synk alle installerte Playnite-spill (gjort). | **Nesten ferdig**: alt unntatt vekking (ikke støttet av gaming-PC-en) og «annen app kjører» |
+| 2: stream | 007 First Light via Moonlight og Vibepollo uten appvelger, Playnite eller skrivebord. Koble fra, koble til igjen, avslutt, vekking. | 3–4 | Moonlight på Legion Go (gjort). Én Vibepollo-innstilling: synk alle installerte Playnite-spill (gjort). | **Ferdig**: alt unntatt vekking (ikke støttet av gaming-PC-en); «annen app kjører» testet 2026-11-02 |
 | **Barebones med stream** | **Suksessdefinisjonen** | **≈ 10–12 totalt** | | |
+| **Neste: butikker uten tunge klienter** | GOG, Epic og Xbox fra disk som Steam; klient bare ved start; valgfri «lukk klienten etter spillet»; sjekk av autostart; senere Steam-bibliotek (eide spill) og installasjon | 2–3 | Steam Web API-nøkkel (senere) | **Neste fase** (plan under) |
 | 3: retro | Ett system og én emulator | 1–2 | Lovlig testinnhold | Senere |
-| 4: flere kilder og metadata | Epic, Xbox, GOG, IGDB, HowLongToBeat, Metacritic | Løpende | IGDB-nøkkel | Senere |
+| 4: flere kilder og metadata | IGDB (også spilletid), SteamGridDB (flere bildevalg), Metacritic via Steam (gjort) | Løpende | IGDB- og SteamGridDB-nøkkel | Senere |
+
+## Plan for neste fase: butikker uten tunge klienter (ønske fra produkteier 2026-11-02)
+
+Mål: GameHome vet hva som er installert uten at noen butikkklient kjører, og en klient kjører bare når et spill fra den
+startes. Ressursbruk på Legion Go holdes lav (minne, batteri). Alt under er hypoteser til det er testet.
+
+1. **Finn installerte spill fra disk** for GOG (register og `goggame-*.info` fra GOG-installasjonen), Epic
+   (manifestfiler i ProgramData) og Xbox/Game Pass (Windows' pakkeliste), som Steam-skanningen i dag. Ingen klient må kjøre.
+2. **Start klienten bare ved behov** (`ClientOnDemand`, finnes for Steam). GOG-spill uten DRM startes direkte fra
+   programfilen. Xbox-spill startes via Windows (Gaming Services er en lett systemtjeneste).
+3. **Valgfritt per butikk: lukk klienten etter spillet**, av som standard. Vent til skylagring er ferdig (eller noen
+   minutter), be klienten lukke seg pent, aldri tvangslukk. Steam har en offisiell lukkekommando.
+4. **Sjekk av autostart** under Feilsøking: hvilke butikkklienter som starter med Windows og bruker minne. Brukeren slår
+   dem av selv; GameHome endrer det ikke.
+5. **Tunge DRM-klienter** (Ubisoft Connect, EA app, Battle.net) holdes helst på gaming-PC-en; spillene strømmes.
+   Støtte for dem på Legion Go når produkteier har slike spill der.
+6. **Senere:** Steam-bibliotek (eide spill, også ikke installerte) med Steam Web API (nøkkel fra produkteier, lagres i
+   Windows' sikre lager), og «Installer» med Steams offisielle `steam://install/<appid>`. Epic uten Epic-klienten via
+   Legendary (åpen kildekode, GPL) bare etter eget valg fra produkteier.
 
 ## Plan for fase 2: stream
 

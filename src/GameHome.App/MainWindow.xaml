@@ -369,6 +369,7 @@
                 <TextBlock x:Name="OptionsTitle" FontFamily="{StaticResource GhFontDisplay}" FontSize="{StaticResource GhSizeTitle}" FontWeight="SemiBold"
                            Foreground="{StaticResource GhTextPrimaryBrush}" TextWrapping="Wrap" Margin="0,0,0,12" />
                 <Button x:Name="OptionFind" Style="{StaticResource GhPanelButton}" Content="Finn riktig spill eller endre navn" Click="OptionFind_Click" />
+                <Button x:Name="OptionArt" Style="{StaticResource GhPanelButton}" Content="Velg bilder" Click="OptionArt_Click" />
                 <Button x:Name="OptionDefaultMode" Style="{StaticResource GhPanelButton}" Click="OptionDefaultMode_Click" />
                 <Button x:Name="OptionSource" Style="{StaticResource GhPanelButton}" Click="OptionSource_Click">
                     <StackPanel Spacing="2">
@@ -389,6 +390,36 @@
                 <TextBlock x:Name="OptionsStatus" FontSize="{StaticResource GhSizeSmall}" Foreground="{StaticResource GhTextSecondaryBrush}" TextWrapping="Wrap" />
             </StackPanel>
             </ScrollViewer>
+        </Grid>
+
+        <!--
+          Velg bilder: én fane per kilde. I hver fane bakgrunn, logo og omslag; valget lagres som brukerens eget og vinner
+          over alt annet. Forhåndsbildene er små og slippes når panelet lukkes.
+        -->
+        <Grid x:Name="ArtPanel" Background="{StaticResource GhScrimBrush}" Visibility="Collapsed">
+            <Grid Padding="{StaticResource GhPageMargin}" RowSpacing="12">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <TextBlock Text="Velg bilder" FontSize="{StaticResource GhSizeCaption}" Foreground="{StaticResource GhTextTertiaryBrush}" />
+                <TextBlock x:Name="ArtTitle" Grid.Row="1" FontFamily="{StaticResource GhFontDisplay}" FontSize="{StaticResource GhSizeTitle}" FontWeight="SemiBold"
+                           Foreground="{StaticResource GhTextPrimaryBrush}" />
+                <StackPanel Grid.Row="2" Spacing="6">
+                    <StackPanel x:Name="ArtTabs" Orientation="Horizontal" Spacing="8" />
+                    <TextBlock x:Name="ArtStatus" FontSize="{StaticResource GhSizeSmall}" Foreground="{StaticResource GhTextSecondaryBrush}" TextWrapping="Wrap" />
+                </StackPanel>
+                <ScrollViewer x:Name="ArtScroll" Grid.Row="3" VerticalScrollBarVisibility="Auto">
+                    <StackPanel x:Name="ArtSections" Spacing="16" />
+                </ScrollViewer>
+                <StackPanel Grid.Row="4" Orientation="Horizontal" Spacing="10">
+                    <Button x:Name="ArtResetButton" Content="Tilbake til automatisk" Click="ArtResetButton_Click" Height="52" Padding="20,0" FontSize="{StaticResource GhSizeCaption}" />
+                    <Button x:Name="ArtCloseButton" Content="Lukk" Click="ArtCloseButton_Click" Height="52" Padding="20,0" FontSize="{StaticResource GhSizeCaption}" />
+                </StackPanel>
+            </Grid>
         </Grid>
 
         <!-- Varsler: det som ikke gikk, med en knapp for å rette det. -->
