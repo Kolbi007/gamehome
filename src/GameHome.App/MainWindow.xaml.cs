@@ -1404,6 +1404,17 @@ public sealed partial class MainWindow : Window
         _focusGameId = game.Id;
         _log.Write("host", newTile ? $"La til «{app.Name}» fra {host.Name} i Home" : $"«{app.Name}» fra {host.Name} er spillemåte på «{GameLibrary.DisplayTitle(game)}»");
         _ = FetchMissingArtAsync();
+
+        // Finnes spillet allerede lokalt, får det ingen ny flis: si fra at det nå har to spillemåter.
+        var title = GameLibrary.DisplayTitle(game);
+        if (!newTile && _library.AvailableActionsFor(game.Id).Count > 1)
+        {
+            CloseHostPanel();
+            ShowMessage($"{title} kan spilles på to måter",
+                $"{title} finnes både på Legion Go og på {HostLabel}. Når du starter spillet, velger du «Spill her» eller «Stream fra {HostLabel}».",
+                $"Start {title} nå", () => _ = LaunchAsync(game),
+                "OK", () => FocusHome(game.Id));
+        }
     }
 
     // ---- Omslag for spill fra gaming-PC-en ----
