@@ -778,10 +778,74 @@ public sealed partial class MainWindow : Window
 
     private void SetHomeEnabled(bool enabled)
     {
-        foreach (var child in GameTiles.Children.OfType<Button>().Concat(ToolTiles.Children.OfType<Button>()))
+        foreach (var child in GameTiles.Children.OfType<Button>()
+            .Concat(ToolTiles.Children.OfType<Button>())
+            .Concat(PowerButtons.Children.OfType<Button>()))
         {
             child.IsEnabled = enabled;
         }
+    }
+
+    // ---- Strømvalg ----
+
+    private void PowerButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string tag } button)
+        {
+            return;
+        }
+
+        var action = tag switch
+        {
+            "sleep" => PowerAction.Sleep,
+            "restart" => PowerAction.Restart,
+            _ => PowerAction.Shutdown,
+        };
+        _log.Write("strøm", $"{action} valgt via {_lastSource}");
+
+        // Fra «Kjører nå»: panelet skjules mens bekreftelsen vises, og kommer tilbake ved Avbryt.
+        var fromSession = SessionPanel.Visibility == Visibility.Visible;
+        if (fromSession)
+        {
+            SessionPanel.Visibility = Visibility.Collapsed;
+        }
+
+        var game = SessionActive && _sessionGame is not null ? GameLibrary.DisplayTitle(_sessionGame) : null;
+        var (title, verb) = action switch
+        {
+            PowerAction.Sleep => ("Sette Legion Go i dvale?", "Dvale"),
+            PowerAction.Restart => ("Starte Legion Go på nytt?", "Start på nytt"),
+            _ => ("Slå av Legion Go?", "Slå av"),
+        };
+        var text = action == PowerAction.Sleep
+            ? game is null ? "Du fortsetter der du var når du vekker den." : $"{game} settes på pause og fortsetter når du vekker Legion Go."
+            : game is null ? "Windows lukker programmene normalt først." : $"{game} avsluttes. Ulagret fremgang kan gå tapt.";
+
+        ShowMessage(title, text, verb, () =>
+        {
+            _log.Write("strøm", $"{action} bekreftet");
+            if (Power.Run(action) is { } error)
+            {
+                _log.Write("strøm", $"{action} feilet: {error}");
+                ShowMessage("Det gikk ikke", error, "Lukk", () => FocusHome(_focusGameId), "Tilbake", () => FocusHome(_focusGameId));
+            }
+            else
+            {
+                FocusHome(_focusGameId);
+            }
+        },
+        "Avbryt", () =>
+        {
+            _log.Write("strøm", $"{action} avbrutt");
+            if (fromSession && SessionActive)
+            {
+                ShowSessionPanel("strømvalg avbrutt");
+            }
+            else
+            {
+                button.Focus(FocusState.Keyboard);
+            }
+        });
     }
 
     // ---- Legion-knapp via Lenovos HID-kanaler (diagnostikk) ----

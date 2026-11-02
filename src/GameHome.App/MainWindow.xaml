@@ -20,7 +20,20 @@
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
+                <!-- Strømvalg: små ikoner i hjørnet, ikke midt på skjermen. Hvert valg bekreftes. -->
+                <StackPanel x:Name="PowerButtons" Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Top">
+                    <Button Tag="sleep" Click="PowerButton_Click" Width="56" Height="56" AutomationProperties.Name="Dvale" ToolTipService.ToolTip="Dvale">
+                        <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE708;" FontSize="22" />
+                    </Button>
+                    <Button Tag="restart" Click="PowerButton_Click" Width="56" Height="56" AutomationProperties.Name="Start på nytt" ToolTipService.ToolTip="Start på nytt">
+                        <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE72C;" FontSize="22" />
+                    </Button>
+                    <Button Tag="shutdown" Click="PowerButton_Click" Width="56" Height="56" AutomationProperties.Name="Slå av" ToolTipService.ToolTip="Slå av">
+                        <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE7E8;" FontSize="22" />
+                    </Button>
+                </StackPanel>
                 <Border Grid.Column="0" Background="#1A1E24" CornerRadius="8" Padding="16,10" VerticalAlignment="Top">
                     <StackPanel Spacing="2">
                         <TextBlock x:Name="MemoryText" FontFamily="Consolas" FontSize="18" Foreground="White" Text="Minne: –" />
@@ -99,6 +112,17 @@
                 <Button x:Name="ResumeButton" Content="Tilbake til spillet" Click="ResumeButton_Click" HorizontalAlignment="Stretch" Height="72" FontSize="22" />
                 <Button x:Name="EndSessionButton" Content="Avslutt spillet" Click="EndSessionButton_Click" HorizontalAlignment="Stretch" Height="72" FontSize="22" />
                 <Button x:Name="ClosePanelButton" Content="Lukk panelet" Click="ClosePanelButton_Click" HorizontalAlignment="Stretch" Height="72" FontSize="22" />
+                <StackPanel x:Name="SessionPowerButtons" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" Margin="0,8,0,0">
+                    <Button Tag="sleep" Click="PowerButton_Click" Width="52" Height="52" AutomationProperties.Name="Dvale" ToolTipService.ToolTip="Dvale">
+                        <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE708;" FontSize="20" />
+                    </Button>
+                    <Button Tag="restart" Click="PowerButton_Click" Width="52" Height="52" AutomationProperties.Name="Start på nytt" ToolTipService.ToolTip="Start på nytt">
+                        <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE72C;" FontSize="20" />
+                    </Button>
+                    <Button Tag="shutdown" Click="PowerButton_Click" Width="52" Height="52" AutomationProperties.Name="Slå av" ToolTipService.ToolTip="Slå av">
+                        <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE7E8;" FontSize="20" />
+                    </Button>
+                </StackPanel>
             </StackPanel>
         </Grid>
 
