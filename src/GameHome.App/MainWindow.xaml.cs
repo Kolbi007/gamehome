@@ -4,6 +4,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using GameHome.Core.Diagnostics;
 using GameHome.Core.Library;
 using GameHome.Core.Model;
@@ -30,6 +31,7 @@ namespace GameHome.App;
 /// Home for fase 1: spill lagt til manuelt, start, «Kjører nå» og retur til samme flis. Kontrolleren leses med
 /// Windows.Gaming.Input bare mens vinduet har fokus. Hurtigtasten for øktmenyen er registrert bare under en økt.
 /// </summary>
+[System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1001", Justification = "Vinduet lever like lenge som appen; Vibepollo-klienten frigjøres i Closed (StopEverything).")]
 public sealed partial class MainWindow : Window
 {
     private const int MaxVisibleEvents = 10;
@@ -527,7 +529,9 @@ public sealed partial class MainWindow : Window
     }
 
     private string TileText(Game game) =>
-        SessionActive && _sessionGame?.Id == game.Id ? $"▶ {GameLibrary.DisplayTitle(game)}" : GameLibrary.DisplayTitle(game);
+        SessionActive && _sessionGame?.Id == game.Id ? $"▶ {GameLibrary.DisplayTitle(game)}"
+        : IsRunningOnHost(game) ? $"▶ {GameLibrary.DisplayTitle(game)} · på {HostLabel}"
+        : GameLibrary.DisplayTitle(game);
 
     private void RefreshTileTexts()
     {
@@ -538,7 +542,9 @@ public sealed partial class MainWindow : Window
                 if (_tileTitles.TryGetValue(id, out var title) && _logoTiles.Contains(id))
                 {
                     // Fliser med logo viser bare «▶ Kjører» når spillet kjører.
-                    title.Visibility = SessionActive && _sessionGame?.Id == id ? Visibility.Visible : Visibility.Collapsed;
+                    var onHost = IsRunningOnHost(game);
+                    title.Text = onHost ? $"▶ På {HostLabel}" : "▶ Kjører";
+                    title.Visibility = (SessionActive && _sessionGame?.Id == id) || onHost ? Visibility.Visible : Visibility.Collapsed;
                 }
                 else if (title is not null)
                 {
@@ -704,6 +710,16 @@ public sealed partial class MainWindow : Window
         {
             ShowMessage($"{title} kan ikke startes", $"GameHome kan ikke starte spill fra «{action.RunnerId}» ennå.",
                 "Fjern fra GameHome", () => ConfirmRemove(game), "Lukk", () => FocusHome(game.Id));
+            return;
+        }
+
+        // Et annet spill kjører fortsatt på PC-en (for eksempel etter «Koble fra»): spør før det lukkes.
+        if (action.IsRemote && _hostRunningApp is { } other
+            && GameLibrary.TitleKey(other) != GameLibrary.TitleKey(action.Target))
+        {
+            ShowMessage($"{other} kjører på {HostLabel}", $"{other} må avsluttes før {title} kan starte. Ulagret fremgang i {other} kan gå tapt.",
+                $"Avslutt og start {title}", () => _ = CloseHostAppThenLaunchAsync(game, action),
+                "Avbryt", () => FocusHome(game.Id));
             return;
         }
 
@@ -1486,7 +1502,24 @@ public sealed partial class MainWindow : Window
                         : await store.FindAppIdAsync(title);
                     if (appId is not { } steamId)
                     {
-                        _log.Write("bilder", $"Fant ikke «{title}» på Steam");
+                        // Ikke på Steam: prøv Playnite-omslaget fra gaming-PC-en via Vibepollo (Ubisoft, EA, Epic …).
+                        _vibepolloApps ??= Vibepollo is { } api ? await api.GetAppsAsync() : [];
+                        if (await DownloadVibepolloCoverAsync(game, _vibepolloApps) is { } cover)
+                        {
+                            _library.SetArt(game.Id, game.Art with { Cover = cover });
+                            SaveLibrary();
+                            if (TileFor(game.Id) is { } coverTile && _library.Find(game.Id) is { } withCover)
+                            {
+                                SetTileContent(coverTile, withCover);
+                            }
+
+                            found++;
+                            _log.Write("bilder", $"Omslag for «{title}» fra Vibepollo (Playnite)");
+                        }
+                        else
+                        {
+                            _log.Write("bilder", $"Fant ikke bilder for «{title}» på Steam eller i Vibepollo");
+                        }
                     }
                     else if (await DownloadArtAsync(game, SteamStoreClient.ImageUrls(steamId)) is { } art)
                     {
@@ -1502,7 +1535,7 @@ public sealed partial class MainWindow : Window
                             $"Bilder for «{title}» fra Steam (appid {steamId}): omslag {(art.Cover is null ? "nei" : "ja")}, bakgrunn {(art.Hero is null ? "nei" : "ja")}, logo {(art.Logo is null ? "nei" : "ja")}"));
                     }
                 }
-                catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException or UnauthorizedAccessException)
+                catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException or UnauthorizedAccessException or JsonException)
                 {
                     // Nettverksfeil (for eksempel Wi-Fi som har falt ut): prøv igjen neste gang Home blir aktiv.
                     _artTried.Remove(game.Id);
@@ -1698,9 +1731,181 @@ public sealed partial class MainWindow : Window
                     StartQuitCover(stream);
                 }
 
-                _ = stream.EndRemoteAppAsync();
+                _ = EndRemoteGameAsync(stream);
             },
             "Avbryt", () => ShowSessionPanel("avslutt fjernspill avbrutt"));
+    }
+
+    /// <summary>
+    /// Avslutter spillet på gaming-PC-en: via Vibepollos API når nøkkelen finnes (uten Moonlights «Quitting»-vindu),
+    /// ellers med <c>Moonlight.exe quit</c>. Lukker deretter Moonlight lokalt.
+    /// </summary>
+    private async Task EndRemoteGameAsync(StreamSession stream)
+    {
+        if (Vibepollo is { } api)
+        {
+            try
+            {
+                if (await api.CloseAppAsync())
+                {
+                    _log.Write("økt", "Spillet avsluttet på PC-en via Vibepollo-API");
+                    await stream.CloseClientAfterRemoteEndAsync();
+                    return;
+                }
+
+                _log.Write("økt", "Vibepollo-API avslo avslutning; bruker Moonlight");
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException)
+            {
+                _log.Write("økt", $"Vibepollo-API svarte ikke ({ex.Message}); bruker Moonlight");
+            }
+        }
+
+        await stream.EndRemoteAppAsync();
+    }
+
+    // ---- Vibepollo-API (valgfritt; virker bare når brukeren har laget en nøkkel) ----
+
+    private const string VibepolloVaultResource = "GameHome.Vibepollo";
+    private VibepolloClient? _vibepollo;
+    private bool _vibepolloChecked;
+    private string? _hostRunningApp;
+    private IReadOnlyList<VibepolloApp>? _vibepolloApps;
+    private DateTime _lastHostStatus = DateTime.MinValue;
+
+    /// <summary>Klienten, eller null hvis det ikke finnes nøkkel eller host.</summary>
+    private VibepolloClient? Vibepollo
+    {
+        get
+        {
+            if (_vibepolloChecked)
+            {
+                return _vibepollo;
+            }
+
+            _vibepolloChecked = true;
+            var hosts = MoonlightClient.FindHosts();
+            if (hosts.Count == 0 || hosts[0].Address is not { } address || LoadVibepolloToken() is not { } token)
+            {
+                return null;
+            }
+
+            var settings = ApplicationData.Current.LocalSettings.Values;
+            _vibepollo = new VibepolloClient(address, token, settings["vibepollo.cert"] as string, thumbprint =>
+            {
+                settings["vibepollo.cert"] = thumbprint;
+                _log.Write("vibepollo", "Sertifikatet til gaming-PC-en er festet (første tilkobling)");
+            });
+            _log.Write("vibepollo", "API-nøkkel funnet; bruker Vibepollo for omslag, status og avslutning");
+            return _vibepollo;
+        }
+    }
+
+    /// <summary>
+    /// Nøkkelen ligger i Windows' sikre lager (Credential Locker). Legges en fil <c>vibepollo-token.txt</c> i appens
+    /// LocalState (over SSH ved oppsett), flyttes den inn i lageret og filen slettes.
+    /// </summary>
+    private string? LoadVibepolloToken()
+    {
+        var vault = new global::Windows.Security.Credentials.PasswordVault();
+        var file = Path.Combine(ApplicationData.Current.LocalFolder.Path, "vibepollo-token.txt");
+        try
+        {
+            if (File.Exists(file))
+            {
+                var fromFile = File.ReadAllText(file).Trim();
+                File.Delete(file);
+                if (fromFile.Length > 0)
+                {
+                    vault.Add(new global::Windows.Security.Credentials.PasswordCredential(VibepolloVaultResource, "token", fromFile));
+                    _log.Write("vibepollo", "Ny API-nøkkel flyttet til Windows' sikre lager; filen er slettet");
+                }
+            }
+
+            var credential = vault.Retrieve(VibepolloVaultResource, "token");
+            credential.RetrievePassword();
+            return credential.Password;
+        }
+        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Henter hva som kjører på PC-en (høyst hvert 10. sekund, aldri under en økt) og oppdaterer flisene.</summary>
+    private async Task RefreshHostStatusAsync()
+    {
+        if (SessionActive || Vibepollo is not { } api || DateTime.UtcNow - _lastHostStatus < TimeSpan.FromSeconds(10))
+        {
+            return;
+        }
+
+        _lastHostStatus = DateTime.UtcNow;
+        try
+        {
+            var status = await api.GetStatusAsync();
+            var running = status is { AppRunning: true } ? status.AppName : null;
+            if (!string.Equals(running, _hostRunningApp, StringComparison.Ordinal))
+            {
+                _hostRunningApp = running;
+                _log.Write("vibepollo", running is null ? "Ingenting kjører på PC-en" : $"«{running}» kjører på PC-en");
+                RefreshTileTexts();
+            }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException or JsonException)
+        {
+            // PC-en er av eller utilgjengelig; ikke vis noe som kjører.
+            _hostRunningApp = null;
+        }
+    }
+
+    /// <summary>Lukker appen som kjører på PC-en via API-et og starter så det valgte spillet.</summary>
+    private async Task CloseHostAppThenLaunchAsync(Game game, PlayAction action)
+    {
+        var closed = false;
+        if (Vibepollo is { } api)
+        {
+            try
+            {
+                closed = await api.CloseAppAsync();
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException)
+            {
+                _log.Write("vibepollo", $"Kunne ikke avslutte appen på PC-en: {ex.Message}");
+            }
+        }
+
+        _log.Write("vibepollo", closed ? "Appen på PC-en ble avsluttet før ny start" : "Avslutning før ny start feilet; prøver å starte likevel");
+        _hostRunningApp = null;
+        RefreshTileTexts();
+        await LaunchAsync(game, action);
+    }
+
+    /// <summary>Om spillet kjører på gaming-PC-en uten at GameHome strømmer det (for eksempel etter «Koble fra»).</summary>
+    private bool IsRunningOnHost(Game game) =>
+        !SessionActive && _hostRunningApp is { } running
+        && _library.PlayActionsFor(game.Id).Any(a => a.IsRemote && GameLibrary.TitleKey(a.Target) == GameLibrary.TitleKey(running));
+
+    /// <summary>Omslag fra Vibepollo (Playnite-omslaget) for et spill fra PC-en, eller null.</summary>
+    private async Task<string?> DownloadVibepolloCoverAsync(Game game, IReadOnlyList<VibepolloApp> apps)
+    {
+        if (Vibepollo is not { } api
+            || _library.PlayActionsFor(game.Id).FirstOrDefault(a => a.IsRemote) is not { } stream
+            || apps.FirstOrDefault(a => a.Name is { } name && GameLibrary.TitleKey(name) == GameLibrary.TitleKey(stream.Target)) is not { Uuid: { } uuid, ImagePath.Length: > 0 })
+        {
+            return null;
+        }
+
+        if (await api.GetCoverAsync(uuid) is not { Length: > 0 } bytes)
+        {
+            return null;
+        }
+
+        var folder = Path.Combine(ApplicationData.Current.LocalFolder.Path, "art");
+        Directory.CreateDirectory(folder);
+        var target = Path.Combine(folder, $"{game.Id}-cover.png");
+        await File.WriteAllBytesAsync(target, bytes);
+        return target;
     }
 
     private void MessagePrimary_Click(object sender, RoutedEventArgs e) => CloseMessage(_messagePrimary);
@@ -1887,10 +2092,18 @@ public sealed partial class MainWindow : Window
         return name.Split('#')[0];
     }
 
+    /// <summary>Frigjør Vibepollo-klienten når vinduet lukkes.</summary>
+    private void DisposeVibepollo()
+    {
+        _vibepollo?.Dispose();
+        _vibepollo = null;
+    }
+
     private void StopEverything()
     {
         StopHidCapture();
         _hotkeys.UnregisterAll();
+        DisposeVibepollo();
 
         // Spillet får leve videre selv om GameHome lukkes.
         _session?.Dispose();
@@ -1957,6 +2170,7 @@ public sealed partial class MainWindow : Window
         _metricsTimer.Start();
 
         // Spill som fortsatt mangler bilder (for eksempel etter en nettverksfeil), prøves igjen når Home blir aktiv.
+        _ = RefreshHostStatusAsync();
         if (_firstSteamSync is not null)
         {
             _ = FetchMissingArtAsync();
