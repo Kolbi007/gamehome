@@ -36,6 +36,11 @@
                 <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Center">
                     <TextBlock Text="GameHome" FontSize="36" FontWeight="SemiBold" Foreground="White" />
                     <TextBlock x:Name="InfoText" FontSize="16" Foreground="#A0A7B0" TextWrapping="Wrap" />
+                    <!-- Fremdrift når bilder hentes i bakgrunnen. -->
+                    <StackPanel x:Name="ArtProgressPanel" Orientation="Horizontal" Spacing="12" Visibility="Collapsed">
+                        <ProgressBar x:Name="ArtProgress" Width="200" VerticalAlignment="Center" />
+                        <TextBlock x:Name="ArtProgressText" FontSize="14" Foreground="#A0A7B0" VerticalAlignment="Center" />
+                    </StackPanel>
                 </StackPanel>
             </Grid>
 

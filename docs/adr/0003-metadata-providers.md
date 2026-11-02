@@ -38,3 +38,11 @@ Kildene er ulike: noen har offisielle API-er med vilkår, andre har ingen API og
   og ikke på enheten.
 - Før en uoffisiell kilde aktiveres som standard, eller før offentlig utgivelse, må vilkårene sjekkes på nytt.
 - Implementasjonen av klientene kommer i fase 4. Kontraktene og policyen finnes nå (`GameHome.Metadata.KnownProviders`).
+
+## Tillegg 2026-11-02: Steam Store på som standard
+
+Produkteier har valgt å slå på Steam Store som standard (`KnownProviders.EnabledByProductOwner`), selv om kilden er
+uoffisiell. Første bruk: butikksøket (`/api/storesearch`) finner Steam-appid fra tittelen på spill fra gaming-PC-en,
+og de offentlige butikkbildene hentes fra Steams CDN (omslag, bakgrunn, logo). Bare treff med samme tittel brukes.
+Høyst én forespørsel i sekundet, aldri mens et spill kjører. Brukeren skal kunne slå kilden av i innstillingene når de
+finnes. Vilkårene sjekkes på nytt før offentlig utgivelse.

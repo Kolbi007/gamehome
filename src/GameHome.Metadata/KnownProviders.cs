@@ -51,7 +51,14 @@ public static class KnownProviders
     public static IReadOnlyList<MetadataProviderInfo> All { get; } =
         [Igdb, SteamGridDb, SteamLocalCache, SteamStore, HowLongToBeat, Metacritic, ScreenScraper];
 
-    /// <summary>Bare kilder med avklarte vilkår er på uten at brukeren har slått dem på selv.</summary>
+    /// <summary>
+    /// Uoffisielle kilder produkteier har valgt å slå på som standard. Steam Store (butikksøk og offentlige butikkbilder)
+    /// ble slått på 2026-11-02 (ADR 0003, tillegg). Brukeren skal kunne slå den av.
+    /// </summary>
+    public static IReadOnlySet<string> EnabledByProductOwner { get; } = new HashSet<string>(StringComparer.Ordinal) { "steam-store" };
+
+    /// <summary>Kilder med avklarte vilkår og uten nøkkel, og kilder produkteier har valgt, er på uten oppsett.</summary>
     public static bool IsEnabledByDefault(MetadataProviderInfo provider) =>
-        provider.Terms == TermsStatus.Approved && !provider.RequiresApiKey;
+        (provider.Terms == TermsStatus.Approved && !provider.RequiresApiKey)
+        || EnabledByProductOwner.Contains(provider.ProviderId);
 }

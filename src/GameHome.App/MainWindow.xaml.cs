@@ -9,6 +9,7 @@ using GameHome.Core.Library;
 using GameHome.Core.Model;
 using GameHome.Core.Runners;
 using GameHome.Data;
+using GameHome.Metadata;
 using GameHome.Sources.Moonlight;
 using GameHome.Sources.Steam;
 using GameHome.Windows;
@@ -74,6 +75,7 @@ public sealed partial class MainWindow : Window
     private DispatcherQueueTimer? _streamCover;
     private DateTime _loadingShown;
     private bool _waking;
+    private bool _lastWakeNoNetwork;
     private string? _statusBeforeSlow;
     private bool _loadingCovered;
     private bool _windowActive;
@@ -534,9 +536,11 @@ public sealed partial class MainWindow : Window
         // Stream: sover gaming-PC-en, vekkes den først (Wake-on-LAN), så Moonlight ikke gir opp etter 30 s.
         if (action.IsRemote && !await WakeHostAsync(action.HostId!))
         {
-            HideLoading("PC-en våknet ikke");
-            ShowMessage($"{HostLabel} svarer ikke",
-                $"GameHome prøvde å vekke {HostLabel}. Sjekk at den har strøm og nettverkskabel, og prøv igjen.",
+            HideLoading(_lastWakeNoNetwork ? "Legion Go har ikke nettverk" : "PC-en våknet ikke");
+            ShowMessage(_lastWakeNoNetwork ? "Legion Go har ikke nettverk" : $"{HostLabel} svarer ikke",
+                _lastWakeNoNetwork
+                    ? "Legion Go når ikke ruteren. Koble til Wi-Fi på nytt (Innstillinger → Nettverk), og prøv igjen."
+                    : $"GameHome prøvde å vekke {HostLabel}. Sjekk at den er på og har nettverkskabel, og prøv igjen.",
                 "Prøv igjen", () => _ = LaunchAsync(game, action), "Lukk", () => FocusHome(game.Id));
             return;
         }
@@ -1119,7 +1123,14 @@ public sealed partial class MainWindow : Window
         {
             HostStatus.Text = $"Vekker {host.DisplayName} …";
             _log.Write("vekking", $"{host.DisplayName} svarer ikke; sender Wake-on-LAN før listen hentes");
-        }));
+        }), progress: p => DispatcherQueue.TryEnqueue(() => HostStatus.Text = WakeStatusText(host, p)));
+        if (wake.NoLocalNetwork)
+        {
+            HostStatus.Text = "Legion Go har mistet nettverket (Wi-Fi). Koble til på nytt og prøv igjen.";
+            _log.Write("vekking", "Legion Go når ikke ruteren; viser nettverksfeil i stedet for å vekke");
+            return;
+        }
+
         if (wake.WasAsleep)
         {
             _log.Write("vekking", string.Create(CultureInfo.InvariantCulture,
@@ -1187,7 +1198,6 @@ public sealed partial class MainWindow : Window
 
         _hostApps = apps;
         ApplyHostArt(host, apps);
-        _ = FillHostArtCacheAsync(host);
     }
 
     private string HostGameText(string hostId, string name) => _library.HasStream(hostId, name) ? $"✓  {name}   (i Home)" : name;
@@ -1201,6 +1211,7 @@ public sealed partial class MainWindow : Window
         button.Content = HostGameText(host.Uuid, app.Name);
         _focusGameId = game.Id;
         _log.Write("host", newTile ? $"La til «{app.Name}» fra {host.Name} i Home" : $"«{app.Name}» fra {host.Name} er spillemåte på «{GameLibrary.DisplayTitle(game)}»");
+        _ = FetchMissingArtAsync();
     }
 
     // ---- Omslag for spill fra gaming-PC-en ----
@@ -1247,41 +1258,123 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    // Moonlights egen buffer ble ikke fylt av «list» (målt 2026-11-02: 0 av 33 omslag etter 75 s), så bilder hentes fra
+    // Steams butikk i stedet (ADR 0003, tillegg).
+
+    private static readonly HttpClient ArtHttp = new() { Timeout = TimeSpan.FromSeconds(15) };
+    private readonly HashSet<string> _artTried = new(StringComparer.Ordinal);
+
     /// <summary>
-    /// Lar Moonlight laste ned omslagene til bufferen sin i bakgrunnen: <c>list</c> uten tidlig avbrudd starter
-    /// nedlasting av omslag som mangler (moonlight-qt <c>backend/boxartmanager.cpp</c>). Etterpå kopieres de nye.
-    /// Kjøres ikke mens et spill kjører.
+    /// Henter omslag, bakgrunn og logo fra Steams butikk for spill i Home som mangler bilder: Steam-appid fra butikksøket
+    /// (bare samme tittel), så de offentlige butikkbildene. Viser fremdrift øverst. Aldri mens et spill kjører, og hvert
+    /// spill prøves bare én gang per kjøring.
     /// </summary>
-    private async Task FillHostArtCacheAsync(MoonlightHost host)
+    private async Task FetchMissingArtAsync()
     {
-        var missing = _hostApps?.Count(a => a.IsGame && a.BoxArtFile is null) ?? 0;
-        if (_hostArtRunning || SessionActive || missing == 0)
+        if (_hostArtRunning || SessionActive)
+        {
+            return;
+        }
+
+        var missing = _library.VisibleGames.Where(g => TileImageFor(g) is null && !_artTried.Contains(g.Id)).ToList();
+        if (missing.Count == 0)
         {
             return;
         }
 
         _hostArtRunning = true;
+        ArtProgress.Maximum = missing.Count;
+        ArtProgress.Value = 0;
+        ArtProgressPanel.Visibility = Visibility.Visible;
+        var store = new SteamStoreClient(ArtHttp);
+        var found = 0;
         try
         {
-            var result = await MoonlightClient.RunAsync(["list", host.Uuid, "--csv"], TimeSpan.FromSeconds(75));
-            var apps = MoonlightAppList.ParseCsv(result.Output);
-            var cached = apps.Count(a => a.IsGame && a.BoxArtFile is not null);
-            _log.Write("bilder", string.Create(CultureInfo.InvariantCulture,
-                $"Omslag i Moonlights buffer etter henting: {cached} av {apps.Count(a => a.IsGame)} (exit {result.ExitCode}, {result.Elapsed.TotalSeconds:F0} s)"));
-            if (apps.Count > 0)
+            for (var i = 0; i < missing.Count; i++)
             {
-                _hostApps = apps;
-                ApplyHostArt(host, apps);
+                if (SessionActive)
+                {
+                    _log.Write("bilder", "Henting av bilder stoppet: et spill startet");
+                    break;
+                }
+
+                var game = missing[i];
+                _artTried.Add(game.Id);
+                var title = GameLibrary.DisplayTitle(game);
+                ArtProgressText.Text = string.Create(CultureInfo.InvariantCulture, $"Henter bilder {i + 1}/{missing.Count}: {title}");
+                try
+                {
+                    var steam = _library.PlayActionsFor(game.Id).FirstOrDefault(a => a.RunnerId == GameLibrary.SteamRunnerId);
+                    var appId = steam is not null && int.TryParse(steam.Target, CultureInfo.InvariantCulture, out var id)
+                        ? id
+                        : await store.FindAppIdAsync(title);
+                    if (appId is not { } steamId)
+                    {
+                        _log.Write("bilder", $"Fant ikke «{title}» på Steam");
+                    }
+                    else if (await DownloadArtAsync(game, SteamStoreClient.ImageUrls(steamId)) is { } art)
+                    {
+                        _library.SetArt(game.Id, art);
+                        SaveLibrary();
+                        if (TileFor(game.Id) is { } tile && _library.Find(game.Id) is { } updated)
+                        {
+                            SetTileContent(tile, updated);
+                        }
+
+                        found++;
+                        _log.Write("bilder", string.Create(CultureInfo.InvariantCulture,
+                            $"Bilder for «{title}» fra Steam (appid {steamId}): omslag {(art.Cover is null ? "nei" : "ja")}, bakgrunn {(art.Hero is null ? "nei" : "ja")}, logo {(art.Logo is null ? "nei" : "ja")}"));
+                    }
+                }
+                catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException or UnauthorizedAccessException)
+                {
+                    _log.Write("bilder", $"Henting av bilder for «{title}» feilet: {ex.Message}");
+                }
+
+                ArtProgress.Value = i + 1;
             }
-        }
-        catch (Exception ex) when (ex is LaunchException or IOException or InvalidOperationException)
-        {
-            _log.Write("bilder", $"Henting av omslag feilet: {ex.Message}");
         }
         finally
         {
             _hostArtRunning = false;
+            ArtProgressText.Text = string.Create(CultureInfo.InvariantCulture, $"Bilder hentet for {found} av {missing.Count} spill");
+            var hide = DispatcherQueue.CreateTimer();
+            hide.Interval = TimeSpan.FromSeconds(4);
+            hide.IsRepeating = false;
+            hide.Tick += (_, _) => ArtProgressPanel.Visibility = Visibility.Collapsed;
+            hide.Start();
         }
+    }
+
+    /// <summary>Laster ned bildene som finnes (Steam har ikke alltid logo eller bakgrunn), til GameHomes bildemappe.</summary>
+    private static async Task<ArtSet?> DownloadArtAsync(Game game, SteamImageUrls urls)
+    {
+        var folder = Path.Combine(ApplicationData.Current.LocalFolder.Path, "art");
+        Directory.CreateDirectory(folder);
+
+        async Task<string?> Get(string url, string kind)
+        {
+            using var response = await ArtHttp.GetAsync(new Uri(url));
+            if (!response.IsSuccessStatusCode)
+            {
+                return null;
+            }
+
+            var target = Path.Combine(folder, $"{game.Id}-{kind}{Path.GetExtension(new Uri(url).AbsolutePath)}");
+            await using (var file = File.Create(target))
+            {
+                await response.Content.CopyToAsync(file);
+            }
+
+            return target;
+        }
+
+        var cover = await Get(urls.Cover, "cover");
+        var hero = await Get(urls.Hero, "hero");
+        var logo = await Get(urls.Logo, "logo");
+        return cover is null && hero is null && logo is null
+            ? null
+            : new ArtSet(cover ?? game.Art.Cover, hero ?? game.Art.Hero, logo ?? game.Art.Logo);
     }
 
     private void HostCloseButton_Click(object sender, RoutedEventArgs e) => CloseHostPanel();
@@ -1319,6 +1412,13 @@ public sealed partial class MainWindow : Window
         finally
         {
             _waking = false;
+        }
+
+        _lastWakeNoNetwork = result.NoLocalNetwork;
+        if (result.NoLocalNetwork)
+        {
+            _log.Write("vekking", "Legion Go når ikke ruteren; viser nettverksfeil i stedet for å vekke");
+            return false;
         }
 
         if (result.WasAsleep)
@@ -1382,6 +1482,7 @@ public sealed partial class MainWindow : Window
 
         var summary = result switch
         {
+            { NoLocalNetwork: true } => "✗ Legion Go når ikke ruteren. Wi-Fi er nede eller uten tilkobling.",
             { Awake: true, WasAsleep: false } => string.Create(CultureInfo.InvariantCulture, $"✓ {host.DisplayName} er våken og svarer ({watch.Elapsed.TotalSeconds:F1} s)."),
             { Awake: true } => string.Create(CultureInfo.InvariantCulture, $"✓ {host.DisplayName} våknet etter {result.Elapsed.TotalSeconds:F0} s ({result.PacketsSent / 4} vekkesignaler)."),
             _ => string.Create(CultureInfo.InvariantCulture, $"✗ {host.DisplayName} svarte ikke på {result.Elapsed.TotalSeconds:F0} s ({result.PacketsSent / 4} vekkesignaler)."),
@@ -1683,7 +1784,11 @@ public sealed partial class MainWindow : Window
             _firstSteamSync = DispatcherQueue.CreateTimer();
             _firstSteamSync.Interval = TimeSpan.FromSeconds(1);
             _firstSteamSync.IsRepeating = false;
-            _firstSteamSync.Tick += (_, _) => SyncSteamInBackground();
+            _firstSteamSync.Tick += (_, _) =>
+            {
+                SyncSteamInBackground();
+                _ = FetchMissingArtAsync();
+            };
             _firstSteamSync.Start();
         }
         else
