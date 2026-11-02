@@ -1953,6 +1953,53 @@ public sealed partial class MainWindow : Window
 
     // ---- Feilsøking ----
 
+    private const string WifiNetworkSetting = "wifi.network";
+
+    /// <summary>Husker hjemmenettet mens det virker, så GameHome vet hva det skal koble til igjen.</summary>
+    private static void RememberWifiNetwork()
+    {
+        if (WifiReconnect.CurrentNetwork() is { } network)
+        {
+            ApplicationData.Current.LocalSettings.Values[WifiNetworkSetting] = network;
+        }
+    }
+
+    /// <summary>Kobler Wi-Fi fra og til det lagrede nettverket (etter trykk fra brukeren), og kjører <paramref name="then"/> hvis det virket.</summary>
+    private async Task ReconnectWifiAsync(Action? then = null)
+    {
+        var network = WifiReconnect.CurrentNetwork() ?? ApplicationData.Current.LocalSettings.Values[WifiNetworkSetting] as string;
+        if (network is null)
+        {
+            ShowMessage("Fant ikke hjemmenettet", "GameHome vet ikke hvilket Wi-Fi-nett den skal koble til. Koble til i Windows' innstillinger én gang, så husker GameHome det.",
+                "OK", () => FocusHome(_focusGameId), "Lukk", () => FocusHome(_focusGameId));
+            return;
+        }
+
+        ArtProgressPanel.Visibility = Visibility.Visible;
+        ArtProgress.IsIndeterminate = true;
+        ArtProgressText.Text = $"Kobler til «{network}» på nytt …";
+        DebugResultText.Visibility = Visibility.Visible;
+        DebugResultText.Text = $"Kobler til «{network}» på nytt …";
+        _log.Write("nettverk", $"Kobler Wi-Fi til «{network}» på nytt (valgt av brukeren)");
+        var ok = await WifiReconnect.ReconnectAsync(network, line => _log.Write("nettverk", line));
+        ArtProgress.IsIndeterminate = false;
+        ArtProgressPanel.Visibility = Visibility.Collapsed;
+        var result = ok ? $"Tilkoblet «{network}» igjen; ruteren svarer." : $"Fikk ikke kontakt med ruteren etter ny tilkobling til «{network}».";
+        DebugResultText.Text = result;
+        _log.Write("nettverk", result);
+        if (ok)
+        {
+            then?.Invoke();
+        }
+        else
+        {
+            ShowMessage("Fortsatt ikke nettverk", $"{result} Prøv å slå Wi-Fi av og på i hurtiginnstillingene, eller start Legion Go på nytt.",
+                "Prøv igjen", () => _ = ReconnectWifiAsync(then), "Lukk", () => FocusHome(_focusGameId));
+        }
+    }
+
+    private void WifiReconnectTile_Click(object sender, RoutedEventArgs e) => _ = ReconnectWifiAsync();
+
     private void DebugTile_Click(object sender, RoutedEventArgs e)
     {
         DebugPanel.Visibility = Visibility.Visible;
@@ -2110,11 +2157,20 @@ public sealed partial class MainWindow : Window
         if (action.IsRemote && !await WakeHostAsync(action.HostId!))
         {
             HideLoading(_lastWakeNoNetwork ? "Legion Go har ikke nettverk" : "PC-en våknet ikke");
-            ShowMessage(_lastWakeNoNetwork ? "Legion Go har ikke nettverk" : $"{HostLabel} svarer ikke",
-                _lastWakeNoNetwork
-                    ? "Legion Go når ikke ruteren. Koble til Wi-Fi på nytt (Innstillinger → Nettverk), og prøv igjen."
-                    : $"GameHome prøvde å vekke {HostLabel}. Sjekk at den er på og har nettverkskabel, og prøv igjen.",
-                "Prøv igjen", () => _ = LaunchAsync(game, action), "Lukk", () => FocusHome(game.Id));
+            if (_lastWakeNoNetwork)
+            {
+                ShowMessage("Legion Go har ikke nettverk",
+                    "Legion Go når ikke ruteren, selv om Wi-Fi kan se tilkoblet ut. GameHome kan koble Wi-Fi fra og til igjen og prøve på nytt.",
+                    "Koble til Wi-Fi på nytt", () => _ = ReconnectWifiAsync(() => _ = LaunchAsync(game, action)),
+                    "Lukk", () => FocusHome(game.Id));
+            }
+            else
+            {
+                ShowMessage($"{HostLabel} svarer ikke",
+                    $"GameHome prøvde å vekke {HostLabel}. Sjekk at den er på og har nettverkskabel, og prøv igjen.",
+                    "Prøv igjen", () => _ = LaunchAsync(game, action), "Lukk", () => FocusHome(game.Id));
+            }
+
             return;
         }
 
@@ -4104,6 +4160,7 @@ public sealed partial class MainWindow : Window
 
         // Spill som fortsatt mangler bilder (for eksempel etter en nettverksfeil), prøves igjen når Home blir aktiv.
         _ = RefreshHostStatusAsync();
+        RememberWifiNetwork();
         if (_firstSteamSync is not null)
         {
             _ = FetchMissingArtAsync();
