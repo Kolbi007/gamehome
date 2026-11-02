@@ -119,17 +119,29 @@ public class GameHomeCover : Form
             g.FillRectangle(line, 0, (int)(r.Height * 0.62), r.Width, Math.Max(1, r.Height / 720));
         }
 
+        // Spillets navn stort over horisontlinjen, «Starter …» under, og et lite GameHome-merke nederst.
         var scale = r.Height / 1080f;
-        using (var title = new Font("Segoe UI Light", 44 * scale, FontStyle.Regular, GraphicsUnit.Pixel))
-        using (var sub = new Font("Segoe UI", 20 * scale, FontStyle.Regular, GraphicsUnit.Pixel))
-        using (var titleBrush = new SolidBrush(Color.FromArgb(225, 232, 240, 250)))
-        using (var subBrush = new SolidBrush(Color.FromArgb(150, 160, 175, 195)))
+        var hasGame = !string.IsNullOrWhiteSpace(GameTitle);
+        using (var title = new Font("Segoe UI Light", (hasGame ? 64 : 44) * scale, FontStyle.Regular, GraphicsUnit.Pixel))
+        using (var sub = new Font("Segoe UI", 22 * scale, FontStyle.Regular, GraphicsUnit.Pixel))
+        using (var mark = new Font("Segoe UI Semibold", 16 * scale, FontStyle.Regular, GraphicsUnit.Pixel))
+        using (var titleBrush = new SolidBrush(Color.FromArgb(235, 236, 242, 252)))
+        using (var subBrush = new SolidBrush(Color.FromArgb(160, 160, 175, 195)))
+        using (var markBrush = new SolidBrush(Color.FromArgb(90, 160, 175, 195)))
         {
-            var center = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
-            g.DrawString("GameHome", title, titleBrush, new RectangleF(0, r.Height * 0.52f, r.Width, 60 * scale), center);
-            g.DrawString("Starter spillet …", sub, subBrush, new RectangleF(0, r.Height * 0.52f + 62 * scale, r.Width, 32 * scale), center);
+            var center = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center, Trimming = StringTrimming.EllipsisCharacter };
+            var top = r.Height * 0.62f - 150 * scale;
+            g.DrawString(hasGame ? GameTitle : "GameHome", title, titleBrush, new RectangleF(r.Width * 0.08f, top, r.Width * 0.84f, 110 * scale), center);
+            g.DrawString("Starter …", sub, subBrush, new RectangleF(0, r.Height * 0.62f + 24 * scale, r.Width, 36 * scale), center);
+            if (hasGame)
+            {
+                g.DrawString("GAMEHOME", mark, markBrush, new RectangleF(0, r.Height - 90 * scale, r.Width, 30 * scale), center);
+            }
         }
     }
+
+    /// <summary>Navnet på spillet, fra Vibepollos SUNSHINE_APP_NAME.</summary>
+    public static string GameTitle;
 
     private static void Glow(Graphics g, float cx, float cy, float w, float h, Color color)
     {
@@ -147,6 +159,9 @@ public class GameHomeCover : Form
 }
 '@
         [GameHomeCover]::UseNativeResolution()
+        # Vibepollo gir prep-kommandoen navnet på appen; prosessen for dekkbildet arver miljøet.
+        [GameHomeCover]::GameTitle = $env:SUNSHINE_APP_NAME
+        if (-not [GameHomeCover]::GameTitle) { [GameHomeCover]::GameTitle = $env:APOLLO_APP_NAME }
         $form = New-Object GameHomeCover
         [System.Windows.Forms.Application]::Run($form)
     } catch {

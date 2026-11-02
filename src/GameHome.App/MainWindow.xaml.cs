@@ -52,6 +52,7 @@ public sealed partial class MainWindow : Window
     private static readonly TimeSpan SteamSyncInterval = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan LoadingPatience = TimeSpan.FromSeconds(45);
     private static readonly TimeSpan CoveredLoadingLimit = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan StreamCoverLimit = TimeSpan.FromSeconds(45);
 
     private readonly Dictionary<string, IRunner> _runners = new()
     {
@@ -70,6 +71,7 @@ public sealed partial class MainWindow : Window
     private bool _steamSyncRunning;
     private DispatcherQueueTimer? _firstSteamSync;
     private DispatcherQueueTimer? _loadingTimer;
+    private DispatcherQueueTimer? _streamCover;
     private DateTime _loadingShown;
     private bool _loadingCovered;
     private bool _windowActive;
@@ -455,6 +457,11 @@ public sealed partial class MainWindow : Window
             t => DispatcherQueue.TryEnqueue(() => OnSessionEnded(session, t.Result)),
             TaskScheduler.Default);
 
+        if (session is StreamSession stream)
+        {
+            StartStreamCover(stream);
+        }
+
         var registered = SessionHotkeys.Where(h => _hotkeys.Register(h.Id, h.Modifiers, h.Key)).Select(h => h.Name).ToList();
         _log.Write("økt", $"Startet «{title}» ({action.RunnerId} {action.Target}, {session.Status}). Hurtigtaster: {string.Join(", ", registered)}");
         RefreshTileTexts();
@@ -659,8 +666,61 @@ public sealed partial class MainWindow : Window
         _log.Write("laster", "Tar lang tid; viser Vent og Tilbake til Home");
     }
 
+    // ---- Lasteskjerm over Moonlight til streamen viser bilde ----
+
+    /// <summary>
+    /// Holder lasteskjermen over Moonlight mens den kobler til, så brukeren ikke ser «Establishing connection» og
+    /// Moonlights egne skjermer. Lasteskjermen tar ikke forgrunnen; den ligger bare øverst. Den fjernes når Moonlights
+    /// streamvindu vises, når økten slutter, eller etter 45 s, så en feilmelding fra Moonlight aldri skjules lenge.
+    /// </summary>
+    private void StartStreamCover(StreamSession stream)
+    {
+        var window = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        Foreground.SetTopmost(window, true);
+        _streamCover?.Stop();
+        _streamCover = DispatcherQueue.CreateTimer();
+        _streamCover.Interval = TimeSpan.FromMilliseconds(250);
+        var started = DateTime.UtcNow;
+        _streamCover.Tick += (_, _) =>
+        {
+            if (!ReferenceEquals(stream, _session) || stream.Completion.IsCompleted)
+            {
+                EndStreamCover("økten sluttet");
+            }
+            else if (stream.IsStreamVisible)
+            {
+                EndStreamCover("streamen viser bilde");
+            }
+            else if (DateTime.UtcNow - started > StreamCoverLimit)
+            {
+                EndStreamCover("ingen stream etter 45 s; viser Moonlight");
+            }
+        };
+        _streamCover.Start();
+        _log.Write("laster", "Lasteskjermen ligger over Moonlight til streamen viser bilde");
+    }
+
+    private void EndStreamCover(string why)
+    {
+        if (_streamCover is null)
+        {
+            return;
+        }
+
+        _streamCover.Stop();
+        _streamCover = null;
+        Foreground.SetTopmost(WinRT.Interop.WindowNative.GetWindowHandle(this), false);
+        HideLoading(why);
+    }
+
     private void HideLoading(string why)
     {
+        if (_streamCover is not null)
+        {
+            EndStreamCover(why);
+            return;
+        }
+
         if (LoadingPanel.Visibility != Visibility.Visible)
         {
             return;
@@ -1166,8 +1226,9 @@ public sealed partial class MainWindow : Window
                 _log.Write("laster", string.Create(CultureInfo.InvariantCulture,
                     $"Forgrunnen gikk til {Foreground.CurrentProcessName() ?? "ukjent"} etter {(DateTime.UtcNow - _loadingShown).TotalSeconds:F1} s; lasteskjermen ligger bak"));
 
-                // Animasjonen skal ikke gå bak spillet lenge: lasteskjermen fjernes etter kort tid.
-                if (_loadingTimer is not null)
+                // Animasjonen skal ikke gå bak spillet lenge: lasteskjermen fjernes etter kort tid. Under tilkobling til
+                // gaming-PC-en ligger den øverst og styres av streamvinduet i stedet.
+                if (_loadingTimer is not null && _streamCover is null)
                 {
                     _loadingTimer.Stop();
                     _loadingTimer.Interval = CoveredLoadingLimit;

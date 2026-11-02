@@ -33,6 +33,30 @@ public static class Foreground
         return (NativeMethods.SetForegroundWindow(windowHandle), minimized);
     }
 
+    /// <summary>
+    /// Holder et vindu over andre vinduer uten å ta forgrunnen fra dem. Brukes av lasteskjermen mens Moonlight kobler
+    /// til, og slås alltid av igjen etterpå.
+    /// </summary>
+    public static void SetTopmost(nint windowHandle, bool topmost) =>
+        NativeMethods.SetWindowPos(windowHandle, topmost ? -1 : -2, 0, 0, 0, 0,
+            NativeMethods.SwpNoMove | NativeMethods.SwpNoSize | NativeMethods.SwpNoActivate);
+
+    /// <summary>Om prosessen har et synlig toppnivåvindu av klassen, for eksempel Moonlights streamvindu.</summary>
+    public static bool HasVisibleWindow(int processId, string className)
+    {
+        nint window = 0;
+        while ((window = NativeMethods.FindWindowExW(0, window, className, null)) != 0)
+        {
+            if (NativeMethods.GetWindowThreadProcessId(window, out var owner) != 0 && owner == processId
+                && NativeMethods.IsWindowVisible(window))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>Navnet på prosessen som eier forgrunnsvinduet, for loggen. Null hvis det ikke kan leses.</summary>
     public static string? CurrentProcessName()
     {
@@ -68,6 +92,21 @@ internal static unsafe partial class NativeMethods
 
     [LibraryImport("user32.dll")]
     internal static partial nint GetForegroundWindow();
+
+    internal const uint SwpNoSize = 0x0001;
+    internal const uint SwpNoMove = 0x0002;
+    internal const uint SwpNoActivate = 0x0010;
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool SetWindowPos(nint window, nint insertAfter, int x, int y, int width, int height, uint flags);
+
+    [LibraryImport("user32.dll", StringMarshalling = StringMarshalling.Utf16)]
+    internal static partial nint FindWindowExW(nint parent, nint after, string? className, string? windowName);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool IsWindowVisible(nint window);
 
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
