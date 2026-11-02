@@ -112,6 +112,37 @@ public sealed class GameLibrary
         return true;
     }
 
+    /// <summary>Setter tittelen (for eksempel navnet Steam har på spillet). Brukerens eget navn i overstyringene vinner fortsatt.</summary>
+    public bool SetTitle(string gameId, string title)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(title);
+        var index = _games.FindIndex(g => g.Id == gameId);
+        if (index < 0)
+        {
+            return false;
+        }
+
+        _games[index] = _games[index] with { Title = title.Trim() };
+        return true;
+    }
+
+    /// <summary>Setter (eller bytter) en ekstern ID i et navnerom, for eksempel ("steam-store", "289650").</summary>
+    public bool SetIdentity(string gameId, string ns, string value)
+    {
+        var index = _games.FindIndex(g => g.Id == gameId);
+        if (index < 0)
+        {
+            return false;
+        }
+
+        var identities = _games[index].Identities.Where(i => i.Namespace != ns).Append(new ExternalIdentity(ns, value)).ToList();
+        _games[index] = _games[index] with { Identities = identities };
+        return true;
+    }
+
+    /// <summary>Navnerommet for Steam-butikkens appid på spill som ikke er installert via Steam (bare for bilder og info).</summary>
+    public const string SteamStoreIdentity = "steam-store";
+
     /// <summary>Setter brukerens rettelser for et spill (for eksempel standard spillemåte). False hvis spillet mangler.</summary>
     public bool SetOverrides(string gameId, UserOverrides overrides)
     {
@@ -196,7 +227,10 @@ public sealed class GameLibrary
     /// <summary>
     /// Legger til et spill manuelt fra en programfil. Finnes samme fil allerede, returneres det eksisterende spillet.
     /// </summary>
-    public (Game Game, bool Added) AddExecutable(string exePath)
+    public (Game Game, bool Added) AddExecutable(string exePath) => AddExecutable(exePath, title: null);
+
+    /// <summary>Som over, med en tittel funnet av kalleren (for eksempel fra <see cref="TitleGuess"/>).</summary>
+    public (Game Game, bool Added) AddExecutable(string exePath, string? title)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(exePath);
 
@@ -207,7 +241,7 @@ public sealed class GameLibrary
             return (known, false);
         }
 
-        var game = new Game(NewId(), TitleFromPath(exePath), [], ArtSet.Empty, UserOverrides.None);
+        var game = new Game(NewId(), string.IsNullOrWhiteSpace(title) ? TitleFromPath(exePath) : title.Trim(), [], ArtSet.Empty, UserOverrides.None);
         var action = new PlayAction(
             NewId(), game.Id, PlayKind.Executable, ExecutableRunnerId, exePath,
             Arguments: null, WorkingDirectory: DirectoryOf(exePath), LaunchMode.Direct,

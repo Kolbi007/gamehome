@@ -865,16 +865,293 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        var (game, added) = _library.AddExecutable(file.Path);
+        // Navnet: produktnavnet i filen, filnavnet, eller mappene over (ACC.exe i «Assassin's Creed Rogue-273»).
+        string? product = null;
+        try
+        {
+            product = FileVersionInfo.GetVersionInfo(file.Path).ProductName;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _log.Write("bibliotek", $"Kunne ikke lese produktnavnet: {ex.Message}");
+        }
+
+        var candidates = TitleGuess.Candidates(file.Path, product);
+        var (game, added) = _library.AddExecutable(file.Path, candidates[0].Title);
         if (added)
         {
             SaveLibrary();
             BuildGameTiles();
         }
 
-        _log.Write("bibliotek", added ? $"La til «{game.Title}» ({file.Path})" : $"«{game.Title}» finnes allerede");
+        _log.Write("bibliotek", added
+            ? $"La til «{game.Title}» ({file.Path}); forslag: {string.Join(", ", candidates.Select(c => $"{c.Title} ({c.Origin})"))}"
+            : $"«{game.Title}» finnes allerede");
         LastInput.Text = added ? $"La til {game.Title}. Trykk A for å starte." : $"{game.Title} finnes allerede.";
         FocusHome(game.Id);
+        if (added)
+        {
+            _ = IdentifyNewGameAsync(game, candidates);
+        }
+    }
+
+    // ---- Riktig spill: Steam-treff for spill lagt til som programfil ----
+
+    /// <summary>Steam-appid for bilder og info: Steam-spillet selv, eller treffet brukeren eller GameHome har valgt.</summary>
+    private int? SteamAppIdFor(Game game)
+    {
+        var steam = _library.PlayActionsFor(game.Id).FirstOrDefault(a => a.RunnerId == GameLibrary.SteamRunnerId);
+        var value = steam?.Target ?? _library.Find(game.Id)?.Identities.FirstOrDefault(i => i.Namespace == GameLibrary.SteamStoreIdentity)?.Value;
+        return int.TryParse(value, CultureInfo.InvariantCulture, out var id) ? id : null;
+    }
+
+    private static string OriginText(TitleOrigin origin) => origin switch
+    {
+        TitleOrigin.ProductName => "fra programfilen",
+        TitleOrigin.Folder => "fra mappenavnet",
+        _ => "fra filnavnet",
+    };
+
+    /// <summary>
+    /// Prøver forslagene mot Steam (tilgivende, alle ord må stemme). Treff: Steams navn og appid lagres, bilder og info
+    /// hentes. Så spørres brukeren om det stemmer, med «Finn riktig spill» som alternativ.
+    /// </summary>
+    private async Task IdentifyNewGameAsync(Game game, IReadOnlyList<TitleCandidate> candidates)
+    {
+        ArtProgressPanel.Visibility = Visibility.Visible;
+        ArtProgress.IsIndeterminate = true;
+        ArtProgressText.Text = $"Finner «{candidates[0].Title}» på Steam …";
+        SteamSearchHit? hit = null;
+        TitleCandidate? used = null;
+        try
+        {
+            var store = new SteamStoreClient(ArtHttp);
+            foreach (var candidate in candidates.Take(3))
+            {
+                if ((hit = await store.FindMatchAsync(candidate.Title)) is not null)
+                {
+                    used = candidate;
+                    break;
+                }
+            }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException)
+        {
+            _log.Write("bibliotek", $"Søk på Steam feilet: {ex.Message}");
+        }
+        finally
+        {
+            ArtProgress.IsIndeterminate = false;
+            ArtProgressPanel.Visibility = Visibility.Collapsed;
+        }
+
+        if (hit is not null && used is not null)
+        {
+            await ApplySteamHitAsync(game, hit);
+            var title = hit.Name;
+            _log.Write("bibliotek", $"«{used.Title}» ({used.Origin}) funnet på Steam som «{title}» (appid {hit.Id})");
+            if (!AnyOverlayOpen)
+            {
+                ShowMessage($"La til {title}", $"Navnet er hentet {OriginText(used.Origin)} og funnet på Steam. Stemmer det?",
+                    "Ja, det stemmer", () => FocusHome(game.Id),
+                    "Finn riktig spill", () => ShowFind(game),
+                    onCancel: () => FocusHome(game.Id));
+            }
+
+            return;
+        }
+
+        _log.Write("bibliotek", $"Fant ikke «{candidates[0].Title}» på Steam");
+        AddNotice("art:" + game.Id, game.Id, $"Fant ikke «{candidates[0].Title}» på Steam. Riktig navn gir bilder og info.");
+        if (!AnyOverlayOpen)
+        {
+            ShowMessage($"La til {candidates[0].Title}", $"Navnet er hentet {OriginText(candidates[0].Origin)}, men GameHome fant ikke spillet på Steam.",
+                "Finn riktig spill", () => ShowFind(game),
+                "Behold navnet", () => FocusHome(game.Id),
+                onCancel: () => FocusHome(game.Id));
+        }
+    }
+
+    /// <summary>Bruker et Steam-treff: navn og appid lagres, bildene og info hentes på nytt.</summary>
+    private async Task ApplySteamHitAsync(Game game, SteamSearchHit hit)
+    {
+        RemoveNoticesFor(game.Id);
+        _library.SetTitle(game.Id, hit.Name);
+        _library.SetIdentity(game.Id, GameLibrary.SteamStoreIdentity, hit.Id.ToString(CultureInfo.InvariantCulture));
+        if (_library.Find(game.Id) is { Overrides.Title: not null } renamed)
+        {
+            _library.SetOverrides(game.Id, renamed.Overrides with { Title = null });
+        }
+
+        SaveLibrary();
+        _details.Remove(game.Id);
+        try
+        {
+            if (await DownloadArtAsync(game, SteamStoreClient.ImageUrls(hit.Id)) is { } art)
+            {
+                _library.SetArt(game.Id, art);
+                SaveLibrary();
+            }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException or UnauthorizedAccessException)
+        {
+            _log.Write("bilder", $"Bilder for «{hit.Name}» feilet: {ex.Message}");
+        }
+
+        _ambientPath = null;
+        _heroLogoPath = null;
+        if (TileFor(game.Id) is { } tile && _library.Find(game.Id) is { } updated)
+        {
+            SetTileContent(tile, updated);
+            UpdateHero(updated);
+        }
+
+        if (_library.Find(game.Id) is { } current)
+        {
+            _ = FetchDetailsAsync(current, force: true);
+        }
+    }
+
+    private Game? _findGame;
+
+    private void ShowFind(Game game)
+    {
+        _findGame = _library.Find(game.Id) ?? game;
+        FindTitle.Text = GameLibrary.DisplayTitle(_findGame);
+        FindQuery.Text = GameLibrary.DisplayTitle(_findGame);
+        FindResults.Children.Clear();
+        FindStatus.Text = "Søker …";
+        FindPanel.Visibility = Visibility.Visible;
+        FadeIn(FindPanel);
+        SetHomeEnabled(false);
+        FindSearchButton.Focus(FocusState.Keyboard);
+        _ = RunFindAsync();
+    }
+
+    private void FindSearchButton_Click(object sender, RoutedEventArgs e) => _ = RunFindAsync();
+
+    private void FindQuery_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key == VirtualKey.Enter)
+        {
+            e.Handled = true;
+            _ = RunFindAsync();
+        }
+    }
+
+    /// <summary>Fem beste treff på Steam for teksten i søkefeltet, som knapper med lite bilde.</summary>
+    private async Task RunFindAsync()
+    {
+        var term = FindQuery.Text.Trim();
+        if (term.Length < 2)
+        {
+            FindStatus.Text = "Skriv navnet på spillet.";
+            return;
+        }
+
+        FindStatus.Text = $"Søker etter «{term}» på Steam …";
+        FindResults.Children.Clear();
+        IReadOnlyList<SteamSearchHit> hits;
+        try
+        {
+            hits = await new SteamStoreClient(ArtHttp).SearchAsync(term, 5);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException)
+        {
+            FindStatus.Text = $"Søket feilet (ingen nettverk?): {ex.Message}";
+            return;
+        }
+
+        if (hits.Count == 0)
+        {
+            FindStatus.Text = $"Ingen treff på «{term}». Prøv et annet navn, eller bruk navnet uten Steam.";
+            return;
+        }
+
+        FindStatus.Text = "Velg riktig spill:";
+        foreach (var hit in hits)
+        {
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 16 };
+            if (hit.TinyImage is { } url && Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            {
+                // Små bilder (120 × 45) rett fra Steam; slippes når panelet lukkes.
+                row.Children.Add(new Image
+                {
+                    Width = 120,
+                    Height = 45,
+                    Stretch = Microsoft.UI.Xaml.Media.Stretch.UniformToFill,
+                    Source = new BitmapImage(uri) { DecodePixelWidth = Px(120) },
+                });
+            }
+
+            row.Children.Add(new TextBlock { Text = hit.Name, FontSize = 20, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
+            var button = new Button
+            {
+                Content = row,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Left,
+                Height = 64,
+                Padding = new Thickness(12, 0, 12, 0),
+            };
+            button.Click += async (_, _) =>
+            {
+                if (_findGame is not { } game)
+                {
+                    return;
+                }
+
+                FindStatus.Text = $"Bruker «{hit.Name}» …";
+                _log.Write("bibliotek", $"«{GameLibrary.DisplayTitle(game)}» satt til «{hit.Name}» (appid {hit.Id}) fra Finn riktig spill");
+                await ApplySteamHitAsync(game, hit);
+                CloseFind();
+            };
+            FindResults.Children.Add(button);
+        }
+
+        if (FindResults.Children[0] is Button first)
+        {
+            first.Focus(FocusState.Keyboard);
+        }
+    }
+
+    /// <summary>Bare navnet, uten Steam: lagres som brukerens eget navn (vinner over alt).</summary>
+    private void FindUseNameButton_Click(object sender, RoutedEventArgs e)
+    {
+        var name = FindQuery.Text.Trim();
+        if (_findGame is not { } game || name.Length < 1)
+        {
+            return;
+        }
+
+        _library.SetOverrides(game.Id, game.Overrides with { Title = name });
+        SaveLibrary();
+        RefreshTileTexts();
+        if (TileFor(game.Id) is { } tile && _library.Find(game.Id) is { } updated)
+        {
+            SetTileContent(tile, updated);
+        }
+
+        _log.Write("bibliotek", $"«{game.Title}» fikk navnet «{name}»");
+        CloseFind();
+    }
+
+    private void FindCloseButton_Click(object sender, RoutedEventArgs e) => CloseFind();
+
+    private void CloseFind()
+    {
+        FindPanel.Visibility = Visibility.Collapsed;
+        FindResults.Children.Clear();
+        SetHomeEnabled(true);
+        FocusHome(_findGame?.Id ?? _focusGameId);
+    }
+
+    private void OptionFind_Click(object sender, RoutedEventArgs e)
+    {
+        if (_optionsGame is { } game)
+        {
+            CloseOptions(focusHome: false);
+            ShowFind(game);
+        }
     }
 
     // ---- Om spillet (Y) ----
@@ -886,7 +1163,8 @@ public sealed partial class MainWindow : Window
         MessagePanel.Visibility == Visibility.Visible || SessionPanel.Visibility == Visibility.Visible
         || HostPanel.Visibility == Visibility.Visible || PowerPanel.Visibility == Visibility.Visible
         || LoadingPanel.Visibility == Visibility.Visible || DetailsPanel.Visibility == Visibility.Visible
-        || OptionsPanel.Visibility == Visibility.Visible || DebugPanel.Visibility == Visibility.Visible;
+        || OptionsPanel.Visibility == Visibility.Visible || DebugPanel.Visibility == Visibility.Visible
+        || FindPanel.Visibility == Visibility.Visible || NoticePanel.Visibility == Visibility.Visible;
 
     private void ShowDetails(Game game)
     {
@@ -996,11 +1274,11 @@ public sealed partial class MainWindow : Window
         try
         {
             var store = new SteamStoreClient(ArtHttp);
-            var steam = _library.PlayActionsFor(game.Id).FirstOrDefault(a => a.RunnerId == GameLibrary.SteamRunnerId);
-            var appId = steam is not null && int.TryParse(steam.Target, CultureInfo.InvariantCulture, out var id) ? id : await store.FindAppIdAsync(title);
+            var appId = SteamAppIdFor(game) ?? await store.FindAppIdAsync(title);
             if (appId is not { } steamId || await store.GetDetailsAsync(steamId) is not { } details)
             {
                 _log.Write("info", $"Fant ikke info om «{title}» på Steam");
+                AddNotice("info:" + game.Id, game.Id, $"Fant ikke info om «{title}» på Steam.");
                 if (_detailsGame?.Id == game.Id)
                 {
                     DetailsSource.Text = $"Fant ikke «{title}» på Steam Store.";
@@ -1202,8 +1480,7 @@ public sealed partial class MainWindow : Window
             if (source != SourceHost)
             {
                 var store = new SteamStoreClient(ArtHttp);
-                var steam = _library.PlayActionsFor(game.Id).FirstOrDefault(a => a.RunnerId == GameLibrary.SteamRunnerId);
-                var appId = steam is not null && int.TryParse(steam.Target, CultureInfo.InvariantCulture, out var id) ? id : await store.FindAppIdAsync(title);
+                var appId = SteamAppIdFor(game) ?? await store.FindAppIdAsync(title);
                 art = appId is { } steamId ? await DownloadArtAsync(game, SteamStoreClient.ImageUrls(steamId)) : null;
             }
 
@@ -2308,10 +2585,7 @@ public sealed partial class MainWindow : Window
                 ArtProgressText.Text = string.Create(CultureInfo.InvariantCulture, $"Henter bilder {i + 1}/{missing.Count}: {title}");
                 try
                 {
-                    var steam = _library.PlayActionsFor(game.Id).FirstOrDefault(a => a.RunnerId == GameLibrary.SteamRunnerId);
-                    var appId = steam is not null && int.TryParse(steam.Target, CultureInfo.InvariantCulture, out var id)
-                        ? id
-                        : await store.FindAppIdAsync(title);
+                    var appId = SteamAppIdFor(game) ?? await store.FindAppIdAsync(title);
                     if (appId is not { } steamId)
                     {
                         // Ikke på Steam: prøv Playnite-omslaget fra gaming-PC-en via Vibepollo (Ubisoft, EA, Epic …).
@@ -2331,6 +2605,7 @@ public sealed partial class MainWindow : Window
                         else
                         {
                             _log.Write("bilder", $"Fant ikke bilder for «{title}» på Steam eller i Vibepollo");
+                            AddNotice("art:" + game.Id, game.Id, $"Fant ikke bilder for «{title}». Riktig navn gjør at Steam finner spillet.");
                         }
                     }
                     else if (await DownloadArtAsync(game, SteamStoreClient.ImageUrls(steamId)) is { } art)
@@ -2352,6 +2627,7 @@ public sealed partial class MainWindow : Window
                     // Nettverksfeil (for eksempel Wi-Fi som har falt ut): prøv igjen neste gang Home blir aktiv.
                     _artTried.Remove(game.Id);
                     _log.Write("bilder", $"Henting av bilder for «{title}» feilet, prøver igjen senere: {ex.Message}");
+                    AddNotice("network", null, "Bilder kunne ikke hentes akkurat nå (nettverk). GameHome prøver igjen når Home blir aktiv.");
                 }
 
                 ArtProgress.Value = i + 1;
@@ -2359,13 +2635,123 @@ public sealed partial class MainWindow : Window
         }
         finally
         {
+            // Fremdriften vises bare mens noe hentes. Det som ikke ble funnet, ligger i varslene med en knapp for å rette det.
             _hostArtRunning = false;
-            ArtProgressText.Text = string.Create(CultureInfo.InvariantCulture, $"Bilder hentet for {found} av {missing.Count} spill");
-            var hide = DispatcherQueue.CreateTimer();
-            hide.Interval = TimeSpan.FromSeconds(4);
-            hide.IsRepeating = false;
-            hide.Tick += (_, _) => ArtProgressPanel.Visibility = Visibility.Collapsed;
-            hide.Start();
+            ArtProgressPanel.Visibility = Visibility.Collapsed;
+            _log.Write("bilder", string.Create(CultureInfo.InvariantCulture, $"Bilder hentet for {found} av {missing.Count} spill"));
+        }
+    }
+
+    // ---- Varsler: det som ikke gikk, med en knapp for å rette det ----
+
+    private sealed record Notice(string Key, string? GameId, string Text, DateTime When);
+
+    private readonly List<Notice> _notices = [];
+
+    /// <summary>Legger til (eller oppdaterer) et varsel. Samme nøkkel gir ett varsel, ikke flere.</summary>
+    private void AddNotice(string key, string? gameId, string text)
+    {
+        _notices.RemoveAll(n => n.Key == key);
+        _notices.Insert(0, new Notice(key, gameId, text, DateTime.Now));
+        if (_notices.Count > 20)
+        {
+            _notices.RemoveRange(20, _notices.Count - 20);
+        }
+
+        UpdateNoticeButton();
+    }
+
+    private void RemoveNoticesFor(string gameId)
+    {
+        if (_notices.RemoveAll(n => n.GameId == gameId) > 0)
+        {
+            UpdateNoticeButton();
+            if (NoticePanel.Visibility == Visibility.Visible)
+            {
+                FillNotices();
+            }
+        }
+    }
+
+    private void UpdateNoticeButton()
+    {
+        NoticeButton.Visibility = _notices.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        NoticeCount.Text = _notices.Count.ToString(CultureInfo.InvariantCulture);
+    }
+
+    private void NoticeButton_Click(object sender, RoutedEventArgs e)
+    {
+        FillNotices();
+        NoticePanel.Visibility = Visibility.Visible;
+        FadeIn(NoticePanel);
+        SetHomeEnabled(false);
+        _log.Write("varsler", $"Varsler åpnet ({_notices.Count})");
+    }
+
+    private void FillNotices()
+    {
+        NoticeList.Children.Clear();
+        foreach (var notice in _notices)
+        {
+            var grid = new Grid { ColumnSpacing = 12 };
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var text = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
+            text.Children.Add(new TextBlock { Text = notice.Text, FontSize = 18, TextWrapping = TextWrapping.Wrap });
+            text.Children.Add(new TextBlock
+            {
+                Text = notice.When.ToString("HH:mm", CultureInfo.InvariantCulture),
+                FontSize = 14,
+                Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["GhTextTertiaryBrush"],
+            });
+            grid.Children.Add(text);
+            if (notice.GameId is { } gameId && _library.Find(gameId) is { } game)
+            {
+                var fix = new Button { Content = "Finn riktig spill", Height = 52, Padding = new Thickness(18, 0, 18, 0), VerticalAlignment = VerticalAlignment.Center };
+                fix.Click += (_, _) =>
+                {
+                    CloseNotices(focusHome: false);
+                    ShowFind(game);
+                };
+                Grid.SetColumn(fix, 1);
+                grid.Children.Add(fix);
+            }
+
+            NoticeList.Children.Add(new Border
+            {
+                Child = grid,
+                Padding = new Thickness(16, 12, 12, 12),
+                CornerRadius = new CornerRadius(8),
+                Background = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["GhSurfaceBrush"],
+            });
+        }
+
+        if (_notices.Count == 0)
+        {
+            NoticeList.Children.Add(new TextBlock { Text = "Ingen varsler.", FontSize = 18 });
+        }
+
+        var firstFix = NoticeList.Children.OfType<Border>().Select(b => (b.Child as Grid)?.Children.OfType<Button>().FirstOrDefault()).FirstOrDefault(b => b is not null);
+        (firstFix ?? NoticeCloseButton).Focus(FocusState.Keyboard);
+    }
+
+    private void NoticeClearButton_Click(object sender, RoutedEventArgs e)
+    {
+        _notices.Clear();
+        UpdateNoticeButton();
+        CloseNotices();
+    }
+
+    private void NoticeCloseButton_Click(object sender, RoutedEventArgs e) => CloseNotices();
+
+    private void CloseNotices(bool focusHome = true)
+    {
+        NoticePanel.Visibility = Visibility.Collapsed;
+        NoticeList.Children.Clear();
+        SetHomeEnabled(true);
+        if (focusHome)
+        {
+            FocusHome(_focusGameId);
         }
     }
 
@@ -3211,6 +3597,14 @@ public sealed partial class MainWindow : Window
             if (MessagePanel.Visibility == Visibility.Visible)
             {
                 CloseMessage(_messageCancel);
+            }
+            else if (FindPanel.Visibility == Visibility.Visible)
+            {
+                CloseFind();
+            }
+            else if (NoticePanel.Visibility == Visibility.Visible)
+            {
+                CloseNotices();
             }
             else if (OptionsPanel.Visibility == Visibility.Visible)
             {

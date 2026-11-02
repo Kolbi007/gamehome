@@ -25,9 +25,52 @@ public sealed class SteamStoreClient(HttpClient http)
     private static DateTime _lastCall = DateTime.MinValue;
 
     /// <summary>Steam-appid for tittelen, eller null hvis Steam ikke har et spill med akkurat den tittelen.</summary>
-    public async Task<int?> FindAppIdAsync(string title, CancellationToken ct = default)
+    public async Task<int?> FindAppIdAsync(string title, CancellationToken ct = default) =>
+        (await FindMatchAsync(title, ct).ConfigureAwait(false))?.Id;
+
+    /// <summary>
+    /// Velger bare et treff med samme tittel, sammenlignet tilgivende (<see cref="TitleGuess.MatchKey"/>): apostrofer,
+    /// varemerketegn og tegnsetting teller ikke, og romertall er lik tall. Alle ordene må stemme.
+    /// </summary>
+    public static int? PickAppId(string json, string title) => PickMatch(json, title)?.Id;
+
+    public static SteamSearchHit? PickMatch(string json, string title)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(title);
+        ArgumentNullException.ThrowIfNull(title);
+        var key = TitleGuess.MatchKey(title);
+        return ParseSearch(json).FirstOrDefault(h => TitleGuess.MatchKey(h.Name) == key);
+    }
+
+    /// <summary>Søker etter tittelen og gir treffet med samme tittel, eller null.</summary>
+    public async Task<SteamSearchHit?> FindMatchAsync(string title, CancellationToken ct = default) =>
+        PickMatch(await SearchJsonAsync(title, ct).ConfigureAwait(false), title);
+
+    /// <summary>De beste treffene for et fritt søk (for «Finn riktig spill»).</summary>
+    public async Task<IReadOnlyList<SteamSearchHit>> SearchAsync(string term, int max, CancellationToken ct = default) =>
+        [.. ParseSearch(await SearchJsonAsync(term, ct).ConfigureAwait(false)).Take(max)];
+
+    public static IReadOnlyList<SteamSearchHit> ParseSearch(string json)
+    {
+        try
+        {
+            var result = JsonSerializer.Deserialize(json, SteamStoreJson.Default.StoreSearchResult);
+            return [.. (result?.Items ?? []).Where(i => i.Type == "app" && !string.IsNullOrWhiteSpace(i.Name))
+                .Select(i => new SteamSearchHit(i.Id, CleanName(i.Name!), i.TinyImage))];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
+    /// <summary>Steams navn uten varemerketegn, for visning.</summary>
+    public static string CleanName(string name) =>
+        string.Join(' ', name.Replace("™", "", StringComparison.Ordinal).Replace("®", "", StringComparison.Ordinal)
+            .Replace("©", "", StringComparison.Ordinal).Split(' ', StringSplitOptions.RemoveEmptyEntries));
+
+    private async Task<string> SearchJsonAsync(string term, CancellationToken ct)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(term);
         await Gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
@@ -38,31 +81,12 @@ public sealed class SteamStoreClient(HttpClient http)
             }
 
             _lastCall = DateTime.UtcNow;
-            var json = await http.GetStringAsync(new Uri(Search + Uri.EscapeDataString(title)), ct).ConfigureAwait(false);
-            return PickAppId(json, title);
+            return await http.GetStringAsync(new Uri(Search + Uri.EscapeDataString(term)), ct).ConfigureAwait(false);
         }
         finally
         {
             Gate.Release();
         }
-    }
-
-    /// <summary>Velger bare et treff med samme tittel (uten store bokstaver, varemerketegn og ekstra mellomrom).</summary>
-    public static int? PickAppId(string json, string title)
-    {
-        ArgumentNullException.ThrowIfNull(title);
-        StoreSearchResult? result;
-        try
-        {
-            result = JsonSerializer.Deserialize(json, SteamStoreJson.Default.StoreSearchResult);
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-
-        var key = GameLibrary.TitleKey(title);
-        return result?.Items?.FirstOrDefault(i => i.Type == "app" && i.Name is { } name && GameLibrary.TitleKey(name) == key)?.Id;
     }
 
     /// <summary>
@@ -150,7 +174,11 @@ internal sealed record StoreSearchResult(
 internal sealed record StoreSearchItem(
     [property: JsonPropertyName("type")] string? Type,
     [property: JsonPropertyName("name")] string? Name,
-    [property: JsonPropertyName("id")] int Id);
+    [property: JsonPropertyName("id")] int Id,
+    [property: JsonPropertyName("tiny_image")] string? TinyImage);
+
+/// <summary>Et treff i Steams butikksøk: appid, navn (uten varemerketegn) og et lite bilde.</summary>
+public sealed record SteamSearchHit(int Id, string Name, string? TinyImage);
 
 [JsonSerializable(typeof(StoreSearchResult))]
 internal sealed partial class SteamStoreJson : JsonSerializerContext;

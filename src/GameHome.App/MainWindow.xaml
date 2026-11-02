@@ -49,6 +49,7 @@
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <TextBlock Text="GAMEHOME" FontFamily="{StaticResource GhFontText}" FontSize="{StaticResource GhSizeSmall}" FontWeight="SemiBold"
                            CharacterSpacing="220" Foreground="{StaticResource GhTextTertiaryBrush}" VerticalAlignment="Center" />
@@ -57,9 +58,18 @@
                     <TextBlock x:Name="ArtProgressText" FontSize="{StaticResource GhSizeSmall}" Foreground="{StaticResource GhTextTertiaryBrush}"
                                VerticalAlignment="Center" MaxWidth="420" TextTrimming="CharacterEllipsis" />
                 </StackPanel>
-                <TextBlock x:Name="ClockText" Grid.Column="2" FontFamily="{StaticResource GhFontText}" FontSize="{StaticResource GhSizeBody}"
+                <!-- Varsler: bare synlig når noe trenger brukeren (for eksempel bilder som ikke ble funnet). -->
+                <Button x:Name="NoticeButton" Grid.Column="2" Click="NoticeButton_Click" Height="40" Padding="12,0" CornerRadius="20"
+                        Background="Transparent" BorderThickness="0" Visibility="Collapsed"
+                        AutomationProperties.Name="Varsler" ToolTipService.ToolTip="Varsler">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xEA8F;" FontSize="16" Foreground="{StaticResource GhTextSecondaryBrush}" />
+                        <TextBlock x:Name="NoticeCount" FontSize="{StaticResource GhSizeCaption}" Foreground="{StaticResource GhTextPrimaryBrush}" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+                <TextBlock x:Name="ClockText" Grid.Column="3" FontFamily="{StaticResource GhFontText}" FontSize="{StaticResource GhSizeBody}"
                            Foreground="{StaticResource GhTextSecondaryBrush}" VerticalAlignment="Center" />
-                <Button x:Name="PowerMenuButton" Grid.Column="3" Click="PowerMenuButton_Click" Width="48" Height="48"
+                <Button x:Name="PowerMenuButton" Grid.Column="4" Click="PowerMenuButton_Click" Width="48" Height="48"
                         Background="Transparent" BorderThickness="0" CornerRadius="24"
                         AutomationProperties.Name="Strøm og innstillinger" ToolTipService.ToolTip="Strøm og innstillinger">
                     <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE7E8;" FontSize="18" Foreground="{StaticResource GhTextSecondaryBrush}" />
@@ -353,10 +363,12 @@
 
         <!-- Valg for spillet (☰/Start): bilder og info på nytt, standard spillemåte, strømprofil, fjern. -->
         <Grid x:Name="OptionsPanel" Background="{StaticResource GhScrimBrush}" Visibility="Collapsed">
+            <ScrollViewer VerticalScrollBarVisibility="Hidden" Padding="0,24">
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10" Width="560">
                 <TextBlock Text="Valg" FontSize="{StaticResource GhSizeCaption}" Foreground="{StaticResource GhTextTertiaryBrush}" />
                 <TextBlock x:Name="OptionsTitle" FontFamily="{StaticResource GhFontDisplay}" FontSize="{StaticResource GhSizeTitle}" FontWeight="SemiBold"
                            Foreground="{StaticResource GhTextPrimaryBrush}" TextWrapping="Wrap" Margin="0,0,0,12" />
+                <Button x:Name="OptionFind" Style="{StaticResource GhPanelButton}" Content="Finn riktig spill eller endre navn" Click="OptionFind_Click" />
                 <Button x:Name="OptionDefaultMode" Style="{StaticResource GhPanelButton}" Click="OptionDefaultMode_Click" />
                 <Button x:Name="OptionSource" Style="{StaticResource GhPanelButton}" Click="OptionSource_Click">
                     <StackPanel Spacing="2">
@@ -376,6 +388,66 @@
                 <Button x:Name="OptionsCloseButton" Style="{StaticResource GhPanelButton}" Content="Lukk" Click="OptionsCloseButton_Click" Margin="0,12,0,0" />
                 <TextBlock x:Name="OptionsStatus" FontSize="{StaticResource GhSizeSmall}" Foreground="{StaticResource GhTextSecondaryBrush}" TextWrapping="Wrap" />
             </StackPanel>
+            </ScrollViewer>
+        </Grid>
+
+        <!-- Varsler: det som ikke gikk, med en knapp for å rette det. -->
+        <Grid x:Name="NoticePanel" Background="{StaticResource GhScrimBrush}" Visibility="Collapsed">
+            <Grid HorizontalAlignment="Center" VerticalAlignment="Center" Width="760" RowSpacing="12" Padding="0,24">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <TextBlock Text="Varsler" FontFamily="{StaticResource GhFontDisplay}" FontSize="{StaticResource GhSizeTitle}" FontWeight="SemiBold"
+                           Foreground="{StaticResource GhTextPrimaryBrush}" />
+                <ScrollViewer Grid.Row="1" MaxHeight="480" VerticalScrollBarVisibility="Auto">
+                    <StackPanel x:Name="NoticeList" Spacing="8" />
+                </ScrollViewer>
+                <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="10" Margin="0,8,0,0">
+                    <Button x:Name="NoticeClearButton" Content="Fjern alle" Click="NoticeClearButton_Click" Height="52" Padding="20,0" FontSize="{StaticResource GhSizeCaption}" />
+                    <Button x:Name="NoticeCloseButton" Content="Lukk" Click="NoticeCloseButton_Click" Height="52" Padding="20,0" FontSize="{StaticResource GhSizeCaption}" />
+                </StackPanel>
+            </Grid>
+        </Grid>
+
+        <!--
+          Finn riktig spill: søk på Steam med det GameHome gjettet (rediger med skjermtastaturet), velg treffet med
+          kontrolleren, eller bruk navnet uten Steam.
+        -->
+        <Grid x:Name="FindPanel" Background="{StaticResource GhScrimBrush}" Visibility="Collapsed">
+            <Grid HorizontalAlignment="Center" VerticalAlignment="Center" Width="760" RowSpacing="12" Padding="0,24">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <TextBlock Text="Finn riktig spill" FontSize="{StaticResource GhSizeCaption}" Foreground="{StaticResource GhTextTertiaryBrush}" />
+                <TextBlock x:Name="FindTitle" Grid.Row="1" FontFamily="{StaticResource GhFontDisplay}" FontSize="{StaticResource GhSizeTitle}" FontWeight="SemiBold"
+                           Foreground="{StaticResource GhTextPrimaryBrush}" TextWrapping="Wrap" />
+                <Grid Grid.Row="2" ColumnSpacing="10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBox x:Name="FindQuery" FontSize="{StaticResource GhSizeBody}" Height="52" VerticalContentAlignment="Center"
+                             PlaceholderText="Navnet på spillet" KeyDown="FindQuery_KeyDown" />
+                    <Button x:Name="FindSearchButton" Grid.Column="1" Content="Søk på Steam" Click="FindSearchButton_Click" Height="52" Padding="20,0"
+                            FontSize="{StaticResource GhSizeCaption}" />
+                </Grid>
+                <TextBlock x:Name="FindStatus" Grid.Row="3" FontSize="{StaticResource GhSizeCaption}" Foreground="{StaticResource GhTextSecondaryBrush}" TextWrapping="Wrap" />
+                <ScrollViewer Grid.Row="4" MaxHeight="380" VerticalScrollBarVisibility="Auto">
+                    <StackPanel x:Name="FindResults" Spacing="8" />
+                </ScrollViewer>
+                <StackPanel Grid.Row="5" Orientation="Horizontal" Spacing="10" Margin="0,8,0,0">
+                    <Button x:Name="FindUseNameButton" Content="Bruk navnet uten Steam" Click="FindUseNameButton_Click" Height="52" Padding="20,0"
+                            FontSize="{StaticResource GhSizeCaption}" />
+                    <Button x:Name="FindCloseButton" Content="Lukk" Click="FindCloseButton_Click" Height="52" Padding="20,0" FontSize="{StaticResource GhSizeCaption}" />
+                </StackPanel>
+            </Grid>
         </Grid>
 
         <!-- Feilsøking: alt det tekniske som før lå i Home. -->
