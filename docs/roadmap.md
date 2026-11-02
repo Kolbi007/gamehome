@@ -73,3 +73,5 @@ registrert og gir en konsollfølelse (inspirert av Stremio).
   Beslutningspunkt 1 (FSE uten utviklermodus) er dermed ikke utløst.
 - 2026-11-02, fase 1 del 1: spill lagt til manuelt startes, «Kjører nå» virker med ekte spill, avslutning fra spillet
   og fra menyen gir retur til samme flis. Oppgradering virker med utviklermodus av.
+- 2026-11-02, fase 1 del 2: Steam-spill finnes av seg selv, startes via Steam, og kjører-signalet fra `RunningAppID`
+  virker for start, avslutning og retur til flisen. Et oppstartskrasj ved nye fliser er funnet og rettet.
