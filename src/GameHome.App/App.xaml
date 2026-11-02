@@ -10,6 +10,47 @@
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
+
+            <!--
+              Designregler for GameHome (docs/research/2026-11-02-designsprak.md). Varm, nesten svart grunn; spillets
+              egen farge er eneste aksent (settes i koden fra bildet). Ingen gradienter som pynt, ingen glass.
+            -->
+            <Color x:Key="GhBase">#FF121110</Color>
+            <Color x:Key="GhSurface">#FF1D1B19</Color>
+            <Color x:Key="GhTextPrimary">#FFF3F0EB</Color>
+            <Color x:Key="GhTextSecondary">#FFB3ACA3</Color>
+            <Color x:Key="GhTextTertiary">#FF7E776F</Color>
+
+            <SolidColorBrush x:Key="GhBaseBrush" Color="{StaticResource GhBase}" />
+            <SolidColorBrush x:Key="GhSurfaceBrush" Color="{StaticResource GhSurface}" />
+            <SolidColorBrush x:Key="GhScrimBrush" Color="#F2121110" />
+            <SolidColorBrush x:Key="GhTextPrimaryBrush" Color="{StaticResource GhTextPrimary}" />
+            <SolidColorBrush x:Key="GhTextSecondaryBrush" Color="{StaticResource GhTextSecondary}" />
+            <SolidColorBrush x:Key="GhTextTertiaryBrush" Color="{StaticResource GhTextTertiary}" />
+
+            <!-- Fem skriftstørrelser, én familie (Segoe UI Variable, som Windows). -->
+            <x:Double x:Key="GhSizeDisplay">44</x:Double>
+            <x:Double x:Key="GhSizeTitle">32</x:Double>
+            <x:Double x:Key="GhSizeBody">20</x:Double>
+            <x:Double x:Key="GhSizeCaption">16</x:Double>
+            <x:Double x:Key="GhSizeSmall">14</x:Double>
+            <FontFamily x:Key="GhFontDisplay">Segoe UI Variable Display</FontFamily>
+            <FontFamily x:Key="GhFontText">Segoe UI Variable Text</FontFamily>
+
+            <!-- Marger: viktig innhold holdes innenfor omtrent 5 % av kanten. -->
+            <Thickness x:Key="GhPageMargin">64,36,64,32</Thickness>
+            <CornerRadius x:Key="GhRadius">8</CornerRadius>
+
+            <!-- Rolige knapper på panelene: én høyde, samme skrift. -->
+            <Style x:Key="GhPanelButton" TargetType="Button">
+                <Setter Property="HorizontalAlignment" Value="Stretch" />
+                <Setter Property="HorizontalContentAlignment" Value="Left" />
+                <Setter Property="Height" Value="60" />
+                <Setter Property="Padding" Value="20,0" />
+                <Setter Property="FontSize" Value="{StaticResource GhSizeBody}" />
+                <Setter Property="FontFamily" Value="{StaticResource GhFontText}" />
+                <Setter Property="CornerRadius" Value="{StaticResource GhRadius}" />
+            </Style>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

@@ -124,6 +124,7 @@ public sealed partial class MainWindow : Window
         _metricsTimer.Tick += (_, _) =>
         {
             UpdateMemory();
+            UpdateClock();
             _ = RefreshHostStatusAsync(); // Høyst hvert 10. sekund, bare mens Home er aktiv og ingen økt kjører.
         };
 
@@ -135,18 +136,70 @@ public sealed partial class MainWindow : Window
 
         _libraryPath = Path.Combine(ApplicationData.Current.LocalFolder.Path, "library.json");
         _library = LoadLibrary();
+        _playStats = PlayStatsStore.Load(PlayStatsPath);
+        _details = GameDetailsStore.Load(DetailsPath);
+        MenuSounds.Enabled = ApplicationData.Current.LocalSettings.Values[SoundSetting] is not false;
+        SoundToggleText.Text = MenuSounds.Enabled ? "Menylyder: på" : "Menylyder: av";
+        UpdateClock();
         BuildGameTiles();
 
         // Pakkeversjonen er den som installeres og oppgraderes (0.1.N.0); assembly-versjonen er alltid 1.0.0.0.
         var version = global::Windows.ApplicationModel.Package.Current.Id.Version;
         var versionText = string.Create(CultureInfo.InvariantCulture, $"{version.Major}.{version.Minor}.{version.Build}.{version.Revision}");
         InfoText.Text = $"Versjon {versionText}";
-        HostTile.Content = $"Spill fra {HostLabel}";
+        HostTileText.Text = $"Spill fra {HostLabel}";
         var variant = RuntimeFeature.IsDynamicCodeSupported ? "JIT" : "Native AOT";
         _log.Write("start", $"Vindu klart (versjon {versionText}, {variant})");
     }
 
     private bool SessionActive => _session is not null && !_session.Completion.IsCompleted;
+
+    // ---- Spilletid, spillinfo, klokke og lyd ----
+
+    private const string SoundSetting = "home.sounds";
+    private readonly Dictionary<string, PlayStat> _playStats;
+    private readonly Dictionary<string, GameDetails> _details;
+
+    private static string PlayStatsPath => Path.Combine(ApplicationData.Current.LocalFolder.Path, "playstats.json");
+
+    private static string DetailsPath => Path.Combine(ApplicationData.Current.LocalFolder.Path, "details.json");
+
+    private void UpdateClock() => ClockText.Text = DateTime.Now.ToString("HH:mm", CultureInfo.InvariantCulture);
+
+    /// <summary>Legger økten til spillets spilletid (målt av GameHome, lagres bare lokalt).</summary>
+    private void RecordPlayTime(Game game, double minutes)
+    {
+        _playStats[game.Id] = PlayStatsStore.Add(_playStats.GetValueOrDefault(game.Id), DateTime.UtcNow, minutes);
+        try
+        {
+            PlayStatsStore.Save(PlayStatsPath, _playStats);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _log.Write("bibliotek", $"Kunne ikke lagre spilletid: {ex.Message}");
+        }
+    }
+
+    private void SaveDetails()
+    {
+        try
+        {
+            GameDetailsStore.Save(DetailsPath, _details);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _log.Write("info", $"Kunne ikke lagre spillinfo: {ex.Message}");
+        }
+    }
+
+    private void SoundToggle_Click(object sender, RoutedEventArgs e)
+    {
+        MenuSounds.Enabled = !MenuSounds.Enabled;
+        ApplicationData.Current.LocalSettings.Values[SoundSetting] = MenuSounds.Enabled;
+        SoundToggleText.Text = MenuSounds.Enabled ? "Menylyder: på" : "Menylyder: av";
+        MenuSounds.Select();
+        _log.Write("innstillinger", MenuSounds.Enabled ? "Menylyder slått på" : "Menylyder slått av");
+    }
 
     /// <summary>Navnet på gaming-PC-en slik GameHome viser det, for eksempel «Gaming Laptop».</summary>
     private static string HostLabel => MoonlightClient.FindHosts() is [var host, ..] ? host.DisplayName : "gaming-PC-en";
@@ -245,7 +298,13 @@ public sealed partial class MainWindow : Window
 
     private void BuildGameTiles()
     {
-        var visible = _library.VisibleGames;
+        // Sist spilte først; spill som aldri er spilt, beholder rekkefølgen de ble lagt til i.
+        var visible = _library.VisibleGames
+            .Select((g, index) => (Game: g, Index: index))
+            .OrderByDescending(x => _playStats.TryGetValue(x.Game.Id, out var s) && s.Minutes >= 1 ? s.LastPlayedUtc : DateTime.MinValue)
+            .ThenBy(x => x.Index)
+            .Select(x => x.Game)
+            .ToList();
         var ids = visible.Select(g => g.Id).ToHashSet(StringComparer.Ordinal);
 
         for (var i = GameTiles.Children.Count - 1; i >= 0; i--)
@@ -270,10 +329,13 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    // Flisene er 16:9, som spillenes brede bilder. Flisen i fokus forstørres litt og får kant i bildets egen farge.
-    private const double TileWidth = 352;
-    private const double TileHeight = 198;
-    private const double FocusScale = 1.07;
+    // Flisene er 16:9, som spillenes brede bilder. Flisen i fokus forstørres litt og får kant i bildets egen farge; de
+    // andre dempes, så blikket går dit fokus er (docs/research/2026-11-02-designsprak.md).
+    private const double TileWidth = 320;
+    private const double TileHeight = 180;
+    private const double FocusScale = 1.06;
+    private const double DimmedOpacity = 0.62;
+    private static readonly TimeSpan FocusDuration = TimeSpan.FromMilliseconds(130);
 
     private Button CreateTile(Game game)
     {
@@ -290,6 +352,7 @@ public sealed partial class MainWindow : Window
             VerticalContentAlignment = VerticalAlignment.Stretch,
             RenderTransformOrigin = new global::Windows.Foundation.Point(0.5, 0.5),
             RenderTransform = new Microsoft.UI.Xaml.Media.ScaleTransform(),
+            Opacity = DimmedOpacity,
         };
         SetTileContent(tile, game);
         tile.Click += GameTile_Click;
@@ -305,28 +368,37 @@ public sealed partial class MainWindow : Window
     /// <summary>Forstørrer flisen, gir den kant i bildets dominerende farge og bytter bakgrunnen («ambilight»).</summary>
     private void OnTileFocused(Button tile, string gameId)
     {
-        AnimateScale(tile, FocusScale);
-        if (_library.Find(gameId) is not { } game || TileImageFor(game) is not { } image)
+        AnimateFocus(tile, FocusScale, 1.0);
+        if (_library.Find(gameId) is not { } game)
+        {
+            return;
+        }
+
+        UpdateHero(game);
+        if (TileImageFor(game) is not { } image)
         {
             tile.BorderThickness = new Thickness(0);
             return;
         }
 
         _ = ApplyFocusColorsAsync(tile, gameId, image);
-        if (!string.Equals(_ambientPath, image, StringComparison.OrdinalIgnoreCase))
+        var hero = ArtFor(game).Hero is { } heroFile && File.Exists(heroFile) ? heroFile : null;
+        var backdrop = hero ?? image;
+        if (!string.Equals(_ambientPath, backdrop, StringComparison.OrdinalIgnoreCase))
         {
-            _ambientPath = image;
-            _ = LoadAmbientAsync(image);
+            _ambientPath = backdrop;
+            _ = LoadAmbientAsync(backdrop, sharp: hero is not null);
         }
     }
 
     private static void OnTileUnfocused(Button tile)
     {
-        AnimateScale(tile, 1.0);
+        AnimateFocus(tile, 1.0, DimmedOpacity);
         tile.BorderThickness = new Thickness(0);
     }
 
-    private static void AnimateScale(Button tile, double to)
+    /// <summary>Kort og myk: forstørring og lysstyrke på 130 ms med ease-out, ingen sprett.</summary>
+    private static void AnimateFocus(Button tile, double scaleTo, double opacityTo)
     {
         if (tile.RenderTransform is not Microsoft.UI.Xaml.Media.ScaleTransform scale)
         {
@@ -335,19 +407,39 @@ public sealed partial class MainWindow : Window
 
         var ease = new Microsoft.UI.Xaml.Media.Animation.CubicEase { EasingMode = Microsoft.UI.Xaml.Media.Animation.EasingMode.EaseOut };
         var story = new Microsoft.UI.Xaml.Media.Animation.Storyboard();
-        foreach (var property in new[] { "ScaleX", "ScaleY" })
+        void Add(DependencyObject target, string property, double to)
         {
             var animation = new Microsoft.UI.Xaml.Media.Animation.DoubleAnimation
             {
                 To = to,
-                Duration = new Duration(TimeSpan.FromMilliseconds(160)),
+                Duration = new Duration(FocusDuration),
                 EasingFunction = ease,
             };
-            Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTarget(animation, scale);
+            Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTarget(animation, target);
             Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTargetProperty(animation, property);
             story.Children.Add(animation);
         }
 
+        Add(scale, "ScaleX", scaleTo);
+        Add(scale, "ScaleY", scaleTo);
+        Add(tile, "Opacity", opacityTo);
+        story.Begin();
+    }
+
+    /// <summary>Animerer en egenskap kort (paneler inn på 200 ms).</summary>
+    private static void FadeIn(UIElement element, double durationMs = 200)
+    {
+        var animation = new Microsoft.UI.Xaml.Media.Animation.DoubleAnimation
+        {
+            From = 0,
+            To = 1,
+            Duration = new Duration(TimeSpan.FromMilliseconds(durationMs)),
+            EasingFunction = new Microsoft.UI.Xaml.Media.Animation.CubicEase { EasingMode = Microsoft.UI.Xaml.Media.Animation.EasingMode.EaseOut },
+        };
+        var story = new Microsoft.UI.Xaml.Media.Animation.Storyboard();
+        Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTarget(animation, element);
+        Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTargetProperty(animation, "Opacity");
+        story.Children.Add(animation);
         story.Begin();
     }
 
@@ -361,15 +453,126 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    /// <summary>Bakgrunnen: bildet dekodet svært lite (48 px bredt) og strukket ut, som gir en myk uskarphet.</summary>
-    private async Task LoadAmbientAsync(string path)
+    /// <summary>
+    /// Bakgrunnen: spillets hero-bilde i full størrelse, eller (uten hero) omslaget dekodet svært lite (48 px) og strukket
+    /// ut, som gir en myk uskarphet. Toner inn på 250 ms.
+    /// </summary>
+    private async Task LoadAmbientAsync(string path, bool sharp)
     {
-        if (await LoadImageAsync(path, 48) is { } bitmap && string.Equals(_ambientPath, path, StringComparison.OrdinalIgnoreCase))
+        if (await LoadImageAsync(path, sharp ? ScreenPx(0.85) : 48) is { } bitmap && string.Equals(_ambientPath, path, StringComparison.OrdinalIgnoreCase))
         {
             AmbientImage.Source = bitmap;
-            AmbientFadeIn.Begin();
+            var animation = new Microsoft.UI.Xaml.Media.Animation.DoubleAnimation
+            {
+                From = 0,
+                To = sharp ? 0.9 : 0.5,
+                Duration = new Duration(TimeSpan.FromMilliseconds(250)),
+                EasingFunction = new Microsoft.UI.Xaml.Media.Animation.CubicEase { EasingMode = Microsoft.UI.Xaml.Media.Animation.EasingMode.EaseOut },
+            };
+            var story = new Microsoft.UI.Xaml.Media.Animation.Storyboard();
+            Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTarget(animation, AmbientImage);
+            Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTargetProperty(animation, "Opacity");
+            story.Children.Add(animation);
+            story.Begin();
         }
     }
+
+    // ---- Hovedfeltet: spillet i fokus ----
+
+    private string? _heroGameId;
+    private string? _heroLogoPath;
+
+    /// <summary>Logo eller tittel, én linje sanne fakta og hva knappene gjør, for spillet i fokus.</summary>
+    private void UpdateHero(Game game)
+    {
+        var changed = _heroGameId != game.Id;
+        _heroGameId = game.Id;
+        var logo = ArtFor(game).Logo is { } file && File.Exists(file) ? file : null;
+        if (logo != _heroLogoPath || changed)
+        {
+            _heroLogoPath = logo;
+            HeroLogo.Source = null;
+            if (logo is not null)
+            {
+                _ = LoadTileImageAsync(HeroLogo, logo, Px(520));
+            }
+        }
+
+        HeroTitle.Text = logo is null ? GameLibrary.DisplayTitle(game) : "";
+        HeroFacts.Text = HeroFactsFor(game);
+        HeroHint.Text = (SessionActive && _sessionGame?.Id == game.Id) || IsRunningOnHost(game)
+            ? "A  Fortsett      Y  Om spillet      ☰  Valg"
+            : "A  Spill      Y  Om spillet      ☰  Valg";
+        if (changed)
+        {
+            HeroFadeIn.Begin();
+        }
+    }
+
+    /// <summary>Kort og sann: kjører nå, sist spilt og spilletid, hvor spillet spilles, sjanger og år.</summary>
+    private string HeroFactsFor(Game game)
+    {
+        var parts = new List<string>();
+        if (SessionActive && _sessionGame?.Id == game.Id)
+        {
+            parts.Add("▶ Kjører nå");
+        }
+        else if (IsRunningOnHost(game))
+        {
+            parts.Add($"▶ Kjører på {HostLabel}");
+        }
+        else if (_playStats.TryGetValue(game.Id, out var stat) && stat.Minutes >= 1)
+        {
+            parts.Add($"Sist spilt {RelativeDay(stat.LastPlayedUtc)}");
+            parts.Add(PlayTimeText(stat.Minutes));
+        }
+
+        parts.Add(ModesText(game));
+        if (_details.TryGetValue(game.Id, out var details))
+        {
+            if (details.Genres.Count > 0)
+            {
+                parts.Add(details.Genres[0]);
+            }
+
+            if (YearOf(details.Released) is { } year)
+            {
+                parts.Add(year);
+            }
+        }
+
+        return string.Join("  ·  ", parts);
+    }
+
+    private string ModesText(Game game)
+    {
+        var actions = _library.AvailableActionsFor(game.Id);
+        var local = actions.Any(a => !a.IsRemote);
+        var remote = actions.Any(a => a.IsRemote);
+        return local && remote ? $"Her og på {HostLabel}" : remote ? $"Fra {HostLabel}" : "På Legion Go";
+    }
+
+    private static string PlayTimeText(double minutes) =>
+        minutes < 60
+            ? string.Create(CultureInfo.InvariantCulture, $"{minutes:F0} min")
+            : string.Create(CultureInfo.InvariantCulture, $"{minutes / 60:0.#} t").Replace('.', ',');
+
+    private static string RelativeDay(DateTime utc)
+    {
+        var days = (DateTime.Now.Date - utc.ToLocalTime().Date).Days;
+        return days switch
+        {
+            <= 0 => "i dag",
+            1 => "i går",
+            < 7 => string.Create(CultureInfo.InvariantCulture, $"for {days} dager siden"),
+            < 60 => string.Create(CultureInfo.InvariantCulture, $"for {days / 7} uker siden"),
+            _ => utc.ToLocalTime().ToString("d. MMM yyyy", CultureInfo.GetCultureInfo("nb-NO")),
+        };
+    }
+
+    private static string? YearOf(string? released) =>
+        released is null ? null
+        : System.Text.RegularExpressions.Regex.Match(released, @"(19|20)\d\d") is { Success: true } match ? match.Value : null;
 
     /// <summary>
     /// Bildets dominerende farge: snitt av et 16 × 16-utsnitt, vektet mot fargerike piksler, og løftet så den lyser som
@@ -489,7 +692,7 @@ public sealed partial class MainWindow : Window
                 Margin = new Thickness(14, 0, 14, 12),
             };
             grid.Children.Add(logo);
-            _ = LoadTileImageAsync(logo, logoPath, 420);
+            _ = LoadTileImageAsync(logo, logoPath, Px(210));
             _logoTiles.Add(game.Id);
         }
         else
@@ -500,7 +703,7 @@ public sealed partial class MainWindow : Window
         grid.Children.Add(title);
         tile.Content = grid;
         _tileTitles[game.Id] = title;
-        _ = LoadTileImageAsync(picture, image, 720);
+        _ = LoadTileImageAsync(picture, image, Px(TileWidth * FocusScale));
     }
 
     private async Task LoadTileImageAsync(Image target, string path, int decodeWidth)
@@ -560,6 +763,11 @@ public sealed partial class MainWindow : Window
                 }
             }
         }
+
+        if (_heroGameId is not null && _library.Find(_heroGameId) is { } hero)
+        {
+            UpdateHero(hero);
+        }
     }
 
     private Button? TileFor(string? gameId) =>
@@ -605,12 +813,17 @@ public sealed partial class MainWindow : Window
         StorageFile? file;
         try
         {
+            _pickerOpen = true;
             file = await picker.PickSingleFileAsync();
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or System.Runtime.InteropServices.COMException)
         {
             _log.Write("bibliotek", $"Filvelgeren feilet: {ex.Message}");
             return;
+        }
+        finally
+        {
+            _pickerOpen = false;
         }
 
         if (file is null)
@@ -630,6 +843,370 @@ public sealed partial class MainWindow : Window
         _log.Write("bibliotek", added ? $"La til «{game.Title}» ({file.Path})" : $"«{game.Title}» finnes allerede");
         LastInput.Text = added ? $"La til {game.Title}. Trykk A for å starte." : $"{game.Title} finnes allerede.";
         FocusHome(game.Id);
+    }
+
+    // ---- Om spillet (Y) ----
+
+    private Game? _detailsGame;
+    private bool _pickerOpen;
+
+    private bool AnyOverlayOpen =>
+        MessagePanel.Visibility == Visibility.Visible || SessionPanel.Visibility == Visibility.Visible
+        || HostPanel.Visibility == Visibility.Visible || PowerPanel.Visibility == Visibility.Visible
+        || LoadingPanel.Visibility == Visibility.Visible || DetailsPanel.Visibility == Visibility.Visible
+        || OptionsPanel.Visibility == Visibility.Visible || DebugPanel.Visibility == Visibility.Visible;
+
+    private void ShowDetails(Game game)
+    {
+        _detailsGame = game;
+        var art = ArtFor(game);
+        DetailsHero.Source = null;
+        if ((art.Hero ?? TileImageFor(game)) is { } heroPath && File.Exists(heroPath))
+        {
+            _ = LoadTileImageAsync(DetailsHero, heroPath, ScreenPx(0.85));
+        }
+
+        DetailsLogo.Source = null;
+        var logo = art.Logo is { } l && File.Exists(l) ? l : null;
+        if (logo is not null)
+        {
+            _ = LoadTileImageAsync(DetailsLogo, logo, Px(480));
+        }
+
+        DetailsTitle.Text = logo is null ? GameLibrary.DisplayTitle(game) : "";
+        FillDetails(game);
+        DetailsPanel.Visibility = Visibility.Visible;
+        FadeIn(DetailsContent);
+        SetHomeEnabled(false);
+        DetailsPlayButton.Focus(FocusState.Keyboard);
+        _log.Write("info", $"Om spillet: «{GameLibrary.DisplayTitle(game)}»");
+
+        if (!_details.ContainsKey(game.Id))
+        {
+            _ = FetchDetailsAsync(game, force: false);
+        }
+    }
+
+    private void FillDetails(Game game)
+    {
+        _details.TryGetValue(game.Id, out var details);
+        var facts = new List<string>();
+        if (details is not null)
+        {
+            if (details.Genres.Count > 0)
+            {
+                facts.Add(string.Join(", ", details.Genres));
+            }
+
+            if (details.Released is { } released)
+            {
+                facts.Add(released);
+            }
+
+            if (details.Developer is { } developer)
+            {
+                facts.Add(details.Publisher is { } publisher && publisher != developer ? $"{developer} / {publisher}" : developer);
+            }
+        }
+
+        DetailsFacts.Text = facts.Count > 0 ? string.Join("  ·  ", facts) : "";
+        DetailsFacts.Visibility = facts.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        DetailsDescription.Text = details?.Description ?? "";
+        DetailsDescription.Visibility = details?.Description is null ? Visibility.Collapsed : Visibility.Visible;
+
+        DetailsScoreBox.Visibility = details?.Metacritic is null ? Visibility.Collapsed : Visibility.Visible;
+        DetailsScore.Text = details?.Metacritic?.ToString(CultureInfo.InvariantCulture) ?? "";
+
+        if (_playStats.TryGetValue(game.Id, out var stat) && stat.Minutes >= 1)
+        {
+            DetailsPlayed.Text = PlayTimeText(stat.Minutes);
+            DetailsPlayedLabel.Text = $"Spilt i GameHome · sist {RelativeDay(stat.LastPlayedUtc)}";
+        }
+        else
+        {
+            DetailsPlayed.Text = "Ikke spilt";
+            DetailsPlayedLabel.Text = "i GameHome ennå";
+        }
+
+        DetailsModes.Text = ModesText(game);
+        var resume = (SessionActive && _sessionGame?.Id == game.Id) || IsRunningOnHost(game);
+        DetailsPlayText.Text = resume ? "Fortsett" : "Spill";
+        DetailsSource.Text = details is null
+            ? "Ingen info lagret ennå."
+            : $"Info fra {details.Source}, hentet {details.FetchedUtc.ToLocalTime():d. MMM yyyy}. Spilletid fra HowLongToBeat er ikke med: siden stenger for automatisk henting. IGDB (gratis nøkkel) kan gi spilletid senere.";
+    }
+
+    /// <summary>Henter spillinfo fra Steam Store (appid fra Steam-spillet, ellers butikksøk på tittelen).</summary>
+    private async Task FetchDetailsAsync(Game game, bool force)
+    {
+        if (!force && _details.ContainsKey(game.Id))
+        {
+            return;
+        }
+
+        var title = GameLibrary.DisplayTitle(game);
+        if (_detailsGame?.Id == game.Id)
+        {
+            DetailsSource.Text = "Henter info fra Steam Store …";
+        }
+
+        try
+        {
+            var store = new SteamStoreClient(ArtHttp);
+            var steam = _library.PlayActionsFor(game.Id).FirstOrDefault(a => a.RunnerId == GameLibrary.SteamRunnerId);
+            var appId = steam is not null && int.TryParse(steam.Target, CultureInfo.InvariantCulture, out var id) ? id : await store.FindAppIdAsync(title);
+            if (appId is not { } steamId || await store.GetDetailsAsync(steamId) is not { } details)
+            {
+                _log.Write("info", $"Fant ikke info om «{title}» på Steam");
+                if (_detailsGame?.Id == game.Id)
+                {
+                    DetailsSource.Text = $"Fant ikke «{title}» på Steam Store.";
+                }
+
+                return;
+            }
+
+            _details[game.Id] = details;
+            SaveDetails();
+            _log.Write("info", $"Info om «{title}» hentet fra Steam Store (appid {steamId})");
+            if (_detailsGame?.Id == game.Id && DetailsPanel.Visibility == Visibility.Visible)
+            {
+                FillDetails(game);
+            }
+
+            if (_heroGameId == game.Id)
+            {
+                UpdateHero(game);
+            }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException)
+        {
+            _log.Write("info", $"Henting av info om «{title}» feilet: {ex.Message}");
+            if (_detailsGame?.Id == game.Id)
+            {
+                DetailsSource.Text = "Fikk ikke hentet info (ingen nettverk?). Prøv igjen fra Valg.";
+            }
+        }
+    }
+
+    /// <summary>Bildebredde i fysiske piksler for en bredde i XAML-enheter (skjermskalering tas med).</summary>
+    private int Px(double logical) =>
+        (int)Math.Ceiling(Math.Max(1, logical) * (Root.XamlRoot?.RasterizationScale ?? 1.5));
+
+    /// <summary>Bredde for bilder som fyller (en del av) skjermen, i fysiske piksler.</summary>
+    private int ScreenPx(double fraction) => Px((Root.ActualWidth > 0 ? Root.ActualWidth : 1280) * fraction);
+
+    private void CloseDetails(bool focusHome = true)
+    {
+        DetailsPanel.Visibility = Visibility.Collapsed;
+        DetailsHero.Source = null; // Det store bildet trengs ikke når panelet er lukket.
+        DetailsLogo.Source = null;
+        SetHomeEnabled(true);
+        if (focusHome)
+        {
+            FocusHome(_detailsGame?.Id ?? _focusGameId);
+        }
+    }
+
+    private void DetailsPlayButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_detailsGame is not { } game)
+        {
+            return;
+        }
+
+        CloseDetails(focusHome: false);
+        MenuSounds.Select();
+        if (SessionActive && _sessionGame?.Id == game.Id)
+        {
+            ResumeButton_Click(sender, e);
+            return;
+        }
+
+        _ = LaunchAsync(game);
+    }
+
+    private void DetailsOptionsButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_detailsGame is { } game)
+        {
+            CloseDetails(focusHome: false);
+            ShowOptions(game);
+        }
+    }
+
+    private void DetailsCloseButton_Click(object sender, RoutedEventArgs e) => CloseDetails();
+
+    // ---- Valg for spillet (☰/Start) ----
+
+    private Game? _optionsGame;
+
+    private void ShowOptions(Game game)
+    {
+        _optionsGame = game;
+        OptionsTitle.Text = GameLibrary.DisplayTitle(game);
+        OptionsStatus.Text = "";
+        var actions = _library.AvailableActionsFor(game.Id);
+        var hasBoth = actions.Any(a => a.IsRemote) && actions.Any(a => !a.IsRemote);
+        OptionDefaultMode.Visibility = hasBoth ? Visibility.Visible : Visibility.Collapsed;
+        OptionDefaultMode.Content = DefaultModeText(game);
+        OptionPowerProfileText.Text = HandheldCompanionStatus(game);
+        OptionsPanel.Visibility = Visibility.Visible;
+        FadeIn(OptionsPanel);
+        SetHomeEnabled(false);
+        (hasBoth ? OptionDefaultMode : OptionRefreshArt).Focus(FocusState.Keyboard);
+        _log.Write("valg", $"Valg for «{GameLibrary.DisplayTitle(game)}»");
+    }
+
+    private string DefaultModeText(Game game)
+    {
+        var preferred = game.Overrides.DefaultPlayActionId is { } id
+            ? _library.PlayActionsFor(game.Id).FirstOrDefault(a => a.Id == id)
+            : null;
+        return preferred is null ? "Spillemåte: spør hver gang"
+            : preferred.IsRemote ? $"Spillemåte: alltid fra {HostLabel}" : "Spillemåte: alltid her";
+    }
+
+    /// <summary>Bytter mellom spør hver gang → alltid her → alltid fra PC-en.</summary>
+    private void OptionDefaultMode_Click(object sender, RoutedEventArgs e)
+    {
+        if (_optionsGame is not { } game || _library.Find(game.Id) is not { } current)
+        {
+            return;
+        }
+
+        var actions = _library.AvailableActionsFor(game.Id);
+        var local = actions.FirstOrDefault(a => !a.IsRemote);
+        var remote = actions.FirstOrDefault(a => a.IsRemote);
+        var now = current.Overrides.DefaultPlayActionId;
+        var next = now is null ? local?.Id : now == local?.Id ? remote?.Id : null;
+        _library.SetOverrides(game.Id, current.Overrides with { DefaultPlayActionId = next });
+        SaveLibrary();
+        _optionsGame = _library.Find(game.Id);
+        OptionDefaultMode.Content = DefaultModeText(_optionsGame!);
+        MenuSounds.Move();
+        _log.Write("valg", $"«{GameLibrary.DisplayTitle(game)}»: {OptionDefaultMode.Content}");
+    }
+
+    private async void OptionRefreshArt_Click(object sender, RoutedEventArgs e)
+    {
+        if (_optionsGame is not { } game)
+        {
+            return;
+        }
+
+        OptionsStatus.Text = "Henter bilder …";
+        _artTried.Remove(game.Id);
+        var title = GameLibrary.DisplayTitle(game);
+        try
+        {
+            var store = new SteamStoreClient(ArtHttp);
+            var steam = _library.PlayActionsFor(game.Id).FirstOrDefault(a => a.RunnerId == GameLibrary.SteamRunnerId);
+            var appId = steam is not null && int.TryParse(steam.Target, CultureInfo.InvariantCulture, out var id) ? id : await store.FindAppIdAsync(title);
+            ArtSet? art = appId is { } steamId ? await DownloadArtAsync(game, SteamStoreClient.ImageUrls(steamId)) : null;
+            if (art is null)
+            {
+                _vibepolloApps ??= Vibepollo is { } api ? await api.GetAppsAsync() : [];
+                art = await DownloadVibepolloCoverAsync(game, _vibepolloApps) is { } cover ? game.Art with { Cover = cover } : null;
+            }
+
+            if (art is null)
+            {
+                OptionsStatus.Text = $"Fant ingen bilder for «{title}» på Steam eller hos {HostLabel}.";
+                return;
+            }
+
+            _library.SetArt(game.Id, art);
+            SaveLibrary();
+            _ambientPath = null;
+            _heroLogoPath = null;
+            if (TileFor(game.Id) is { } tile && _library.Find(game.Id) is { } updated)
+            {
+                SetTileContent(tile, updated);
+            }
+
+            OptionsStatus.Text = "Bildene er oppdatert.";
+            _log.Write("bilder", $"Bilder for «{title}» hentet på nytt fra Valg");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException or UnauthorizedAccessException or JsonException)
+        {
+            OptionsStatus.Text = $"Fikk ikke hentet bilder: {ex.Message}";
+        }
+    }
+
+    private async void OptionRefreshInfo_Click(object sender, RoutedEventArgs e)
+    {
+        if (_optionsGame is not { } game)
+        {
+            return;
+        }
+
+        OptionsStatus.Text = "Henter info …";
+        await FetchDetailsAsync(game, force: true);
+        OptionsStatus.Text = _details.ContainsKey(game.Id) ? "Info er oppdatert. Trykk Y på spillet for å se den." : "Fant ingen info på Steam Store.";
+    }
+
+    /// <summary>
+    /// Handheld Companion har egne profiler per spill (strøm/TDP) i %LOCALAPPDATA%\HandheldCompanion. GameHome skriver
+    /// ikke dit før formatet er sjekket på Legion Go med HC installert (docs/roadmap.md, hypotese).
+    /// </summary>
+    private static string HandheldCompanionStatus(Game game)
+    {
+        _ = game;
+        var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HandheldCompanion");
+        if (!Directory.Exists(root))
+        {
+            return "Krever Handheld Companion, som ikke er installert på denne maskinen.";
+        }
+
+        var profiles = Directory.Exists(Path.Combine(root, "powerprofiles"))
+            ? Directory.GetFiles(Path.Combine(root, "powerprofiles"), "*.json").Length
+            : 0;
+        return string.Create(CultureInfo.InvariantCulture,
+            $"Handheld Companion funnet ({profiles} strømprofiler). Valg per spill kommer i neste runde.");
+    }
+
+    private void OptionPowerProfile_Click(object sender, RoutedEventArgs e) =>
+        OptionsStatus.Text = OptionPowerProfileText.Text;
+
+    private void OptionRemove_Click(object sender, RoutedEventArgs e)
+    {
+        if (_optionsGame is { } game)
+        {
+            CloseOptions(focusHome: false);
+            ConfirmRemove(game);
+        }
+    }
+
+    private void OptionsCloseButton_Click(object sender, RoutedEventArgs e) => CloseOptions();
+
+    private void CloseOptions(bool focusHome = true)
+    {
+        OptionsPanel.Visibility = Visibility.Collapsed;
+        SetHomeEnabled(true);
+        if (focusHome)
+        {
+            FocusHome(_optionsGame?.Id ?? _focusGameId);
+        }
+    }
+
+    // ---- Feilsøking ----
+
+    private void DebugTile_Click(object sender, RoutedEventArgs e)
+    {
+        DebugPanel.Visibility = Visibility.Visible;
+        FadeIn(DebugPanel);
+        SetHomeEnabled(false);
+        TestHostTile.Focus(FocusState.Keyboard);
+    }
+
+    private void DebugCloseButton_Click(object sender, RoutedEventArgs e) => CloseDebug();
+
+    private void CloseDebug()
+    {
+        DebugPanel.Visibility = Visibility.Collapsed;
+        SetHomeEnabled(true);
+        DebugTile.Focus(FocusState.Keyboard);
     }
 
     private void ConfirmRemove(Game game)
@@ -826,6 +1403,11 @@ public sealed partial class MainWindow : Window
         _log.Write("økt", string.Create(CultureInfo.InvariantCulture,
             $"«{title}» avsluttet: {end.Reason}, kode {end.ExitCode?.ToString(CultureInfo.InvariantCulture) ?? "–"}, {minutes:F1} min{(end.Detail is null ? "" : $" ({end.Detail})")}"));
 
+        if (game is not null && end.Reason != SessionEndReason.LaunchFailed)
+        {
+            RecordPlayTime(game, minutes);
+        }
+
         session.Dispose();
         _session = null;
         _sessionGame = null;
@@ -956,10 +1538,10 @@ public sealed partial class MainWindow : Window
     private async Task LoadArtAsync(ArtSet art)
     {
         var shownAt = _loadingShown;
-        var logo = await LoadImageAsync(art.Logo, 720);
+        var logo = await LoadImageAsync(art.Logo, Px(560));
 
         // Uten eget bakgrunnsbilde brukes omslaget (som Nuvio: bakgrunn, ellers plakat).
-        var hero = await LoadImageAsync(art.Hero ?? art.Cover, 1280);
+        var hero = await LoadImageAsync(art.Hero ?? art.Cover, ScreenPx(1));
 
         // Kom bildene etter at lasteskjermen var borte, eller for en ny start, brukes de ikke.
         if (LoadingPanel.Visibility != Visibility.Visible || shownAt != _loadingShown)
@@ -985,6 +1567,12 @@ public sealed partial class MainWindow : Window
 
         try
         {
+            // Små uskarpe bakgrunner (48 px) dekodes rett fra originalen; ellers fra en nedskalert kopi på disk.
+            if (decodeWidth >= 160)
+            {
+                path = await ThumbnailCache.GetAsync(path, decodeWidth);
+            }
+
             using var stream = File.OpenRead(path);
             var image = new BitmapImage { DecodePixelWidth = decodeWidth };
             await image.SetSourceAsync(stream.AsRandomAccessStream());
@@ -1156,6 +1744,15 @@ public sealed partial class MainWindow : Window
         LoadingLogo.Source = null;
         LoadingHero.Source = null;
         SetHomeEnabled(MessagePanel.Visibility != Visibility.Visible && SessionPanel.Visibility != Visibility.Visible);
+
+        // Spillet har tatt over: gi minnet tilbake til spillet mens Home ligger i bakgrunnen.
+        if (SessionActive && !_windowActive)
+        {
+            var before = Environment.WorkingSet;
+            MemoryTrim.Trim();
+            _log.Write("minne", string.Create(CultureInfo.InvariantCulture,
+                $"Minne gitt tilbake mens spillet kjører: {before / 1048576.0:F0} → {Environment.WorkingSet / 1048576.0:F0} MB"));
+        }
         _log.Write("laster", string.Create(CultureInfo.InvariantCulture,
             $"Lasteskjerm skjult etter {(DateTime.UtcNow - _loadingShown).TotalSeconds:F1} s: {why}"));
     }
@@ -2265,9 +2862,22 @@ public sealed partial class MainWindow : Window
     {
         if (args.WindowActivationState == WindowActivationState.Deactivated)
         {
-            _gamepadTimer.Stop();
             _metricsTimer.Stop();
-            _log.Write("fokus", "Mistet fokus (kontrollerlesing og målinger stoppet)");
+
+            // Uten spill eller filvelger fortsetter kontrollerlesingen sakte: noe annet (et varsel, en systemmeny) kan
+            // ta fokus mens Home står fremme, og da skal første trykk hente Home tilbake, ikke kreve berøring.
+            var keepListening = !SessionActive && !_pickerOpen;
+            if (keepListening)
+            {
+                _gamepadTimer.Interval = TimeSpan.FromMilliseconds(250); // Sjelden og billig: bare en avlesning, ingen tråd.
+            }
+            else
+            {
+                _gamepadTimer.Stop();
+            }
+
+            _log.Write("fokus", $"Mistet fokus til {Foreground.CurrentProcessName() ?? "ukjent"}"
+                + (keepListening ? " (lytter på kontrolleren for å hente Home tilbake)" : " (kontrollerlesing og målinger stoppet)"));
 
             // Lasteskjermen blir liggende bak det som tok forgrunnen. Steam tar den ofte først med et lite vindu, og
             // spillet tegner seg over lasteskjermen når det er klart. Den skjules når GameHome blir aktiv igjen.
@@ -2342,6 +2952,7 @@ public sealed partial class MainWindow : Window
         {
             SyncSteamInBackground();
         }
+        _gamepadTimer.Interval = TimeSpan.FromMilliseconds(16);
         _gamepadTimer.Start();
         _log.Write("fokus", $"Fikk fokus ({args.WindowActivationState})");
     }
@@ -2375,6 +2986,19 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        // Home står fremme, men noe annet har fokus: første trykk henter Home tilbake (og brukes ikke til noe annet).
+        if (!_windowActive)
+        {
+            if (SessionActive || _pickerOpen)
+            {
+                _gamepadTimer.Stop();
+                return;
+            }
+
+            BringToFront($"kontroller ({Foreground.CurrentProcessName() ?? "ukjent"} hadde fokus)");
+            return;
+        }
+
         _lastSource = "kontroller";
         var names = Enum.GetValues<GamepadButtons>()
             .Where(b => b != GamepadButtons.None && pressed.HasFlag(b))
@@ -2398,34 +3022,71 @@ public sealed partial class MainWindow : Window
         _log.Write("input", $"Kontroller: {string.Join(", ", names)}");
 
         var direction = DPadDirection(pressed) ?? (stickMoved ? stick : null);
-        if (direction is { } dir)
+        if (direction is { } dir && FocusManager.TryMoveFocus(dir, new FindNextElementOptions { SearchRoot = Root.XamlRoot.Content }))
         {
-            FocusManager.TryMoveFocus(dir, new FindNextElementOptions { SearchRoot = Root.XamlRoot.Content });
+            MenuSounds.Move();
         }
 
         var focusedButton = FocusManager.GetFocusedElement(Root.XamlRoot) as Button;
 
         // Hvis XAML selv leverer kontrollertaster, gjør knappene jobben; ellers aktiverer vi med A.
-        if (pressed.HasFlag(GamepadButtons.A) && !_xamlGamepadKeysSeen && focusedButton is not null)
+        if (pressed.HasFlag(GamepadButtons.A) && focusedButton is not null)
         {
-            new ButtonAutomationPeer(focusedButton).Invoke();
-            return;
+            MenuSounds.Select();
+            if (!_xamlGamepadKeysSeen)
+            {
+                new ButtonAutomationPeer(focusedButton).Invoke();
+                return;
+            }
         }
 
-        // Y på en spillflis: fjern fra GameHome (med bekreftelse).
-        if (pressed.HasFlag(GamepadButtons.Y) && focusedButton is { Tag: string id } && _library.Find(id) is { } game
-            && MessagePanel.Visibility != Visibility.Visible && SessionPanel.Visibility != Visibility.Visible)
+        // Y på en spillflis: om spillet. ☰ (Start/Menu): valg for spillet.
+        var tileGame = focusedButton is { Tag: string id } && GameTiles.Children.Contains(focusedButton) ? _library.Find(id) : null;
+        if (tileGame is not null && !AnyOverlayOpen)
         {
-            ConfirmRemove(game);
+            if (pressed.HasFlag(GamepadButtons.Y))
+            {
+                MenuSounds.Select();
+                ShowDetails(tileGame);
+                return;
+            }
+
+            if (pressed.HasFlag(GamepadButtons.Menu))
+            {
+                MenuSounds.Select();
+                ShowOptions(tileGame);
+                return;
+            }
+        }
+
+        // ☰ i «Om spillet» går rett til valgene.
+        if (pressed.HasFlag(GamepadButtons.Menu) && DetailsPanel.Visibility == Visibility.Visible && _detailsGame is { } detailsGame
+            && MessagePanel.Visibility != Visibility.Visible)
+        {
+            CloseDetails(focusHome: false);
+            ShowOptions(detailsGame);
             return;
         }
 
         // B lukker det øverste panelet.
         if (pressed.HasFlag(GamepadButtons.B))
         {
+            MenuSounds.Back();
             if (MessagePanel.Visibility == Visibility.Visible)
             {
                 CloseMessage(_messageCancel);
+            }
+            else if (OptionsPanel.Visibility == Visibility.Visible)
+            {
+                CloseOptions();
+            }
+            else if (DetailsPanel.Visibility == Visibility.Visible)
+            {
+                CloseDetails();
+            }
+            else if (DebugPanel.Visibility == Visibility.Visible)
+            {
+                CloseDebug();
             }
             else if (HostPanel.Visibility == Visibility.Visible)
             {

@@ -112,6 +112,19 @@ public sealed class GameLibrary
         return true;
     }
 
+    /// <summary>Setter brukerens rettelser for et spill (for eksempel standard spillemåte). False hvis spillet mangler.</summary>
+    public bool SetOverrides(string gameId, UserOverrides overrides)
+    {
+        var index = _games.FindIndex(g => g.Id == gameId);
+        if (index < 0)
+        {
+            return false;
+        }
+
+        _games[index] = _games[index] with { Overrides = overrides };
+        return true;
+    }
+
     /// <summary>Spillet som har en stream-spillemåte for appen på hosten, eller null.</summary>
     public Game? FindStreamGame(string hostId, string appName) =>
         _actions.Find(a => IsStream(a, hostId, appName)) is { } action ? Find(action.GameId) : null;
