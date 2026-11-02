@@ -147,6 +147,13 @@ på flisen når et spill kjører der uten strøm, og spørsmål før et annet sp
 Credential Locker på Legion Go, sertifikatet festes ved første tilkobling. **Gjenstår:** testnøkkelen ble limt inn i en
 chat og må byttes (lag ny i Vibepollo, slett den gamle, legg den nye inn på Legion Go).
 
+**Feilsøking i M2-menyen (ønske fra produkteier 2026-11-02, bygget):** bare under strøm. «Ytelse» sender Moonlights
+snarvei Ctrl+Alt+Shift+S (statistikkoverlegg). «Oppgavelinje» sender Ctrl+Shift+F10 gjennom streamen; på gaming-PC-en
+lytter `Set-StreamDesktop.ps1 -Action Watch` (startet av Hide, stoppet av Restore) og viser eller skjuler oppgavelinjen
+og ikonene. «Status» viser Vibepollos `api/session/status` (app, tilkoblinger, om videokodingen feilet). Vibepollos
+egne «server commands» kan ikke brukes: de utløses bare fra klienter som støtter det i streamprotokollen, ikke fra
+web-API-et.
+
 Når: etter runde 3 (vekking), fordi vekking og låseskjerm henger sammen. Neste steg er å lese Vibepollos kildekode for
 punkt 2 før noe bygges.
 

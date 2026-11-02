@@ -1178,6 +1178,9 @@ public sealed partial class MainWindow : Window
         EndSessionButton.Content = streaming ? $"Koble fra (spillet fortsetter på {HostLabel})" : "Avslutt spillet";
         EndRemoteButton.Content = $"Avslutt spillet på {HostLabel}";
         EndRemoteButton.Visibility = streaming ? Visibility.Visible : Visibility.Collapsed;
+        StreamDebugPanel.Visibility = streaming ? Visibility.Visible : Visibility.Collapsed;
+        DebugStatusText.Visibility = Visibility.Collapsed;
+        DebugStatusButton.Visibility = Vibepollo is null ? Visibility.Collapsed : Visibility.Visible;
         if (streaming)
         {
             SessionDetail.Text = $"Strømmer fra {HostLabel}";
@@ -1217,6 +1220,64 @@ public sealed partial class MainWindow : Window
         var (ok, wasMinimized) = Foreground.BringGame(handle);
         _log.Write("fokus", (ok ? "Tilbake til spillet: spillet fikk forgrunnen" : "Tilbake til spillet: Windows avslo")
             + (wasMinimized ? " (vinduet var minimert og ble gjenopprettet)" : ""));
+    }
+
+    // ---- Feilsøking under strøm ----
+
+    /// <summary>
+    /// Gir streamvinduet forgrunnen og sender en tastekombinasjon til det. Moonlight tar selv imot sine snarveier;
+    /// andre taster går videre til gaming-PC-en.
+    /// </summary>
+    private async Task SendToStreamAsync(string what, params ushort[] keys)
+    {
+        var handle = _session is StreamSession session ? session.MainWindowHandle : 0;
+        if (handle == 0)
+        {
+            _log.Write("feilsøk", $"{what}: fant ikke streamvinduet");
+            return;
+        }
+
+        HideSessionPanel();
+        var (ok, _) = Foreground.BringGame(handle);
+        await Task.Delay(400); // Moonlight må ha tastaturet før tastene kommer.
+        var sent = ok && Foreground.IsForeground(handle) && Keyboard.SendChord(keys);
+        _log.Write("feilsøk", sent ? $"{what}: sendt til Moonlight" : $"{what}: streamvinduet fikk ikke forgrunnen");
+    }
+
+    // Moonlights egen snarvei for statistikkoverlegget.
+    private void DebugStatsButton_Click(object sender, RoutedEventArgs e) =>
+        _ = SendToStreamAsync("Ytelse", Keyboard.Control, Keyboard.Alt, Keyboard.Shift, Keyboard.S);
+
+    // Går gjennom streamen til gaming-PC-en, der Set-StreamDesktop.ps1 lytter på Ctrl+Shift+F10 under strømmen.
+    private void DebugTaskbarButton_Click(object sender, RoutedEventArgs e) =>
+        _ = SendToStreamAsync("Oppgavelinje", Keyboard.Control, Keyboard.Shift, Keyboard.F10);
+
+    private async void DebugStatusButton_Click(object sender, RoutedEventArgs e)
+    {
+        DebugStatusText.Visibility = Visibility.Visible;
+        DebugStatusText.Text = $"Spør {HostLabel} …";
+        if (Vibepollo is not { } api)
+        {
+            DebugStatusText.Text = "Ingen Vibepollo-nøkkel på denne maskinen.";
+            return;
+        }
+
+        try
+        {
+            var status = await api.GetStatusAsync();
+            DebugStatusText.Text = status is null
+                ? "Vibepollo svarte uten innhold."
+                : (status.AppRunning ? $"Kjører: {status.AppName}" : "Ingen app kjører ifølge Vibepollo")
+                  + $" · tilkoblinger: {status.ActiveSessions}"
+                  + (status.Paused ? " · pause" : "")
+                  + (status.LastEncoderProbeFailed ? " · videokoding feilet ved siste oppstart" : " · videokoding OK");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException or JsonException)
+        {
+            DebugStatusText.Text = $"{HostLabel} svarte ikke: {ex.Message}";
+        }
+
+        _log.Write("feilsøk", $"Status: {DebugStatusText.Text}");
     }
 
     private void EndSessionButton_Click(object sender, RoutedEventArgs e)

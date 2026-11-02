@@ -179,6 +179,24 @@
                 <Button x:Name="EndSessionButton" Content="Avslutt spillet" Click="EndSessionButton_Click" HorizontalAlignment="Stretch" Height="72" FontSize="22" />
                 <Button x:Name="EndRemoteButton" Content="Avslutt spillet på gaming-PC-en" Click="EndRemoteButton_Click" HorizontalAlignment="Stretch" Height="72" FontSize="22" Visibility="Collapsed" />
                 <Button x:Name="ClosePanelButton" Content="Lukk panelet" Click="ClosePanelButton_Click" HorizontalAlignment="Stretch" Height="72" FontSize="22" />
+                <!-- Feilsøking: bare når spillet strømmes fra gaming-PC-en. -->
+                <StackPanel x:Name="StreamDebugPanel" Spacing="8" Visibility="Collapsed">
+                    <TextBlock Text="Feilsøking" FontSize="16" Foreground="#A0A7B0" />
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Button x:Name="DebugStatsButton" Grid.Column="0" Content="Ytelse" Click="DebugStatsButton_Click" HorizontalAlignment="Stretch" Height="52" FontSize="17"
+                                ToolTipService.ToolTip="Viser eller skjuler Moonlights overlegg med fps, ping og bitrate" />
+                        <Button x:Name="DebugTaskbarButton" Grid.Column="1" Content="Oppgavelinje" Click="DebugTaskbarButton_Click" HorizontalAlignment="Stretch" Height="52" FontSize="17"
+                                ToolTipService.ToolTip="Viser eller skjuler oppgavelinjen og ikonene på gaming-PC-en" />
+                        <Button x:Name="DebugStatusButton" Grid.Column="2" Content="Status" Click="DebugStatusButton_Click" HorizontalAlignment="Stretch" Height="52" FontSize="17"
+                                ToolTipService.ToolTip="Hva Vibepollo på gaming-PC-en melder" />
+                    </Grid>
+                    <TextBlock x:Name="DebugStatusText" FontSize="15" Foreground="#C8CDD3" TextWrapping="Wrap" Visibility="Collapsed" />
+                </StackPanel>
                 <Button x:Name="SessionPowerButton" Click="PowerMenuButton_Click" Width="52" Height="52" HorizontalAlignment="Right" Margin="0,8,0,0"
                         AutomationProperties.Name="Strøm" ToolTipService.ToolTip="Strøm">
                     <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE7E8;" FontSize="20" />

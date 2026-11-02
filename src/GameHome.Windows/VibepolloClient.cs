@@ -25,7 +25,8 @@ public sealed record VibepolloStatus(
     [property: JsonPropertyName("activeSessions")] int ActiveSessions,
     [property: JsonPropertyName("appRunning")] bool AppRunning,
     [property: JsonPropertyName("appName")] string? AppName,
-    [property: JsonPropertyName("paused")] bool Paused);
+    [property: JsonPropertyName("paused")] bool Paused,
+    [property: JsonPropertyName("lastEncoderProbeFailed")] bool LastEncoderProbeFailed);
 
 /// <summary>
 /// Vibepollos web-API på gaming-PC-en (HTTPS 47990) med en nøkkel med smal tilgang: liste over apper, omslag, status og
