@@ -12,7 +12,7 @@ Hver testrunde tar 15–45 minutter på Legion Go. Resultater skrives i `docs/te
 | --- | --- | --- | --- | --- |
 | 0B: input og ytelse | Kontroller, JIT mot AOT, dvale mens spill kjører, Legion-knapp som hurtigtast, `gamehome://session`, «Tilbake til spillet» | 2–3 | Legge om venstre Legion-knapp i Legion Space | **Ferdig** (3 runder) |
 | 0A: FSE | Valgbar som Gaming Home. Overlever omstart, oppgradering og at utviklermodus slås av. Hjem i Game Bar åpner «Kjører nå». | 1–2 | Slå på utviklermodus ved installasjon. Velge GameHome under «Choose home app». | **Bestått** (3 runder) |
-| 1: lokalt spill | Steam-spill og manuelt spill: start, kjører-signal, avslutning, retur til samme flis, feil gir valg, Home fra cache | 2–3 | Ha et Steam-spill installert | Ikke startet |
+| 1: lokalt spill | Steam-spill og manuelt spill: start, kjører-signal, avslutning, retur til samme flis, feil gir valg, Home fra cache | 2–3 | Ha et Steam-spill installert | Pågår (manuelt spill bestått) |
 | **Milepæl 1** | **Lokal barebones** | **≈ 6–8 totalt** | | |
 | 2: stream | 007 First Light via Moonlight og Vibepollo uten appvelger, Playnite eller skrivebord. Koble fra, koble til igjen, avslutt, vekking. | 3–4 | Moonlight på Legion Go. Vibepollo og Playnite på gaming-PC-en. | Ikke startet |
 | **Barebones med stream** | **Suksessdefinisjonen** | **≈ 10–12 totalt** | | |
@@ -49,3 +49,5 @@ Hver testrunde tar 15–45 minutter på Legion Go. Resultater skrives i `docs/te
   «Kjører nå» (`windows.gaming:///home`). Overlever omstart, oppgradering og at utviklermodus slås av. Med Legion
   Space slått av ved oppstart bruker Lenovos prosesser 64 MB, og høyre Legion-knapp og M2 virker fortsatt.
   Beslutningspunkt 1 (FSE uten utviklermodus) er dermed ikke utløst.
+- 2026-11-02, fase 1 del 1: spill lagt til manuelt startes, «Kjører nå» virker med ekte spill, avslutning fra spillet
+  og fra menyen gir retur til samme flis. Oppgradering virker med utviklermodus av.

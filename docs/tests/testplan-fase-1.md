@@ -1,6 +1,6 @@
 # Testplan fase 1, del 1: spill lagt til manuelt
 
-Testspill: Broforce (DRM-fri utgave, eid av produkteier). Steam testes i del 2.
+Testspill: Broforce, lagt til manuelt som programfil. Steam testes i del 2.
 
 | # | Test | Forventet | Logges som |
 | --- | --- | --- | --- |
