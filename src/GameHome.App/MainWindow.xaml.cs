@@ -586,7 +586,9 @@ public sealed partial class MainWindow : Window
         LoadingChoices.Visibility = Visibility.Collapsed;
         LoadingPanel.Visibility = Visibility.Visible;
         SetHomeEnabled(false);
+        LoadingIntro.Begin();
         LoadingPulse.Begin();
+        HeroDrift.Begin();
         _loadingShown = DateTime.UtcNow;
         _loadingCovered = false;
 
@@ -750,7 +752,9 @@ public sealed partial class MainWindow : Window
         }
 
         _loadingTimer?.Stop();
+        LoadingIntro.Stop();
         LoadingPulse.Stop();
+        HeroDrift.Stop();
         LoadingPanel.Visibility = Visibility.Collapsed;
         LoadingLogo.Source = null;
         LoadingHero.Source = null;
