@@ -95,6 +95,38 @@ Bekreftet 2026-11-02 (0.1.48.0): også når PC-en ikke er låst, vises skrivebor
 6. Vibepollo stoppes midt i en stream (simulert krasj): etter neste pålogging er skjerm, ikoner og oppgavelinje tilbake.
 7. Feil i skriptet (for eksempel fjernet fil): spillet starter likevel.
 
+Resultat 2026-11-02: punkt 2–4 bestått. Dekkbildet viser spillnavnet (fra `SUNSHINE_APP_NAME`), og GameHomes
+lasteskjerm ligger over Moonlight til streamvinduet vises og mens spillet avsluttes. Vibepollos varsel
+«incoming connection» slås av under Windows' varselinnstillinger for Apollo (ingen egen innstilling i Vibepollo).
+
+**Oppstartstid for 007 First Light (målt 2026-11-02 fra Vibepollo-, Playnite- og Steam-loggene)**
+
+| Fra → til | Tid | Hvem |
+| --- | --- | --- |
+| Moonlight ber om start → virtuell skjerm klar | 1,7 s | Vibepollo |
+| Prep-skriptet (Hide) | 2,7 s → **0,3 s** | Vårt skript; gjør nå jobben i bakgrunnen (rettet 2026-11-02) |
+| Steams startprogram → Steam-klienten mottar kommandoen | **15 s** (0 s første gang) | Steam |
+| Steam → spillprosessen startet | 2 s | Steam |
+| Spillprosessen → spillvinduet (Steam-overlegget starter) | 26 s | Spillet selv |
+| Stabile bilder | ca. 20 s til | Spillet (intro og innlasting) |
+
+Spillets egen oppstart (ca. 45 s) er vanlig for et stort spill og kan ikke påvirkes.
+
+**De 15 sekundene ligger i Steam, ikke i Playnite.** Playnite starter `steam.exe -silent steam://launch/…` umiddelbart
+(Playnites `extensions.log`), men Steam-klienten logger kommandoen først 15 s senere (`console_log.txt`). Første start
+etter at Steam var startet gikk på 0 s; de tre neste tok nøyaktig 15 s. Det ligner en tidsgrense i overleveringen fra
+Steams startprogram til klienten som allerede kjører. Playnite-tilleggene er ikke årsaken (SunshineAppExport har bare
+menyvalg). Vibepollos Steam-synk ville brukt samme `steam://`-vei og gir derfor ingen gevinst.
+
+Testet 2026-11-02 etter omstart av Steam: begge startene tok 15 s. Forsinkelsen er fast, og vi lever med den.
+
+Oppgavelinjen sprang fram et øyeblikk da spillet åpnet vinduet sitt (automatisk skjult oppgavelinje gjør det ved nye
+vinduer). Skriptet skjuler den nå helt under streamen og viser den alltid igjen ved Restore.
+
+**Avslutning uten Moonlights vindu (hypotese, senere):** med et API-token i Vibepollo kan GameHome avslutte spillet med
+`POST /api/apps/close` i stedet for `Moonlight.exe quit`, så Moonlight ikke viser «Quitting». Tokenet kan også vise om
+spillet fortsatt kjører på PC-en etter «Koble fra». Krever at produkteier lager et token med smal tilgang.
+
 Når: etter runde 3 (vekking), fordi vekking og låseskjerm henger sammen. Neste steg er å lese Vibepollos kildekode for
 punkt 2 før noe bygges.
 

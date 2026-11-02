@@ -62,33 +62,72 @@
           Lasteskjerm mens spillet starter: logo over et mørkt bakgrunnsbilde, eller tittelen i stor tekst.
           Forsvinner når spillet tar forgrunnen. B går tilbake til Home uten å stoppe spillet.
         -->
-        <Grid x:Name="LoadingPanel" Background="#0B0D10" Visibility="Collapsed">
+        <!--
+          Lærdom fra Stremio og Nuvio (docs/architecture.md, «Lasteskjerm»): bakgrunnsbilde som fyller skjermen under et
+          mørkt slør fra topp til bunn, logo midt på som toner inn og «puster» rolig, og status rett under logoen.
+          Bakgrunnen glir svært sakte inn (egen idé, ikke fra appene). Skjules uten uttoning, som i Stremio.
+        -->
+        <Grid x:Name="LoadingPanel" Background="Black" Visibility="Collapsed">
             <Grid.Resources>
-                <Storyboard x:Name="LoadingPulse" RepeatBehavior="Forever" AutoReverse="True">
+                <Storyboard x:Name="LoadingIntro">
+                    <DoubleAnimation Storyboard.TargetName="LoadingHero" Storyboard.TargetProperty="Opacity"
+                                     From="0" To="1" Duration="0:0:0.5" />
                     <DoubleAnimation Storyboard.TargetName="LoadingCenter" Storyboard.TargetProperty="Opacity"
-                                     From="1" To="0.55" Duration="0:0:1.1">
+                                     From="0" To="1" BeginTime="0:0:0.35" Duration="0:0:0.65">
+                        <DoubleAnimation.EasingFunction>
+                            <CubicEase EasingMode="EaseOut" />
+                        </DoubleAnimation.EasingFunction>
+                    </DoubleAnimation>
+                </Storyboard>
+                <Storyboard x:Name="LoadingPulse" RepeatBehavior="Forever" AutoReverse="True">
+                    <DoubleAnimation Storyboard.TargetName="LogoScale" Storyboard.TargetProperty="ScaleX"
+                                     From="1" To="1.04" Duration="0:0:2">
+                        <DoubleAnimation.EasingFunction>
+                            <SineEase EasingMode="EaseInOut" />
+                        </DoubleAnimation.EasingFunction>
+                    </DoubleAnimation>
+                    <DoubleAnimation Storyboard.TargetName="LogoScale" Storyboard.TargetProperty="ScaleY"
+                                     From="1" To="1.04" Duration="0:0:2">
                         <DoubleAnimation.EasingFunction>
                             <SineEase EasingMode="EaseInOut" />
                         </DoubleAnimation.EasingFunction>
                     </DoubleAnimation>
                 </Storyboard>
+                <Storyboard x:Name="HeroDrift">
+                    <DoubleAnimation Storyboard.TargetName="HeroScale" Storyboard.TargetProperty="ScaleX"
+                                     From="1" To="1.06" Duration="0:0:20" />
+                    <DoubleAnimation Storyboard.TargetName="HeroScale" Storyboard.TargetProperty="ScaleY"
+                                     From="1" To="1.06" Duration="0:0:20" />
+                </Storyboard>
             </Grid.Resources>
-            <Image x:Name="LoadingHero" Stretch="UniformToFill" Opacity="0.35" />
+            <Image x:Name="LoadingHero" Stretch="UniformToFill" HorizontalAlignment="Right" VerticalAlignment="Top"
+                   RenderTransformOrigin="0.5,0.5" Opacity="0">
+                <Image.RenderTransform>
+                    <ScaleTransform x:Name="HeroScale" />
+                </Image.RenderTransform>
+            </Image>
             <Rectangle>
                 <Rectangle.Fill>
                     <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                        <GradientStop Color="#550B0D10" Offset="0" />
-                        <GradientStop Color="#F00B0D10" Offset="1" />
+                        <GradientStop Color="#4D000000" Offset="0" />
+                        <GradientStop Color="#99000000" Offset="0.35" />
+                        <GradientStop Color="#CC000000" Offset="0.7" />
+                        <GradientStop Color="#E6000000" Offset="1" />
                     </LinearGradientBrush>
                 </Rectangle.Fill>
             </Rectangle>
-            <Grid x:Name="LoadingCenter" HorizontalAlignment="Center" VerticalAlignment="Center">
-                <Image x:Name="LoadingLogo" MaxWidth="720" MaxHeight="300" Stretch="Uniform" />
-                <TextBlock x:Name="LoadingTitle" FontSize="64" FontWeight="SemiBold" Foreground="White"
-                           TextAlignment="Center" TextWrapping="Wrap" MaxWidth="1000" />
-            </Grid>
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16">
+                <Grid x:Name="LoadingCenter" Opacity="0" RenderTransformOrigin="0.5,0.5" HorizontalAlignment="Center">
+                    <Grid.RenderTransform>
+                        <ScaleTransform x:Name="LogoScale" />
+                    </Grid.RenderTransform>
+                    <Image x:Name="LoadingLogo" MaxWidth="560" MaxHeight="300" Stretch="Uniform" />
+                    <TextBlock x:Name="LoadingTitle" FontSize="56" FontWeight="ExtraBold" Foreground="White"
+                               TextAlignment="Center" TextWrapping="Wrap" MaxLines="2" MaxWidth="1000" />
+                </Grid>
+                <TextBlock x:Name="LoadingStatus" FontSize="20" Foreground="#B8FFFFFF" HorizontalAlignment="Center" Height="32" />
+            </StackPanel>
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,56" Spacing="20">
-                <TextBlock x:Name="LoadingStatus" FontSize="20" Foreground="#C8CDD3" HorizontalAlignment="Center" />
                 <StackPanel x:Name="LoadingChoices" Orientation="Horizontal" Spacing="16" HorizontalAlignment="Center" Visibility="Collapsed">
                     <Button x:Name="LoadingWaitButton" Content="Vent" Click="LoadingWaitButton_Click" Width="240" Height="64" FontSize="20" />
                     <Button x:Name="LoadingHomeButton" Content="Tilbake til Home" Click="LoadingHomeButton_Click" Width="240" Height="64" FontSize="20" />

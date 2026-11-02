@@ -312,6 +312,12 @@ public sealed class StreamSession : IForegroundSession
 
     public nint MainWindowHandle => _client.MainWindowHandle;
 
+    /// <summary>
+    /// Om Moonlight viser streamen. Moonlight (moonlight-qt) strømmer i et eget SDL-vindu, adskilt fra Qt-vinduet som viser
+    /// «Establishing connection». Hypotese til den er testet: vindusklassen er «SDL_app».
+    /// </summary>
+    public bool IsStreamVisible => Foreground.HasVisibleWindow(_client.ProcessId, "SDL_app");
+
     public string Status => "Strømmer";
 
     public event EventHandler<string>? Note;
