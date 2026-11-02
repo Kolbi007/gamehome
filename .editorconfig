@@ -392,3 +392,7 @@ dotnet_naming_style.s_camelcase.capitalization = camel_case
 [tests/**.cs]
 dotnet_diagnostic.CA1707.severity = none
 dotnet_diagnostic.CA1861.severity = none
+
+[*.ps1]
+charset = utf-8-bom
+
