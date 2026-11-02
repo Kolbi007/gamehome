@@ -14,7 +14,7 @@ Hver testrunde tar 15–45 minutter på Legion Go. Resultater skrives i `docs/te
 | 0A: FSE | Valgbar som Gaming Home. Overlever omstart, oppgradering og at utviklermodus slås av. Hjem i Game Bar åpner «Kjører nå». | 1–2 | Slå på utviklermodus ved installasjon. Velge GameHome under «Choose home app». | **Bestått** (3 runder) |
 | 1: lokalt spill | Steam-spill og manuelt spill: start, kjører-signal, avslutning, retur til samme flis, feil gir valg, Home fra cache | 2–3 | Ha et Steam-spill installert | **Ferdig** |
 | **Milepæl 1** | **Lokal barebones** | **≈ 6–8 totalt** | | |
-| 2: stream | 007 First Light via Moonlight og Vibepollo uten appvelger, Playnite eller skrivebord. Koble fra, koble til igjen, avslutt, vekking. | 3–4 | Moonlight på Legion Go (gjort). Én Vibepollo-innstilling: synk alle installerte Playnite-spill. | Forundersøkelse ferdig |
+| 2: stream | 007 First Light via Moonlight og Vibepollo uten appvelger, Playnite eller skrivebord. Koble fra, koble til igjen, avslutt, vekking. | 3–4 | Moonlight på Legion Go (gjort). Én Vibepollo-innstilling: synk alle installerte Playnite-spill (gjort). | **Nesten ferdig**: alt unntatt vekking (ikke støttet av gaming-PC-en) og «annen app kjører» |
 | **Barebones med stream** | **Suksessdefinisjonen** | **≈ 10–12 totalt** | | |
 | 3: retro | Ett system og én emulator | 1–2 | Lovlig testinnhold | Senere |
 | 4: flere kilder og metadata | Epic, Xbox, GOG, IGDB, HowLongToBeat, Metacritic | Løpende | IGDB-nøkkel | Senere |
@@ -214,3 +214,7 @@ hjørne, ikke midt på skjermen: i Home og i «Kjører nå» (M2).
   virker for start, avslutning og retur til flisen. Et oppstartskrasj ved nye fliser er funnet og rettet.
 - 2026-11-02, fase 1 ferdig: lasteskjerm med Steam-logo, «Tilbake til spillet» også for spill som minimerer seg, og
   GameHome husker flisen etter omstart. **Milepæl 1 (lokal barebones) er nådd.**
+- 2026-11-02, fase 2: undermenyen «Spill fra Gaming Laptop» med installerte Playnite-spill, stream av 007 First Light,
+  «Koble fra», «Avslutt spillet på Gaming Laptop», rent skrivebord med dekkbilde på gaming-PC-en, lasteskjerm over
+  Moonlight og Steam, og fliser med bilder. Wake-on-LAN er bygget, men gaming-PC-en støtter det ikke (Modern Standby).
+  **Barebones med stream er i praksis nådd**, med M2 som hurtigknapp i stedet for venstre Legion-knapp.
