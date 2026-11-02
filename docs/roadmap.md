@@ -74,6 +74,27 @@ Mulige veier, i rekkefølge etter hvor lite som må til:
 
 Bekreftet 2026-11-02 (0.1.48.0): også når PC-en ikke er låst, vises skrivebordet før spillet.
 
+**Undersøkt 2026-11-02** (detaljer og kilder i `docs/architecture.md`, «Skjermoppsett på gaming-PC-en»):
+
+- Punkt 2 finnes ikke: Vibepollo har ingen svart skjerm eller dekkbilde under oppstart.
+- Punkt 4: dagens oppsett gjør allerede den virtuelle skjermen til eneste skjerm, så ingenting fra laptopskjermen
+  vises. Det vi ser, er den virtuelle skjermens eget skrivebord. Å gjøre den til primær med laptopskjermen på
+  (`extended_primary`) er derfor ikke veien; da kan spill åpnes på laptopskjermen.
+- Anbefalt: behold skjermoppsettet. Rolig bakgrunn bare for den virtuelle skjermen, og en global prep-kommando som
+  skjuler ikoner og oppgavelinje under streamen og setter dem tilbake etterpå, med sikkerhetsnett ved pålogging.
+
+**Testpunkter (krever godkjenning før noe endres på gaming-PC-en)**
+
+1. Bakgrunn per skjerm: sett en rolig bakgrunn bare for den virtuelle skjermen mens en stream kjører. Ny stream: er
+   bakgrunnen der, og har laptopskjermen beholdt sin?
+2. Prep-skriptet kjørt for hånd (`do`, så `undo`): forsvinner og kommer ikonene og oppgavelinjen tilbake uten at
+   Utforsker starter på nytt eller skjermen blinker?
+3. Skriptet som `global_prep_cmd`: stream av 007 First Light viser bare bakgrunn og så spillet.
+4. Avslutt spillet fra GameHome: ikoner og oppgavelinje er tilbake på laptopen.
+5. «Koble fra» og koble til igjen: fortsatt rent bilde. Etter at appen avsluttes: alt tilbake.
+6. Vibepollo stoppes midt i en stream (simulert krasj): etter neste pålogging er skjerm, ikoner og oppgavelinje tilbake.
+7. Feil i skriptet (for eksempel fjernet fil): spillet starter likevel.
+
 Når: etter runde 3 (vekking), fordi vekking og låseskjerm henger sammen. Neste steg er å lese Vibepollos kildekode for
 punkt 2 før noe bygges.
 

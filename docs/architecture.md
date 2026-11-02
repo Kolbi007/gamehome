@@ -492,6 +492,69 @@ sannsynligvis stående. Konsekvens for GameHome: kall Moonlight fra GameHome (so
 - CSV uten escaping av anførselstegn: vår leser håndterer det. Mulig PR til moonlight-qt senere (riktig CSV-escaping,
   eventuelt en `--no-dialogs`-modus). Fork er siste utvei og ikke nødvendig nå.
 
+### Skjermoppsett på gaming-PC-en (funn 2026-11-02)
+
+Lest fra Vibepollo `d46e23c7` (nyeste commit 2026-11-01), bare lest. Alt er **hypoteser** til det er testet.
+Gaming-PC-ens oppsett i dag: `dd_configuration_option = ensure_only_display`, Vibepollos virtuelle skjermdriver på,
+ingen globale eller app-egne prep-kommandoer.
+
+**Hvordan skjermen settes opp**
+
+- `dd_configuration_option` har verdiene `disabled`, `verify_only` (standard), `ensure_active`, `ensure_primary` og
+  `ensure_only_display`. Kan også settes per app (`dd-configuration-option`) og per klient
+  (`src/config.cpp:523-533,945`, `src/process.cpp:4761-4778`, `docs/configuration.md:1722-1740`).
+- **Med virtuell skjerm styres oppsettet av `virtual_display_layout`**, ikke av `dd_configuration_option`:
+  `exclusive` (standard) gjør den virtuelle skjermen til eneste aktive skjerm; `extended`, `extended_primary`,
+  `extended_isolated` og `extended_primary_isolated` holder laptopskjermen på
+  (`src/config.cpp:835-846,935`, `src/platform/windows/display_helper_request_helpers.cpp:54-68,317-323,496,569-574`).
+- **Konsekvens:** oppsettet i dag gir allerede det målet krever: spillet kan bare havne på den virtuelle skjermen, og
+  ingenting fra laptopskjermen vises. Det skrivebordet som vises ved tilkobling, er **den virtuelle skjermens eget
+  skrivebord** (bakgrunn, ikoner og oppgavelinje) før spillvinduet kommer. Forslaget om virtuell skjerm som primær
+  med laptopskjermen på (`extended_primary`) gir en ekstra skjerm der spill kan åpnes, og løser ikke problemet.
+- Vibepollo flytter ikke spillvinduer; det er oppsettet som sørger for at spillet havner riktig. Spill som husker
+  forrige skjerm, håndteres bare ved at det ikke finnes noen annen skjerm (`tools/playnite_launcher/focus_utils.cpp:179-182`).
+
+**Tilkobling, frakobling og gjenoppretting**
+
+- Før endring lagres en grunnlinje (`display_session_current.json` i en mappe under ProgramData som bare SYSTEM og
+  administratorer har tilgang til), og det opprettes en planlagt oppgave `VibepolloDisplayRestore` som gjenoppretter
+  ved pålogging (`tools/display_settings_helper.cpp:3295-3307,5213,5348`, `tools/display_helper_paths.h:173-180`).
+- Gjenoppretting skjer når appen avsluttes. Ved frakobling bare hvis `dd_config_revert_on_disconnect` er på (av som
+  standard); ellers beholdes den virtuelle skjermen i opptil 2 timer (`dd_paused_virtual_display_timeout_secs = 7200`)
+  så økten kan gjenopptas (`src/process.cpp:3453-3456`, `src/stream.cpp:3837-3888`).
+- Stopper Vibepollo å svare, gjenoppretter hjelperen etter ca. 2,5 minutter. Ved oppstart ryddes en virtuell skjerm
+  uten stream (`tools/display_settings_helper.cpp:2724-2726,2842-2859`, `src/main.cpp:940-945`).
+
+**Skjule skrivebordet**
+
+- **Ingen innebygd funksjon** for svart skjerm, dekkbilde, skjult skrivebord eller vent på spillvindu. Det nærmeste er
+  at Vibepollo setter spillvinduet i forgrunnen (`app_focus_attempts`, `app_focus_timeout_secs`).
+- **Prep-kommandoer** kan brukes: `global_prep_cmd` (alle apper) eller `prep-cmd` per app, med `do`, `undo` og
+  `elevated`. De kjører som den påloggede brukeren, så de kan endre brukerens bakgrunn og oppgavelinje. Feiler `do`,
+  avbrytes oppstarten. `undo` kjøres når appen avsluttes, ikke ved frakobling, og ikke etter et krasj
+  (`src/process.cpp:2469-2498,3326-3375,4569-4597`, `src/platform/windows/misc.cpp:716-740,1544-1548`).
+- Miljøvariabler som `SUNSHINE_APP_NAME` og `SUNSHINE_CLIENT_WIDTH` er tilgjengelige for kommandoene
+  (`src/process.cpp:1804`).
+
+### Anbefalt skjermoppsett (hypotese, ikke innført)
+
+| Del | Hva | Krever administrator |
+| --- | --- | --- |
+| Skjermoppsett | Behold dagens: virtuell skjerm, `virtual_display_layout = exclusive` (standard). Ingen endring. | – |
+| Bakgrunn | Rolig bakgrunn **bare for den virtuelle skjermen** via Windows' bakgrunn per skjerm (`IDesktopWallpaper`). Windows husker valget per skjerm, så laptopskjermen beholder sin. Hypotese: den virtuelle skjermen får samme ID hver gang. | Nei |
+| Ikoner og oppgavelinje | `global_prep_cmd` med et lite PowerShell-skript fra repoet (`tools/host/`): `do` skjuler skrivebordsikoner og setter oppgavelinjen til automatisk skjult og lagrer forrige verdier; `undo` setter dem tilbake. Skriptet avslutter alltid med kode 0, så en feil aldri stopper spillet. | Å legge inn `global_prep_cmd` i Vibepollo (nettsiden eller `sunshine.conf`). Skriptet kjører som bruker. |
+| Sikkerhetsnett | Samme skript med `restore` kjøres ved pålogging (planlagt oppgave for brukeren), siden `undo` ikke kjøres etter krasj eller ved frakobling. | Nei (brukeroppgave) |
+
+**Risiko**
+
+- **Strømmen brytes midt i:** skjermen gjenopprettes av Vibepollo (logon-oppgave, hjertelyd, opprydding ved oppstart).
+  Ved vanlig frakobling står den virtuelle skjermen i opptil 2 timer, med laptopskjermen av; det er meningen.
+- **Ikoner og oppgavelinje** blir stående skjult til appen avsluttes, eller til neste pålogging hvis Vibepollo krasjer.
+  Sikkerhetsnettet over dekker det.
+- **Alternativ uten endringer i Windows:** GameHomes lasteskjerm dekker Moonlight til Vibepollo melder at appen kjører
+  (`GET /api/session/status`). Krever API-token, men ingen endring på skrivebordet. Ser grovere ut enn en rolig
+  bakgrunn, men har ingen risiko for å etterlate skjulte ikoner.
+
 ## Retro-modus
 
 Systemer og emulatorer defineres som YAML-data, ikke kode, slik at nye systemer kan legges til via pull request uten kodeendring. v1 starter med ett system og én emulator. Definisjoner lånt fra ES-DE eller Playnite (begge MIT på repo-nivå) sjekkes per fil og registreres med kilde-commit i `THIRD-PARTY-NOTICES.md`.
