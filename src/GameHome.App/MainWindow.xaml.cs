@@ -778,9 +778,77 @@ public sealed partial class MainWindow : Window
 
     private void SetHomeEnabled(bool enabled)
     {
-        foreach (var child in GameTiles.Children.OfType<Button>().Concat(ToolTiles.Children.OfType<Button>()))
+        foreach (var child in GameTiles.Children.OfType<Button>()
+            .Concat(ToolTiles.Children.OfType<Button>())
+            .Append(PowerMenuButton))
         {
             child.IsEnabled = enabled;
+        }
+    }
+
+    // ---- Strømvalg: ett ikon åpner menyen; valget i menyen er bekreftelsen ----
+
+    private bool _powerFromSession;
+
+    private void PowerMenuButton_Click(object sender, RoutedEventArgs e)
+    {
+        _powerFromSession = SessionPanel.Visibility == Visibility.Visible;
+        if (_powerFromSession)
+        {
+            SessionPanel.Visibility = Visibility.Collapsed;
+        }
+
+        var game = SessionActive && _sessionGame is not null ? GameLibrary.DisplayTitle(_sessionGame) : null;
+        PowerText.Text = game is null
+            ? "Windows lukker programmene normalt ved omstart og avslutning."
+            : $"{game} kjører. Dvale setter det på pause. Omstart og avslutning avslutter spillet, og ulagret fremgang kan gå tapt.";
+        PowerPanel.Visibility = Visibility.Visible;
+        SetHomeEnabled(false);
+        PowerCancelButton.Focus(FocusState.Keyboard);
+        _log.Write("strøm", $"Strømmenyen åpnet via {_lastSource}");
+    }
+
+    private void PowerOption_Click(object sender, RoutedEventArgs e)
+    {
+        var action = (sender as Button)?.Tag switch
+        {
+            "sleep" => PowerAction.Sleep,
+            "restart" => PowerAction.Restart,
+            _ => PowerAction.Shutdown,
+        };
+        _log.Write("strøm", $"{action} valgt");
+        ClosePowerMenu(restoreSession: false);
+
+        if (Power.Run(action) is { } error)
+        {
+            _log.Write("strøm", $"{action} feilet: {error}");
+            ShowMessage("Det gikk ikke", error, "Lukk", () => FocusHome(_focusGameId), "Tilbake", () => FocusHome(_focusGameId));
+        }
+    }
+
+    private void PowerCancel_Click(object sender, RoutedEventArgs e)
+    {
+        _log.Write("strøm", "Strømmenyen avbrutt");
+        ClosePowerMenu(restoreSession: true);
+    }
+
+    private void ClosePowerMenu(bool restoreSession)
+    {
+        PowerPanel.Visibility = Visibility.Collapsed;
+        if (restoreSession && _powerFromSession && SessionActive)
+        {
+            ShowSessionPanel("strømmenyen lukket");
+            return;
+        }
+
+        SetHomeEnabled(true);
+        if (restoreSession)
+        {
+            PowerMenuButton.Focus(FocusState.Keyboard);
+        }
+        else
+        {
+            FocusHome(_focusGameId);
         }
     }
 
@@ -1034,6 +1102,11 @@ public sealed partial class MainWindow : Window
             if (MessagePanel.Visibility == Visibility.Visible)
             {
                 CloseMessage(_messageSecondary);
+            }
+            else if (PowerPanel.Visibility == Visibility.Visible)
+            {
+                _log.Write("strøm", "Strømmenyen lukket med B");
+                ClosePowerMenu(restoreSession: true);
             }
             else if (LoadingPanel.Visibility == Visibility.Visible)
             {
