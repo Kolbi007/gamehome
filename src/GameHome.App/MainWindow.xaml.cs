@@ -4200,7 +4200,9 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void HandForegroundBackIfUnrequested()
     {
-        if (_session is not LocalProcessSession local || !SessionActive || DateTime.UtcNow - _sessionStarted > TimeSpan.FromSeconds(90))
+        // Gjelder også strøm: Moonlight bytter fra tilkoblingsvinduet til streamvinduet, og et øyeblikk får GameHome
+        // forgrunnen (målt 2026-11-02 med Mega Man 11; kontrolleren gikk da til GameHome i stedet for spillet).
+        if (_session is not { } local || !SessionActive || DateTime.UtcNow - _sessionStarted > TimeSpan.FromSeconds(90))
         {
             return;
         }
@@ -4217,7 +4219,9 @@ public sealed partial class MainWindow : Window
         timer.Tick += (_, _) =>
         {
             timer.Stop();
-            if (!ReferenceEquals(_session, local) || !_windowActive || _handBacks >= 5 || AnyOverlayOpen && LoadingPanel.Visibility != Visibility.Visible)
+            // Mens lasteskjermen dekker Moonlights tilkobling (_streamCover), skal GameHome ligge øverst; ikke gi tilbake da.
+            if (!ReferenceEquals(_session, local) || !_windowActive || _handBacks >= 5 || _streamCover is not null
+                || (AnyOverlayOpen && LoadingPanel.Visibility != Visibility.Visible))
             {
                 return;
             }
@@ -4230,7 +4234,11 @@ public sealed partial class MainWindow : Window
 
             _handBacks++;
             HideLoading("forgrunnen gis tilbake til spillet");
-            Foreground.AllowFor((uint)local.GameProcessId);
+            if (local is LocalProcessSession process)
+            {
+                Foreground.AllowFor((uint)process.GameProcessId);
+            }
+
             var (ok, restored) = Foreground.BringGame(window);
             _log.Write("fokus", $"GameHome ble aktiv uten at noen ba om det; forgrunnen gitt tilbake til spillet ({(ok ? "ok" : "avslått")}{(restored ? ", gjenopprettet" : "")}, {_handBacks}/5)");
         };
