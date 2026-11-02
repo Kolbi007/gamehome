@@ -7,6 +7,32 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="GameHome">
     <Grid x:Name="Root" Background="#0B0D10">
+        <Grid.Resources>
+            <Storyboard x:Name="AmbientFadeIn">
+                <DoubleAnimation Storyboard.TargetName="AmbientImage" Storyboard.TargetProperty="Opacity"
+                                 From="0" To="0.55" Duration="0:0:0.45">
+                    <DoubleAnimation.EasingFunction>
+                        <CubicEase EasingMode="EaseOut" />
+                    </DoubleAnimation.EasingFunction>
+                </DoubleAnimation>
+            </Storyboard>
+        </Grid.Resources>
+
+        <!--
+          «Ambilight»: bildet fra spillet i fokus, dekodet svært lite og strukket ut (gir en naturlig uskarphet uten
+          effektbibliotek), dempet under et mørkt slør. Toner inn når fokus flytter seg.
+        -->
+        <Image x:Name="AmbientImage" Stretch="UniformToFill" Opacity="0" />
+        <Rectangle>
+            <Rectangle.Fill>
+                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                    <GradientStop Color="#990B0D10" Offset="0" />
+                    <GradientStop Color="#660B0D10" Offset="0.45" />
+                    <GradientStop Color="#F00B0D10" Offset="1" />
+                </LinearGradientBrush>
+            </Rectangle.Fill>
+        </Rectangle>
+
         <Grid x:Name="Surface" Padding="40,48,40,32" RowSpacing="24">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
@@ -45,9 +71,10 @@
             </Grid>
 
             <!-- Spillflisene lages i koden (ikke ItemsSource; se ADR 0005 om AOT). -->
+            <!-- Plass rundt flisene så flisen i fokus kan forstørres uten å bli klippet. -->
             <ScrollViewer Grid.Row="1" HorizontalScrollMode="Enabled" HorizontalScrollBarVisibility="Hidden"
-                          VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled">
-                <StackPanel x:Name="GameTiles" Orientation="Horizontal" Spacing="16" />
+                          VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled" Padding="12,14">
+                <StackPanel x:Name="GameTiles" Orientation="Horizontal" Spacing="22" />
             </ScrollViewer>
 
             <StackPanel x:Name="ToolTiles" Grid.Row="2" Orientation="Horizontal" Spacing="16">

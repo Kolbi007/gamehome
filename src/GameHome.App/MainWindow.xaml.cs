@@ -84,6 +84,9 @@ public sealed partial class MainWindow : Window
     private string? _focusGameId;
     private string? _rememberedTile;
     private readonly Dictionary<string, TextBlock> _tileTitles = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _logoTiles = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, global::Windows.UI.Color> _dominantColors = new(StringComparer.OrdinalIgnoreCase);
+    private string? _ambientPath;
     private Action? _messagePrimary;
     private Action? _messageSecondary;
     private Action? _messageCancel;
@@ -261,27 +264,166 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    // Flisene er 16:9, som spillenes brede bilder. Flisen i fokus forstørres litt og får kant i bildets egen farge.
+    private const double TileWidth = 352;
+    private const double TileHeight = 198;
+    private const double FocusScale = 1.07;
+
     private Button CreateTile(Game game)
     {
         var tile = new Button
         {
             Tag = game.Id,
-            Width = 280,
-            Height = 160,
+            Width = TileWidth,
+            Height = TileHeight,
             FontSize = 22,
             Padding = new Thickness(0),
+            BorderThickness = new Thickness(0),
+            CornerRadius = new CornerRadius(8),
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             VerticalContentAlignment = VerticalAlignment.Stretch,
+            RenderTransformOrigin = new global::Windows.Foundation.Point(0.5, 0.5),
+            RenderTransform = new Microsoft.UI.Xaml.Media.ScaleTransform(),
         };
         SetTileContent(tile, game);
         tile.Click += GameTile_Click;
-        tile.GotFocus += (_, _) => RememberTile(game.Id);
+        tile.GotFocus += (_, _) =>
+        {
+            RememberTile(game.Id);
+            OnTileFocused(tile, game.Id);
+        };
+        tile.LostFocus += (_, _) => OnTileUnfocused(tile);
         return tile;
     }
 
+    /// <summary>Forstørrer flisen, gir den kant i bildets dominerende farge og bytter bakgrunnen («ambilight»).</summary>
+    private void OnTileFocused(Button tile, string gameId)
+    {
+        AnimateScale(tile, FocusScale);
+        if (_library.Find(gameId) is not { } game || TileImageFor(game) is not { } image)
+        {
+            tile.BorderThickness = new Thickness(0);
+            return;
+        }
+
+        _ = ApplyFocusColorsAsync(tile, gameId, image);
+        if (!string.Equals(_ambientPath, image, StringComparison.OrdinalIgnoreCase))
+        {
+            _ambientPath = image;
+            _ = LoadAmbientAsync(image);
+        }
+    }
+
+    private static void OnTileUnfocused(Button tile)
+    {
+        AnimateScale(tile, 1.0);
+        tile.BorderThickness = new Thickness(0);
+    }
+
+    private static void AnimateScale(Button tile, double to)
+    {
+        if (tile.RenderTransform is not Microsoft.UI.Xaml.Media.ScaleTransform scale)
+        {
+            return;
+        }
+
+        var ease = new Microsoft.UI.Xaml.Media.Animation.CubicEase { EasingMode = Microsoft.UI.Xaml.Media.Animation.EasingMode.EaseOut };
+        var story = new Microsoft.UI.Xaml.Media.Animation.Storyboard();
+        foreach (var property in new[] { "ScaleX", "ScaleY" })
+        {
+            var animation = new Microsoft.UI.Xaml.Media.Animation.DoubleAnimation
+            {
+                To = to,
+                Duration = new Duration(TimeSpan.FromMilliseconds(160)),
+                EasingFunction = ease,
+            };
+            Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTarget(animation, scale);
+            Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTargetProperty(animation, property);
+            story.Children.Add(animation);
+        }
+
+        story.Begin();
+    }
+
+    private async Task ApplyFocusColorsAsync(Button tile, string gameId, string image)
+    {
+        var color = await DominantColorAsync(image);
+        if (FocusManager.GetFocusedElement(Root.XamlRoot) is Button { Tag: string focused } && focused == gameId)
+        {
+            tile.BorderBrush = new Microsoft.UI.Xaml.Media.SolidColorBrush(color);
+            tile.BorderThickness = new Thickness(3);
+        }
+    }
+
+    /// <summary>Bakgrunnen: bildet dekodet svært lite (48 px bredt) og strukket ut, som gir en myk uskarphet.</summary>
+    private async Task LoadAmbientAsync(string path)
+    {
+        if (await LoadImageAsync(path, 48) is { } bitmap && string.Equals(_ambientPath, path, StringComparison.OrdinalIgnoreCase))
+        {
+            AmbientImage.Source = bitmap;
+            AmbientFadeIn.Begin();
+        }
+    }
+
     /// <summary>
-    /// Flisens innhold: bilde (Steams lokale bilder eller omslag fra hosten) med tittelen nederst over et mørkt slør,
-    /// eller bare tittelen når spillet ikke har bilde.
+    /// Bildets dominerende farge: snitt av et 16 × 16-utsnitt, vektet mot fargerike piksler, og løftet så den lyser som
+    /// en kant. Bufres per bilde.
+    /// </summary>
+    private async Task<global::Windows.UI.Color> DominantColorAsync(string path)
+    {
+        if (_dominantColors.TryGetValue(path, out var cached))
+        {
+            return cached;
+        }
+
+        var fallback = global::Windows.UI.Color.FromArgb(255, 120, 170, 255);
+        try
+        {
+            using var stream = File.OpenRead(path);
+            var decoder = await global::Windows.Graphics.Imaging.BitmapDecoder.CreateAsync(stream.AsRandomAccessStream());
+            var data = await decoder.GetPixelDataAsync(
+                global::Windows.Graphics.Imaging.BitmapPixelFormat.Bgra8,
+                global::Windows.Graphics.Imaging.BitmapAlphaMode.Ignore,
+                new global::Windows.Graphics.Imaging.BitmapTransform { ScaledWidth = 16, ScaledHeight = 16 },
+                global::Windows.Graphics.Imaging.ExifOrientationMode.IgnoreExifOrientation,
+                global::Windows.Graphics.Imaging.ColorManagementMode.DoNotColorManage);
+            var pixels = data.DetachPixelData();
+            double r = 0, g = 0, b = 0, weight = 0;
+            for (var i = 0; i + 3 < pixels.Length; i += 4)
+            {
+                double pb = pixels[i], pg = pixels[i + 1], pr = pixels[i + 2];
+                var max = Math.Max(pr, Math.Max(pg, pb));
+                var min = Math.Min(pr, Math.Min(pg, pb));
+                var w = 0.05 + ((max - min) / 255.0 * (max / 255.0));
+                r += pr * w;
+                g += pg * w;
+                b += pb * w;
+                weight += w;
+            }
+
+            if (weight <= 0)
+            {
+                return fallback;
+            }
+
+            r /= weight;
+            g /= weight;
+            b /= weight;
+            var lift = 230 / Math.Max(1, Math.Max(r, Math.Max(g, b)));
+            var color = global::Windows.UI.Color.FromArgb(255,
+                (byte)Math.Min(255, r * lift), (byte)Math.Min(255, g * lift), (byte)Math.Min(255, b * lift));
+            _dominantColors[path] = color;
+            return color;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Runtime.InteropServices.COMException)
+        {
+            return fallback;
+        }
+    }
+
+    /// <summary>
+    /// Flisens innhold: bilde (Steams lokale bilder, Steams butikkbilder eller omslag) under et mørkt slør, med spillets
+    /// logo nederst til venstre, eller tittelen når logo mangler. Uten bilde vises bare tittelen.
     /// </summary>
     private void SetTileContent(Button tile, Game game)
     {
@@ -293,16 +435,25 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        var logoPath = ArtFor(game).Logo is { } logoFile && File.Exists(logoFile) ? logoFile : null;
+        var running = SessionActive && _sessionGame?.Id == game.Id;
         var title = new TextBlock
         {
-            Text = TileText(game),
+            Text = logoPath is null ? TileText(game) : "▶ Kjører",
             FontSize = 18,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
             Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.White),
             TextTrimming = TextTrimming.CharacterEllipsis,
-            Margin = new Thickness(12, 0, 12, 10),
-            VerticalAlignment = VerticalAlignment.Bottom,
+            Margin = new Thickness(14, 0, 14, 12),
+            VerticalAlignment = logoPath is null ? VerticalAlignment.Bottom : VerticalAlignment.Top,
+            HorizontalAlignment = logoPath is null ? HorizontalAlignment.Left : HorizontalAlignment.Right,
+            Visibility = logoPath is null || running ? Visibility.Visible : Visibility.Collapsed,
         };
+        if (logoPath is not null)
+        {
+            title.Margin = new Thickness(12, 10, 12, 0);
+        }
+
         var picture = new Image { Stretch = Microsoft.UI.Xaml.Media.Stretch.UniformToFill };
         var scrim = new Microsoft.UI.Xaml.Shapes.Rectangle
         {
@@ -317,18 +468,38 @@ public sealed partial class MainWindow : Window
                 },
             },
         };
-        var grid = new Grid { CornerRadius = new CornerRadius(4) };
+        var grid = new Grid { CornerRadius = new CornerRadius(8) };
         grid.Children.Add(picture);
         grid.Children.Add(scrim);
+        if (logoPath is not null)
+        {
+            var logo = new Image
+            {
+                Stretch = Microsoft.UI.Xaml.Media.Stretch.Uniform,
+                MaxHeight = 70,
+                MaxWidth = 210,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Bottom,
+                Margin = new Thickness(14, 0, 14, 12),
+            };
+            grid.Children.Add(logo);
+            _ = LoadTileImageAsync(logo, logoPath, 420);
+            _logoTiles.Add(game.Id);
+        }
+        else
+        {
+            _logoTiles.Remove(game.Id);
+        }
+
         grid.Children.Add(title);
         tile.Content = grid;
         _tileTitles[game.Id] = title;
-        _ = LoadTileImageAsync(picture, image);
+        _ = LoadTileImageAsync(picture, image, 720);
     }
 
-    private async Task LoadTileImageAsync(Image target, string path)
+    private async Task LoadTileImageAsync(Image target, string path, int decodeWidth)
     {
-        if (await LoadImageAsync(path, 560) is { } bitmap)
+        if (await LoadImageAsync(path, decodeWidth) is { } bitmap)
         {
             target.Source = bitmap;
         }
@@ -364,7 +535,12 @@ public sealed partial class MainWindow : Window
         {
             if (tile.Tag is string id && _library.Find(id) is { } game)
             {
-                if (_tileTitles.TryGetValue(id, out var title))
+                if (_tileTitles.TryGetValue(id, out var title) && _logoTiles.Contains(id))
+                {
+                    // Fliser med logo viser bare «▶ Kjører» når spillet kjører.
+                    title.Visibility = SessionActive && _sessionGame?.Id == id ? Visibility.Visible : Visibility.Collapsed;
+                }
+                else if (title is not null)
                 {
                     title.Text = TileText(game);
                 }
