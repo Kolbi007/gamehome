@@ -780,72 +780,76 @@ public sealed partial class MainWindow : Window
     {
         foreach (var child in GameTiles.Children.OfType<Button>()
             .Concat(ToolTiles.Children.OfType<Button>())
-            .Concat(PowerButtons.Children.OfType<Button>()))
+            .Append(PowerMenuButton))
         {
             child.IsEnabled = enabled;
         }
     }
 
-    // ---- Strømvalg ----
+    // ---- Strømvalg: ett ikon åpner menyen; valget i menyen er bekreftelsen ----
 
-    private void PowerButton_Click(object sender, RoutedEventArgs e)
+    private bool _powerFromSession;
+
+    private void PowerMenuButton_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { Tag: string tag } button)
-        {
-            return;
-        }
-
-        var action = tag switch
-        {
-            "sleep" => PowerAction.Sleep,
-            "restart" => PowerAction.Restart,
-            _ => PowerAction.Shutdown,
-        };
-        _log.Write("strøm", $"{action} valgt via {_lastSource}");
-
-        // Fra «Kjører nå»: panelet skjules mens bekreftelsen vises, og kommer tilbake ved Avbryt.
-        var fromSession = SessionPanel.Visibility == Visibility.Visible;
-        if (fromSession)
+        _powerFromSession = SessionPanel.Visibility == Visibility.Visible;
+        if (_powerFromSession)
         {
             SessionPanel.Visibility = Visibility.Collapsed;
         }
 
         var game = SessionActive && _sessionGame is not null ? GameLibrary.DisplayTitle(_sessionGame) : null;
-        var (title, verb) = action switch
-        {
-            PowerAction.Sleep => ("Sette Legion Go i dvale?", "Dvale"),
-            PowerAction.Restart => ("Starte Legion Go på nytt?", "Start på nytt"),
-            _ => ("Slå av Legion Go?", "Slå av"),
-        };
-        var text = action == PowerAction.Sleep
-            ? game is null ? "Du fortsetter der du var når du vekker den." : $"{game} settes på pause og fortsetter når du vekker Legion Go."
-            : game is null ? "Windows lukker programmene normalt først." : $"{game} avsluttes. Ulagret fremgang kan gå tapt.";
+        PowerText.Text = game is null
+            ? "Windows lukker programmene normalt ved omstart og avslutning."
+            : $"{game} kjører. Dvale setter det på pause. Omstart og avslutning avslutter spillet, og ulagret fremgang kan gå tapt.";
+        PowerPanel.Visibility = Visibility.Visible;
+        SetHomeEnabled(false);
+        PowerCancelButton.Focus(FocusState.Keyboard);
+        _log.Write("strøm", $"Strømmenyen åpnet via {_lastSource}");
+    }
 
-        ShowMessage(title, text, verb, () =>
+    private void PowerOption_Click(object sender, RoutedEventArgs e)
+    {
+        var action = (sender as Button)?.Tag switch
         {
-            _log.Write("strøm", $"{action} bekreftet");
-            if (Power.Run(action) is { } error)
-            {
-                _log.Write("strøm", $"{action} feilet: {error}");
-                ShowMessage("Det gikk ikke", error, "Lukk", () => FocusHome(_focusGameId), "Tilbake", () => FocusHome(_focusGameId));
-            }
-            else
-            {
-                FocusHome(_focusGameId);
-            }
-        },
-        "Avbryt", () =>
+            "sleep" => PowerAction.Sleep,
+            "restart" => PowerAction.Restart,
+            _ => PowerAction.Shutdown,
+        };
+        _log.Write("strøm", $"{action} valgt");
+        ClosePowerMenu(restoreSession: false);
+
+        if (Power.Run(action) is { } error)
         {
-            _log.Write("strøm", $"{action} avbrutt");
-            if (fromSession && SessionActive)
-            {
-                ShowSessionPanel("strømvalg avbrutt");
-            }
-            else
-            {
-                button.Focus(FocusState.Keyboard);
-            }
-        });
+            _log.Write("strøm", $"{action} feilet: {error}");
+            ShowMessage("Det gikk ikke", error, "Lukk", () => FocusHome(_focusGameId), "Tilbake", () => FocusHome(_focusGameId));
+        }
+    }
+
+    private void PowerCancel_Click(object sender, RoutedEventArgs e)
+    {
+        _log.Write("strøm", "Strømmenyen avbrutt");
+        ClosePowerMenu(restoreSession: true);
+    }
+
+    private void ClosePowerMenu(bool restoreSession)
+    {
+        PowerPanel.Visibility = Visibility.Collapsed;
+        if (restoreSession && _powerFromSession && SessionActive)
+        {
+            ShowSessionPanel("strømmenyen lukket");
+            return;
+        }
+
+        SetHomeEnabled(true);
+        if (restoreSession)
+        {
+            PowerMenuButton.Focus(FocusState.Keyboard);
+        }
+        else
+        {
+            FocusHome(_focusGameId);
+        }
     }
 
     // ---- Legion-knapp via Lenovos HID-kanaler (diagnostikk) ----
@@ -1098,6 +1102,11 @@ public sealed partial class MainWindow : Window
             if (MessagePanel.Visibility == Visibility.Visible)
             {
                 CloseMessage(_messageSecondary);
+            }
+            else if (PowerPanel.Visibility == Visibility.Visible)
+            {
+                _log.Write("strøm", "Strømmenyen lukket med B");
+                ClosePowerMenu(restoreSession: true);
             }
             else if (LoadingPanel.Visibility == Visibility.Visible)
             {
