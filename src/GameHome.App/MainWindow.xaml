@@ -48,6 +48,7 @@
             <StackPanel x:Name="ToolTiles" Grid.Row="2" Orientation="Horizontal" Spacing="16">
                 <Button x:Name="AddGameTile" Content="+ Legg til spill" Click="AddGameTile_Click" Width="240" Height="72" FontSize="18" />
                 <Button x:Name="HostTile" Content="Spill fra gaming-PC" Click="HostTile_Click" Width="240" Height="72" FontSize="18" />
+                <Button x:Name="TestHostTile" Content="Test tilkobling" Click="TestHostTile_Click" Width="240" Height="72" FontSize="18" />
                 <Button x:Name="HidTile" Content="Lytt på Legion-knapp" Click="HidTile_Click" Width="240" Height="72" FontSize="18" />
             </StackPanel>
 

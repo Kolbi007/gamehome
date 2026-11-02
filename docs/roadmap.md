@@ -45,6 +45,20 @@ Funn og kilder står i `docs/architecture.md`, «Fase 2: funn fra kildekoden». 
 10. PC-en i dvale: GameHome vekker den med Wake-on-LAN og starter når den svarer.
 11. En annen app kjører på PC-en: GameHome spør før den avslutter den.
 
+**Resultat runde 3 (2026-11-02, 0.1.68.0–0.1.71.0): Wake-on-LAN støttes ikke av gaming-PC-en.**
+
+- GameHome sender magiske pakker (kringkasting, port 9 og 7, hvert 10. sekund) med MAC-adressen Moonlight har lagret,
+  viser live status («Vekker Gaming Laptop · 3 vekkesignaler · ingen svar ennå · 21/90 s») og gir «Prøv igjen» eller
+  «Lukk» etter 90 s. Flisen «Test tilkobling» vekker og sjekker uten Moonlight og spill.
+- Gaming Laptop (ASUS ROG Strix G15 G513QR, BIOS G513QR.331) bruker Modern Standby. `powercfg /a` sier «Network
+  Disconnected» også med «Networking connectivity in Standby» = Enable på strøm og etter omstart, så nettverkskortet er
+  av i hvilemodus. ASUS sier at uten et WOL-valg i BIOS støttes ikke funksjonen, og en annen G513QR-eier forsøkte å låse
+  det opp med modifisert BIOS. Modifisert BIOS anbefales ikke.
+- **Beslutning:** vekkingen blir i GameHome (virker på maskiner som støtter det). Gaming Laptop holdes våken på strøm:
+  hvilemodus er allerede «aldri» på strøm, og lukking av lokket settes til «Gjør ingenting» på strøm.
+- Rettet underveis: overflyt i tidsberegningen stoppet vekkingen før første pakke (0.1.68.0–0.1.69.0), og feil under
+  start forsvinner ikke lenger stille.
+
 **Resultater 2026-11-02 (0.1.45.0–0.1.47.0)**
 
 - Listen: 37 apper, 33 spill på 1,8 s, etter at listen regnes som ferdig når utskriften stopper (Moonlight avslutter
