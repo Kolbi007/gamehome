@@ -12,7 +12,7 @@ Hver testrunde tar 15–45 minutter på Legion Go. Resultater skrives i `docs/te
 | --- | --- | --- | --- | --- |
 | 0B: input og ytelse | Kontroller, JIT mot AOT, dvale mens spill kjører, Legion-knapp som hurtigtast, `gamehome://session`, «Tilbake til spillet» | 2–3 | Legge om venstre Legion-knapp i Legion Space | **Ferdig** (3 runder) |
 | 0A: FSE | Valgbar som Gaming Home. Overlever omstart, oppgradering og at utviklermodus slås av. Hjem i Game Bar åpner «Kjører nå». | 1–2 | Slå på utviklermodus ved installasjon. Velge GameHome under «Choose home app». | **Bestått** (3 runder) |
-| 1: lokalt spill | Steam-spill og manuelt spill: start, kjører-signal, avslutning, retur til samme flis, feil gir valg, Home fra cache | 2–3 | Ha et Steam-spill installert | Pågår (manuelt spill bestått) |
+| 1: lokalt spill | Steam-spill og manuelt spill: start, kjører-signal, avslutning, retur til samme flis, feil gir valg, Home fra cache | 2–3 | Ha et Steam-spill installert | **Ferdig** |
 | **Milepæl 1** | **Lokal barebones** | **≈ 6–8 totalt** | | |
 | 2: stream | 007 First Light via Moonlight og Vibepollo uten appvelger, Playnite eller skrivebord. Koble fra, koble til igjen, avslutt, vekking. | 3–4 | Moonlight på Legion Go. Vibepollo og Playnite på gaming-PC-en. | Ikke startet |
 | **Barebones med stream** | **Suksessdefinisjonen** | **≈ 10–12 totalt** | | |
@@ -58,6 +58,18 @@ registrert og gir en konsollfølelse (inspirert av Stremio).
 | 1 | Lasteskjerm med tittel, og logo for Steam-spill fra Steams lokale bilder | Fase 1 |
 | 2 | Logo og bakgrunnsbilde for alle spill | Fase 4 |
 
+
+### Strømvalg i GameHome (2026-11-02)
+
+Det finnes ingen lett måte å starte Legion Go på nytt fra Xbox mode. GameHome får strømvalg som små ikonknapper i et
+hjørne, ikke midt på skjermen: i Home og i «Kjører nå» (M2).
+
+- **Valg:** Dvale, Start på nytt, Slå av. Hvert valg bekreftes med to tydelige knapper, og aldri med A alene på første
+  trykk, så et feiltrykk ikke avslutter spill.
+- **Kjører et spill:** bekreftelsen sier at spillet avsluttes og at ulagret fremgang kan gå tapt.
+- **Teknisk:** dvale via `SetSuspendState`, omstart og avslutning via Windows' egen avslutning (ikke tvang), slik at
+  spill og Steam får lukke normalt.
+
 ## Gjort
 
 - 2026-11-01: repo, CI, signert test-MSIX, SSH til Legion Go, testflate.
@@ -75,3 +87,5 @@ registrert og gir en konsollfølelse (inspirert av Stremio).
   og fra menyen gir retur til samme flis. Oppgradering virker med utviklermodus av.
 - 2026-11-02, fase 1 del 2: Steam-spill finnes av seg selv, startes via Steam, og kjører-signalet fra `RunningAppID`
   virker for start, avslutning og retur til flisen. Et oppstartskrasj ved nye fliser er funnet og rettet.
+- 2026-11-02, fase 1 ferdig: lasteskjerm med Steam-logo, «Tilbake til spillet» også for spill som minimerer seg, og
+  GameHome husker flisen etter omstart. **Milepæl 1 (lokal barebones) er nådd.**
