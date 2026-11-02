@@ -14,7 +14,8 @@
   xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
   xmlns:uap4="http://schemas.microsoft.com/appx/manifest/uap/windows10/4"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
-  IgnorableNamespaces="uap uap3 uap4 rescap">
+  xmlns:desktop6="http://schemas.microsoft.com/appx/manifest/desktop/windows10/6"
+  IgnorableNamespaces="uap uap3 uap4 rescap desktop6">
 
   <Identity Name="GameHome" Publisher="CN=GameHome Dev" Version="0.1.0.0" />
 
@@ -22,6 +23,9 @@
     <DisplayName>GameHome</DisplayName>
     <PublisherDisplayName>GameHome contributors</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
+    <!-- Spill startet av GameHome skal lagre i sine vanlige mapper, ikke i en virtualisert kopi inne i pakken. -->
+    <desktop6:FileSystemWriteVirtualization>disabled</desktop6:FileSystemWriteVirtualization>
+    <desktop6:RegistryWriteVirtualization>disabled</desktop6:RegistryWriteVirtualization>
   </Properties>
 
   <Dependencies>
@@ -59,6 +63,7 @@
 
   <Capabilities>
     <rescap:Capability Name="runFullTrust" />
+    <rescap:Capability Name="unvirtualizedResources" />
     <uap4:CustomCapability Name="Microsoft.appCategory.gamingHome_8wekyb3d8bbwe" />
   </Capabilities>
 </Package>

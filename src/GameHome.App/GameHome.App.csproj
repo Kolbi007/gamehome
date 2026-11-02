@@ -69,6 +69,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\GameHome.Core\GameHome.Core.csproj" />
+    <ProjectReference Include="..\GameHome.Data\GameHome.Data.csproj" />
     <ProjectReference Include="..\GameHome.Windows\GameHome.Windows.csproj" />
     <ProjectReference Include="..\GameHome.Windows.Fse\GameHome.Windows.Fse.csproj" />
   </ItemGroup>

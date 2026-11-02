@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
-<!-- Testflate for fase 0A og 0B: fokus, input, aktivering, øktmeny, oppstartstid og minne. -->
+<!-- Fase 1: Home med spill lagt til manuelt, øktmeny og diagnostikk. -->
 <Window
     x:Class="GameHome.App.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -9,6 +9,7 @@
     <Grid x:Name="Root" Background="#0B0D10">
         <Grid x:Name="Surface" Padding="40,48,40,32" RowSpacing="24">
             <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="Auto" />
@@ -27,43 +28,48 @@
                     </StackPanel>
                 </Border>
                 <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Center">
-                    <TextBlock Text="GameHome · testflate" FontSize="36" FontWeight="SemiBold" Foreground="White" />
+                    <TextBlock Text="GameHome" FontSize="36" FontWeight="SemiBold" Foreground="White" />
                     <TextBlock x:Name="InfoText" FontSize="16" Foreground="#A0A7B0" TextWrapping="Wrap" />
                 </StackPanel>
             </Grid>
 
-            <Grid x:Name="Tiles" Grid.Row="1" HorizontalAlignment="Center" ColumnSpacing="16" RowSpacing="16">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="240" />
-                    <ColumnDefinition Width="240" />
-                    <ColumnDefinition Width="240" />
-                </Grid.ColumnDefinitions>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="110" />
-                    <RowDefinition Height="110" />
-                </Grid.RowDefinitions>
-                <Button x:Name="SessionTile" Grid.Row="0" Grid.Column="0" Content="Start testøkt" Click="Tile_Click" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" FontSize="20" />
-                <Button x:Name="HidTile" Grid.Row="0" Grid.Column="1" Content="Lytt på Legion-knapp" Click="Tile_Click" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" FontSize="20" />
-                <Button Grid.Row="0" Grid.Column="2" Content="Flis 3" Click="Tile_Click" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" FontSize="20" />
-                <Button Grid.Row="1" Grid.Column="0" Content="Flis 4" Click="Tile_Click" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" FontSize="20" />
-                <Button Grid.Row="1" Grid.Column="1" Content="Flis 5" Click="Tile_Click" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" FontSize="20" />
-                <Button Grid.Row="1" Grid.Column="2" Content="Flis 6" Click="Tile_Click" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" FontSize="20" />
-            </Grid>
+            <!-- Spillflisene lages i koden (ikke ItemsSource; se ADR 0005 om AOT). -->
+            <ScrollViewer Grid.Row="1" HorizontalScrollMode="Enabled" HorizontalScrollBarVisibility="Hidden"
+                          VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled">
+                <StackPanel x:Name="GameTiles" Orientation="Horizontal" Spacing="16" />
+            </ScrollViewer>
 
-            <TextBlock x:Name="LastInput" Grid.Row="2" HorizontalAlignment="Center" FontSize="22" Foreground="White" Text="Trykk på en knapp på kontrolleren eller en flis" />
+            <StackPanel x:Name="ToolTiles" Grid.Row="2" Orientation="Horizontal" Spacing="16">
+                <Button x:Name="AddGameTile" Content="+ Legg til spill" Click="AddGameTile_Click" Width="240" Height="72" FontSize="18" />
+                <Button x:Name="HidTile" Content="Lytt på Legion-knapp" Click="HidTile_Click" Width="240" Height="72" FontSize="18" />
+            </StackPanel>
+
+            <TextBlock x:Name="LastInput" Grid.Row="3" FontSize="20" Foreground="White"
+                       Text="A starter spillet, Y fjerner det fra GameHome. M2 under spill åpner menyen." />
 
             <!-- Vanlig tekst, ikke liste: en .NET-samling som ItemsSource krever ekstra AOT-generering (se loggen 2026-11-02). -->
-            <TextBlock x:Name="EventText" Grid.Row="3" FontFamily="Consolas" FontSize="14" Foreground="#C8CDD3" TextWrapping="NoWrap" />
+            <TextBlock x:Name="EventText" Grid.Row="4" FontFamily="Consolas" FontSize="13" Foreground="#8A9199" TextWrapping="NoWrap" />
         </Grid>
 
-        <!-- «Kjører nå»: fullskjermspanel over testflaten. Ingen overlay over spillet; GameHome tar forgrunnen. -->
-        <Grid x:Name="SessionPanel" Background="#E60B0D10" Visibility="Collapsed">
+        <!-- «Kjører nå»: fullskjermspanel. Ingen overlay over spillet; GameHome tar forgrunnen. -->
+        <Grid x:Name="SessionPanel" Background="#F00B0D10" Visibility="Collapsed">
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="24" Width="560">
                 <TextBlock Text="Kjører nå" FontSize="20" Foreground="#A0A7B0" />
                 <TextBlock x:Name="SessionTitle" FontSize="40" FontWeight="SemiBold" Foreground="White" TextWrapping="Wrap" />
+                <TextBlock x:Name="SessionDetail" FontSize="16" Foreground="#A0A7B0" TextWrapping="Wrap" />
                 <Button x:Name="ResumeButton" Content="Tilbake til spillet" Click="ResumeButton_Click" HorizontalAlignment="Stretch" Height="72" FontSize="22" />
-                <Button x:Name="EndSessionButton" Content="Avslutt testøkt" Click="EndSessionButton_Click" HorizontalAlignment="Stretch" Height="72" FontSize="22" />
+                <Button x:Name="EndSessionButton" Content="Avslutt spillet" Click="EndSessionButton_Click" HorizontalAlignment="Stretch" Height="72" FontSize="22" />
                 <Button x:Name="ClosePanelButton" Content="Lukk panelet" Click="ClosePanelButton_Click" HorizontalAlignment="Stretch" Height="72" FontSize="22" />
+            </StackPanel>
+        </Grid>
+
+        <!-- Valg ved feil og bekreftelser. Alltid to tydelige valg, aldri en blindvei. -->
+        <Grid x:Name="MessagePanel" Background="#F00B0D10" Visibility="Collapsed">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="24" Width="620">
+                <TextBlock x:Name="MessageTitle" FontSize="34" FontWeight="SemiBold" Foreground="White" TextWrapping="Wrap" />
+                <TextBlock x:Name="MessageText" FontSize="18" Foreground="#C8CDD3" TextWrapping="Wrap" />
+                <Button x:Name="MessagePrimary" Click="MessagePrimary_Click" HorizontalAlignment="Stretch" Height="72" FontSize="22" />
+                <Button x:Name="MessageSecondary" Click="MessageSecondary_Click" HorizontalAlignment="Stretch" Height="72" FontSize="22" />
             </StackPanel>
         </Grid>
     </Grid>
