@@ -12,8 +12,8 @@
           ikke finnes hero («ambilight»). Bildet toner over når fokus flytter seg. Slør fra venstre og nedenfra holder
           teksten lesbar; ingen pynt utover det.
         -->
-        <Image x:Name="AmbientImage" Stretch="UniformToFill" HorizontalAlignment="Right" VerticalAlignment="Top" Opacity="0" />
-        <Image x:Name="AmbientImageB" Stretch="UniformToFill" HorizontalAlignment="Right" VerticalAlignment="Top" Opacity="0" />
+        <Image x:Name="AmbientImage" Stretch="UniformToFill" HorizontalAlignment="Right" VerticalAlignment="Top" Opacity="0" IsHitTestVisible="False" />
+        <Image x:Name="AmbientImageB" Stretch="UniformToFill" HorizontalAlignment="Right" VerticalAlignment="Top" Opacity="0" IsHitTestVisible="False" />
         <Rectangle>
             <Rectangle.Fill>
                 <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
