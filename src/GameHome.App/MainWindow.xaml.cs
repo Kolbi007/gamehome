@@ -81,6 +81,7 @@ public sealed partial class MainWindow : Window
     private DateTime _sessionStarted;
     private string? _focusGameId;
     private string? _rememberedTile;
+    private readonly Dictionary<string, TextBlock> _tileTitles = new(StringComparer.Ordinal);
     private Action? _messagePrimary;
     private Action? _messageSecondary;
     private Action? _messageCancel;
@@ -253,7 +254,7 @@ public sealed partial class MainWindow : Window
             }
             else
             {
-                existing.Content = TileText(visible[i]);
+                SetTileContent(existing, visible[i]);
             }
         }
     }
@@ -262,15 +263,94 @@ public sealed partial class MainWindow : Window
     {
         var tile = new Button
         {
-            Content = TileText(game),
             Tag = game.Id,
             Width = 280,
             Height = 160,
             FontSize = 22,
+            Padding = new Thickness(0),
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            VerticalContentAlignment = VerticalAlignment.Stretch,
         };
+        SetTileContent(tile, game);
         tile.Click += GameTile_Click;
         tile.GotFocus += (_, _) => RememberTile(game.Id);
         return tile;
+    }
+
+    /// <summary>
+    /// Flisens innhold: bilde (Steams lokale bilder eller omslag fra hosten) med tittelen nederst over et mørkt slør,
+    /// eller bare tittelen når spillet ikke har bilde.
+    /// </summary>
+    private void SetTileContent(Button tile, Game game)
+    {
+        var image = TileImageFor(game);
+        if (image is null)
+        {
+            tile.Content = TileText(game);
+            _tileTitles.Remove(game.Id);
+            return;
+        }
+
+        var title = new TextBlock
+        {
+            Text = TileText(game),
+            FontSize = 18,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.White),
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            Margin = new Thickness(12, 0, 12, 10),
+            VerticalAlignment = VerticalAlignment.Bottom,
+        };
+        var picture = new Image { Stretch = Microsoft.UI.Xaml.Media.Stretch.UniformToFill };
+        var scrim = new Microsoft.UI.Xaml.Shapes.Rectangle
+        {
+            Fill = new Microsoft.UI.Xaml.Media.LinearGradientBrush
+            {
+                StartPoint = new global::Windows.Foundation.Point(0, 0.45),
+                EndPoint = new global::Windows.Foundation.Point(0, 1),
+                GradientStops =
+                {
+                    new Microsoft.UI.Xaml.Media.GradientStop { Color = global::Windows.UI.Color.FromArgb(0, 0, 0, 0), Offset = 0 },
+                    new Microsoft.UI.Xaml.Media.GradientStop { Color = global::Windows.UI.Color.FromArgb(220, 0, 0, 0), Offset = 1 },
+                },
+            },
+        };
+        var grid = new Grid { CornerRadius = new CornerRadius(4) };
+        grid.Children.Add(picture);
+        grid.Children.Add(scrim);
+        grid.Children.Add(title);
+        tile.Content = grid;
+        _tileTitles[game.Id] = title;
+        _ = LoadTileImageAsync(picture, image);
+    }
+
+    private async Task LoadTileImageAsync(Image target, string path)
+    {
+        if (await LoadImageAsync(path, 560) is { } bitmap)
+        {
+            target.Source = bitmap;
+        }
+    }
+
+    /// <summary>Bilde for flisen: Steams brede bakgrunnsbilde for Steam-spill på Legion Go, ellers lagret omslag.</summary>
+    private string? TileImageFor(Game game)
+    {
+        var art = ArtFor(game);
+        var path = art.Hero ?? art.Cover;
+        return path is not null && File.Exists(path) ? path : null;
+    }
+
+    /// <summary>Bildene for et spill: Steams lokale bildecache for Steam-spill på Legion Go, ellers det som er lagret.</summary>
+    private ArtSet ArtFor(Game game)
+    {
+        var steam = _library.PlayActionsFor(game.Id).FirstOrDefault(a => a.RunnerId == GameLibrary.SteamRunnerId);
+        if (steam is not null && SteamClient.FindRoot() is { } root)
+        {
+            var local = SteamArt.Find(root, steam.Target);
+            return new ArtSet(local.Cover ?? game.Art.Cover, local.Hero ?? game.Art.Hero, local.Logo ?? game.Art.Logo);
+        }
+
+        return game.Art;
     }
 
     private string TileText(Game game) =>
@@ -282,7 +362,14 @@ public sealed partial class MainWindow : Window
         {
             if (tile.Tag is string id && _library.Find(id) is { } game)
             {
-                tile.Content = TileText(game);
+                if (_tileTitles.TryGetValue(id, out var title))
+                {
+                    title.Text = TileText(game);
+                }
+                else
+                {
+                    tile.Content = TileText(game);
+                }
             }
         }
     }
@@ -638,10 +725,8 @@ public sealed partial class MainWindow : Window
         _loadingTimer.Tick += (_, _) => OnLoadingSlow();
         _loadingTimer.Start();
 
-        var art = action.RunnerId == GameLibrary.SteamRunnerId && SteamClient.FindRoot() is { } root
-            ? SteamArt.Find(root, action.Target)
-            : game.Art;
-        _log.Write("laster", $"Lasteskjerm for «{title}» (logo: {(art.Logo is null ? "nei" : "ja")}, bakgrunn: {(art.Hero is null ? "nei" : "ja")})");
+        var art = ArtFor(game);
+        _log.Write("laster", $"Lasteskjerm for «{title}» (logo: {(art.Logo is null ? "nei" : "ja")}, bakgrunn: {(art.Hero is not null ? "ja" : art.Cover is not null ? "omslag" : "nei")})");
         _ = LoadArtAsync(art);
     }
 
@@ -649,7 +734,9 @@ public sealed partial class MainWindow : Window
     {
         var shownAt = _loadingShown;
         var logo = await LoadImageAsync(art.Logo, 720);
-        var hero = await LoadImageAsync(art.Hero, 1280);
+
+        // Uten eget bakgrunnsbilde brukes omslaget (som Nuvio: bakgrunn, ellers plakat).
+        var hero = await LoadImageAsync(art.Hero ?? art.Cover, 1280);
 
         // Kom bildene etter at lasteskjermen var borte, eller for en ny start, brukes de ikke.
         if (LoadingPanel.Visibility != Visibility.Visible || shownAt != _loadingShown)
@@ -1089,7 +1176,7 @@ public sealed partial class MainWindow : Window
                 Height = 56,
                 FontSize = 20,
             };
-            button.Click += (_, _) => AddHostGame(host, app.Name, button);
+            button.Click += (_, _) => AddHostGame(host, app, button);
             HostGames.Children.Add(button);
         }
 
@@ -1097,18 +1184,104 @@ public sealed partial class MainWindow : Window
         {
             first.Focus(FocusState.Keyboard);
         }
+
+        _hostApps = apps;
+        ApplyHostArt(host, apps);
+        _ = FillHostArtCacheAsync(host);
     }
 
     private string HostGameText(string hostId, string name) => _library.HasStream(hostId, name) ? $"✓  {name}   (i Home)" : name;
 
-    private void AddHostGame(MoonlightHost host, string name, Button button)
+    private void AddHostGame(MoonlightHost host, HostApp app, Button button)
     {
-        var (game, newTile) = _library.AddStream(host.Uuid, name);
+        var (game, newTile) = _library.AddStream(host.Uuid, app.Name);
         SaveLibrary();
+        ApplyHostArt(host, _hostApps ?? [app]);
         BuildGameTiles();
-        button.Content = HostGameText(host.Uuid, name);
+        button.Content = HostGameText(host.Uuid, app.Name);
         _focusGameId = game.Id;
-        _log.Write("host", newTile ? $"La til «{name}» fra {host.Name} i Home" : $"«{name}» fra {host.Name} er spillemåte på «{GameLibrary.DisplayTitle(game)}»");
+        _log.Write("host", newTile ? $"La til «{app.Name}» fra {host.Name} i Home" : $"«{app.Name}» fra {host.Name} er spillemåte på «{GameLibrary.DisplayTitle(game)}»");
+    }
+
+    // ---- Omslag for spill fra gaming-PC-en ----
+
+    private IReadOnlyList<HostApp>? _hostApps;
+    private bool _hostArtRunning;
+
+    /// <summary>
+    /// Kopierer omslag Moonlight har i bufferen (hentet fra Vibepollo, altså fra Playnite på PC-en) til GameHomes egen
+    /// mappe for spill som er lagt til i Home. Ingen nettverk her; bare lokale filer.
+    /// </summary>
+    private void ApplyHostArt(MoonlightHost host, IReadOnlyList<HostApp> apps)
+    {
+        var changed = 0;
+        foreach (var app in apps)
+        {
+            if (app.BoxArtFile is not { } source || !File.Exists(source)
+                || _library.FindStreamGame(host.Uuid, app.Name) is not { } game
+                || (game.Art.Cover is { } existing && File.Exists(existing)))
+            {
+                continue;
+            }
+
+            try
+            {
+                var folder = Path.Combine(ApplicationData.Current.LocalFolder.Path, "art");
+                Directory.CreateDirectory(folder);
+                var target = Path.Combine(folder, $"{game.Id}-cover{Path.GetExtension(source)}");
+                File.Copy(source, target, overwrite: true);
+                _library.SetArt(game.Id, game.Art with { Cover = target });
+                changed++;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _log.Write("bilder", $"Kunne ikke kopiere omslag for «{app.Name}»: {ex.Message}");
+            }
+        }
+
+        if (changed > 0)
+        {
+            SaveLibrary();
+            BuildGameTiles();
+            _log.Write("bilder", $"Omslag fra {host.DisplayName} lagt til for {changed} spill");
+        }
+    }
+
+    /// <summary>
+    /// Lar Moonlight laste ned omslagene til bufferen sin i bakgrunnen: <c>list</c> uten tidlig avbrudd starter
+    /// nedlasting av omslag som mangler (moonlight-qt <c>backend/boxartmanager.cpp</c>). Etterpå kopieres de nye.
+    /// Kjøres ikke mens et spill kjører.
+    /// </summary>
+    private async Task FillHostArtCacheAsync(MoonlightHost host)
+    {
+        var missing = _hostApps?.Count(a => a.IsGame && a.BoxArtFile is null) ?? 0;
+        if (_hostArtRunning || SessionActive || missing == 0)
+        {
+            return;
+        }
+
+        _hostArtRunning = true;
+        try
+        {
+            var result = await MoonlightClient.RunAsync(["list", host.Uuid, "--csv"], TimeSpan.FromSeconds(75));
+            var apps = MoonlightAppList.ParseCsv(result.Output);
+            var cached = apps.Count(a => a.IsGame && a.BoxArtFile is not null);
+            _log.Write("bilder", string.Create(CultureInfo.InvariantCulture,
+                $"Omslag i Moonlights buffer etter henting: {cached} av {apps.Count(a => a.IsGame)} (exit {result.ExitCode}, {result.Elapsed.TotalSeconds:F0} s)"));
+            if (apps.Count > 0)
+            {
+                _hostApps = apps;
+                ApplyHostArt(host, apps);
+            }
+        }
+        catch (Exception ex) when (ex is LaunchException or IOException or InvalidOperationException)
+        {
+            _log.Write("bilder", $"Henting av omslag feilet: {ex.Message}");
+        }
+        finally
+        {
+            _hostArtRunning = false;
+        }
     }
 
     private void HostCloseButton_Click(object sender, RoutedEventArgs e) => CloseHostPanel();

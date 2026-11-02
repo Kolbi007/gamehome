@@ -99,6 +99,23 @@ public sealed class GameLibrary
         return new StoreSyncResult(added, updatedCount, missing);
     }
 
+    /// <summary>Setter bildene for et spill (for eksempel omslag hentet fra hosten). Returnerer false hvis spillet mangler.</summary>
+    public bool SetArt(string gameId, ArtSet art)
+    {
+        var index = _games.FindIndex(g => g.Id == gameId);
+        if (index < 0)
+        {
+            return false;
+        }
+
+        _games[index] = _games[index] with { Art = art };
+        return true;
+    }
+
+    /// <summary>Spillet som har en stream-spillemåte for appen på hosten, eller null.</summary>
+    public Game? FindStreamGame(string hostId, string appName) =>
+        _actions.Find(a => IsStream(a, hostId, appName)) is { } action ? Find(action.GameId) : null;
+
     /// <summary>Om en app på en host allerede er lagt til som spillemåte.</summary>
     public bool HasStream(string hostId, string appName) =>
         _actions.Exists(a => IsStream(a, hostId, appName));

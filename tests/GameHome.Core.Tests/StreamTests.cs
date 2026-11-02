@@ -26,7 +26,9 @@ public class StreamTests
         var apps = MoonlightAppList.ParseCsv(Csv.Replace("\n", "\r\n", StringComparison.Ordinal));
 
         Assert.Equal(5, apps.Count);
-        Assert.Equal(new HostApp("007 First Light", 123456, false), apps[2]);
+        Assert.Equal(new HostApp("007 First Light", 123456, false, "file:///C:/cache/1.png"), apps[2]);
+        Assert.EndsWith("1.png", apps[2].BoxArtFile, StringComparison.Ordinal);
+        Assert.Null(apps[0].BoxArtFile);
         Assert.Equal("The \"Quoted\" Game", apps[3].Name);
         Assert.True(apps[4].Hidden);
     }
