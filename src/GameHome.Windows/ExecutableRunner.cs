@@ -91,12 +91,12 @@ public sealed class LocalProcessSession : IForegroundSession
     private Process? _game;
     private bool _closeRequested;
 
-    public LocalProcessSession(PlayAction action, Process process)
+    public LocalProcessSession(PlayAction action, Process process, string? directory = null)
     {
         ArgumentNullException.ThrowIfNull(action);
         ArgumentNullException.ThrowIfNull(process);
         PlayActionId = action.Id;
-        _directory = Path.GetDirectoryName(action.Target) ?? string.Empty;
+        _directory = directory ?? Path.GetDirectoryName(action.Target) ?? string.Empty;
         _process = process;
 
         // Prosessene som fantes før start: bare nye prosesser undersøkes når spillet letes etter (billig).

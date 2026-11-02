@@ -62,6 +62,7 @@ public sealed partial class MainWindow : Window
         [GameLibrary.ExecutableRunnerId] = new ExecutableRunner(),
         [GameLibrary.SteamRunnerId] = new SteamRunner(),
         [GameLibrary.MoonlightRunnerId] = new MoonlightRunner(),
+        [XboxRunner.Id] = new XboxRunner(),
     };
     private readonly List<string> _events = [];
     private readonly DispatcherQueueTimer _gamepadTimer;
@@ -2472,8 +2473,32 @@ public sealed partial class MainWindow : Window
                 entries = SteamLibraryReader.Scan(root, message => _log.Write("steam", message));
             }
 
-            DispatcherQueue.TryEnqueue(() => ApplySteamScan(root, entries));
+            // Xbox-/Microsoft Store-spill fra Windows' pakkeliste (ingen Xbox-app trengs), i samme runde.
+            var watch = Stopwatch.StartNew();
+            var xbox = XboxGames.Scan(message => _log.Write("xbox", message));
+            var xboxMs = watch.ElapsedMilliseconds;
+
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                ApplySteamScan(root, entries);
+                ApplyXboxScan(xbox, xboxMs);
+            });
         });
+    }
+
+    private void ApplyXboxScan(IReadOnlyList<XboxGame> games, long elapsedMs)
+    {
+        var result = _library.SyncStore(XboxRunner.Id, XboxGames.AsStoreEntries(games));
+        _log.Write("xbox", string.Create(CultureInfo.InvariantCulture,
+            $"Fant {games.Count} Xbox-spill på {elapsedMs} ms ({string.Join(", ", games.Select(g => g.Title))}); {result.Added.Count} nye, {result.MarkedMissing} borte"));
+        if (!result.Changed)
+        {
+            return;
+        }
+
+        SaveLibrary();
+        BuildGameTiles();
+        _ = FetchMissingArtAsync();
     }
 
     private void ApplySteamScan(string? root, IReadOnlyList<StoreEntry>? entries)
