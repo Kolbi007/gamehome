@@ -18,6 +18,21 @@ public static class Foreground
     /// <summary>Ber om å få vinduet i forgrunnen. Returnerer false hvis Windows avslår.</summary>
     public static bool Bring(nint windowHandle) => NativeMethods.SetForegroundWindow(windowHandle);
 
+    /// <summary>
+    /// Gir et spill forgrunnen igjen. Mange spill (for eksempel Unity i fullskjerm) minimerer seg når de mister fokus,
+    /// og et minimert vindu blir ikke synlig av <c>SetForegroundWindow</c> alene; det gjenopprettes først.
+    /// </summary>
+    public static (bool Ok, bool WasMinimized) BringGame(nint windowHandle)
+    {
+        var minimized = NativeMethods.IsIconic(windowHandle);
+        if (minimized)
+        {
+            NativeMethods.ShowWindow(windowHandle, NativeMethods.SwRestore);
+        }
+
+        return (NativeMethods.SetForegroundWindow(windowHandle), minimized);
+    }
+
     /// <summary>Navnet på prosessen som eier forgrunnsvinduet, for loggen. Null hvis det ikke kan leses.</summary>
     public static string? CurrentProcessName()
     {
@@ -49,8 +64,18 @@ internal static unsafe partial class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool SetForegroundWindow(nint windowHandle);
 
+    internal const int SwRestore = 9;
+
     [LibraryImport("user32.dll")]
     internal static partial nint GetForegroundWindow();
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool IsIconic(nint windowHandle);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool ShowWindow(nint windowHandle, int command);
 
     [LibraryImport("user32.dll")]
     internal static partial uint GetWindowThreadProcessId(nint windowHandle, out uint processId);

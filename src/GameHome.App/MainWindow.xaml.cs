@@ -661,9 +661,15 @@ public sealed partial class MainWindow : Window
         // XAML aktiverte GameHome igjen, så spillet ble liggende bak (0.1.33.0).
         HideSessionPanel();
         var handle = session.MainWindowHandle;
-        var ok = handle != 0 && Foreground.Bring(handle);
-        _log.Write("fokus", ok ? "Tilbake til spillet: spillet fikk forgrunnen"
-            : handle == 0 ? "Tilbake til spillet: fant ikke spillets vindu" : "Tilbake til spillet: Windows avslo");
+        if (handle == 0)
+        {
+            _log.Write("fokus", "Tilbake til spillet: fant ikke spillets vindu");
+            return;
+        }
+
+        var (ok, wasMinimized) = Foreground.BringGame(handle);
+        _log.Write("fokus", (ok ? "Tilbake til spillet: spillet fikk forgrunnen" : "Tilbake til spillet: Windows avslo")
+            + (wasMinimized ? " (vinduet var minimert og ble gjenopprettet)" : ""));
     }
 
     private void EndSessionButton_Click(object sender, RoutedEventArgs e)
