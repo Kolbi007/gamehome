@@ -43,11 +43,34 @@ function Write-Log([string] $message) {
     } catch { }
 }
 
-# Hide kjøres i bakgrunnen, så Vibepollo ikke venter på skriptet (målt 2,7 s) før spillet startes. Spillet bruker
-# uansett mye lengre tid på å vise seg, så skrivebordet er ryddet lenge før det.
+# Hjelpekoden (C#) kompileres én gang og lagres som DLL ved siden av skriptet; senere kjøringer laster den på et øyeblikk.
+# Navnet inneholder en hash av kildekoden, så en endret kildekode gir en ny DLL.
+function Import-Cached([string] $name, [string] $source, [string[]] $references) {
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    $hash = -join ($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($source))[0..7] | ForEach-Object { $_.ToString('x2') })
+    $cacheDir = Join-Path $stateDir 'cache'
+    $dll = Join-Path $cacheDir "$name-$hash.dll"
+    if (-not (Test-Path $dll)) {
+        New-Item -ItemType Directory -Force -Path $cacheDir | Out-Null
+        $temp = "$dll.$PID.tmp"
+        if ($references.Count -gt 0) {
+            Add-Type -TypeDefinition $source -ReferencedAssemblies $references -OutputAssembly $temp -OutputType Library
+        } else {
+            Add-Type -TypeDefinition $source -OutputAssembly $temp -OutputType Library
+        }
+        Move-Item -Path $temp -Destination $dll -Force
+    }
+    Add-Type -Path $dll
+}
+
+# Hide kjøres i bakgrunnen, så Vibepollo ikke venter på skriptet (målt 2,7 s) før spillet startes. Dekkbildet startes
+# først av alt, så det er oppe før streamen begynner og skjuler vinduer som ikke kan minimeres.
 if ($Action -eq 'Hide' -and -not $Now) {
     try {
         New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
+        $cover = Start-Process -FilePath "$PSHOME\powershell.exe" -WindowStyle Hidden -PassThru -ArgumentList @(
+            '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", '-Action', 'Cover')
+        Set-Content -Path $coverPidFile -Value $cover.Id
         $p = Start-Process -FilePath "$PSHOME\powershell.exe" -WindowStyle Hidden -PassThru -ArgumentList @(
             '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", '-Action', 'Hide', '-Now')
         Set-Content -Path $hidePidFile -Value $p.Id
@@ -69,7 +92,7 @@ if ($Action -eq 'Restore' -and (Test-Path $hidePidFile)) {
 if ($Action -eq 'Cover') {
     try {
         Add-Type -AssemblyName System.Windows.Forms, System.Drawing
-        Add-Type -ReferencedAssemblies System.Windows.Forms, System.Drawing -TypeDefinition @'
+        $coverSource = @'
 using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -107,6 +130,25 @@ public class GameHomeCover : Form
         Invalidate();
     }
 
+    [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+    private static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string className, string windowName);
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr window, int command);
+
+    // Explorer viser oppgavelinjen igjen når et nytt vindu (dette) får forgrunnen; skjul den på nytt.
+    private static void HideTaskbar()
+    {
+        foreach (var name in new[] { "Shell_TrayWnd", "Shell_SecondaryTrayWnd" })
+        {
+            var window = IntPtr.Zero;
+            while ((window = FindWindowEx(IntPtr.Zero, window, name, null)) != IntPtr.Zero)
+            {
+                ShowWindow(window, 0);
+            }
+        }
+    }
+
     protected override bool ShowWithoutActivation { get { return false; } }
 
     // Musepekeren skjules over dekkbildet; spillet viser den igjen når det tar over.
@@ -115,6 +157,12 @@ public class GameHomeCover : Form
         base.OnShown(e);
         Cursor.Hide();
         Activate();
+        HideTaskbar();
+
+        // Explorer kan vise oppgavelinjen igjen et øyeblikk etter at et vindu har skiftet; skjul den en gang til.
+        var again = new Timer { Interval = 1500 };
+        again.Tick += (s, a) => { again.Stop(); HideTaskbar(); };
+        again.Start();
     }
 
     protected override void OnPaint(PaintEventArgs e)
@@ -184,11 +232,13 @@ public class GameHomeCover : Form
     }
 }
 '@
+        Import-Cached 'cover' $coverSource @('System.Windows.Forms', 'System.Drawing')
         [GameHomeCover]::UseNativeResolution()
         # Vibepollo gir prep-kommandoen navnet på appen; prosessen for dekkbildet arver miljøet.
         [GameHomeCover]::GameTitle = $env:SUNSHINE_APP_NAME
         if (-not [GameHomeCover]::GameTitle) { [GameHomeCover]::GameTitle = $env:APOLLO_APP_NAME }
         $form = New-Object GameHomeCover
+        $form.add_Shown({ Write-Log 'dekkbilde vist' })
         [System.Windows.Forms.Application]::Run($form)
     } catch {
         Write-Log "dekkbilde feilet: $($_.Exception.Message)"
@@ -215,7 +265,7 @@ function Stop-Cover {
 }
 
 try {
-    Add-Type -TypeDefinition @'
+    $desktopSource = @'
 using System;
 using System.Runtime.InteropServices;
 
@@ -333,7 +383,8 @@ public static class GameHomeDesktop
         get { var tray = FindWindow("Shell_TrayWnd", null); return tray != IntPtr.Zero && IsWindowVisible(tray); }
     }
 }
-'@ -ErrorAction SilentlyContinue
+'@
+    Import-Cached 'desktop' $desktopSource @()
 
     $icons = [GameHomeDesktop]::IconsVisible
     $autoHide = [GameHomeDesktop]::TaskbarAutoHide
