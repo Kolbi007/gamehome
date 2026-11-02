@@ -470,8 +470,9 @@ public sealed partial class MainWindow : Window
         var outgoing = _ambientFrontIsA ? AmbientImage : AmbientImageB;
         _ambientFrontIsA = !_ambientFrontIsA;
         incoming.Source = bitmap;
-        Canvas.SetZIndex(incoming, 1);
-        Canvas.SetZIndex(outgoing, 0);
+        // Bakgrunnslagene ligger alltid under slør, tekst og fliser (som har Z 0); bare innbyrdes byttes de.
+        Canvas.SetZIndex(incoming, -1);
+        Canvas.SetZIndex(outgoing, -2);
 
         var ease = new Microsoft.UI.Xaml.Media.Animation.SineEase { EasingMode = Microsoft.UI.Xaml.Media.Animation.EasingMode.EaseInOut };
         var duration = new Duration(TimeSpan.FromMilliseconds(380));
