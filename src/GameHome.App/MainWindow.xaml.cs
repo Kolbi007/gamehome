@@ -2165,7 +2165,9 @@ public sealed partial class MainWindow : Window
         }
 
         var registered = SessionHotkeys.Where(h => _hotkeys.Register(h.Id, h.Modifiers, h.Key)).Select(h => h.Name).ToList();
-        _log.Write("økt", $"Startet «{title}» ({action.RunnerId} {action.Target}, {session.Status}). Hurtigtaster: {string.Join(", ", registered)}");
+        var hook = _hotkeys.StartHook();
+        _log.Write("økt", $"Startet «{title}» ({action.RunnerId} {action.Target}, {session.Status}). Hurtigtaster: {string.Join(", ", registered)}"
+            + (hook ? " (+ tastaturkrok som reserve)" : " (tastaturkrok ikke tilgjengelig)"));
         RefreshTileTexts();
         LastInput.Text = $"{title} starter. M2 åpner menyen.";
     }

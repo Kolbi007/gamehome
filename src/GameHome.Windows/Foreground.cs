@@ -149,6 +149,26 @@ internal static unsafe partial class NativeMethods
     [LibraryImport("comctl32.dll")]
     internal static partial nint DefSubclassProc(nint windowHandle, uint message, nint wParam, nint lParam);
 
+    [LibraryImport("user32.dll", SetLastError = true)]
+    internal static partial nint SetWindowsHookExW(int hookId, delegate* unmanaged<int, nint, nint, nint> proc, nint module, uint threadId);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool UnhookWindowsHookEx(nint hook);
+
+    [LibraryImport("user32.dll")]
+    internal static partial nint CallNextHookEx(nint hook, int code, nint wParam, nint lParam);
+
+    [LibraryImport("user32.dll")]
+    internal static partial short GetAsyncKeyState(int virtualKey);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool PostMessageW(nint window, uint message, nint wParam, nint lParam);
+
+    [LibraryImport("kernel32.dll", StringMarshalling = StringMarshalling.Utf16)]
+    internal static partial nint GetModuleHandleW(string? moduleName);
+
     [LibraryImport("cfgmgr32.dll")]
     internal static partial uint CM_Get_Device_Interface_List_SizeW(out uint length, ref Guid interfaceClass, nint deviceId, uint flags);
 
