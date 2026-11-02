@@ -4186,6 +4186,55 @@ public sealed partial class MainWindow : Window
         _gamepadTimer.Interval = TimeSpan.FromMilliseconds(16);
         _gamepadTimer.Start();
         _log.Write("fokus", $"Fikk fokus ({args.WindowActivationState})");
+        HandForegroundBackIfUnrequested();
+    }
+
+    private int _handBacks;
+    private string? _handBackSession;
+
+    /// <summary>
+    /// Noen spill bytter vindu eller skjermmodus rett etter start; et øyeblikk har de ikke noe vindu i forgrunnen, og
+    /// Windows gir forgrunnen til GameHome (målt 2026-11-02: Assassin's Creed Rogue ble liggende bak). Ble GameHome aktiv
+    /// under et lokalt spill uten at brukeren ba om det (ingen meny åpen), gis forgrunnen tilbake til spillet. GameHome har
+    /// forgrunnen og har derfor lov. Bare de første 90 s, høyst fem ganger per økt.
+    /// </summary>
+    private void HandForegroundBackIfUnrequested()
+    {
+        if (_session is not LocalProcessSession local || !SessionActive || DateTime.UtcNow - _sessionStarted > TimeSpan.FromSeconds(90))
+        {
+            return;
+        }
+
+        if (_handBackSession != local.SessionId)
+        {
+            _handBackSession = local.SessionId;
+            _handBacks = 0;
+        }
+
+        var timer = DispatcherQueue.CreateTimer();
+        timer.Interval = TimeSpan.FromMilliseconds(400);
+        timer.IsRepeating = false;
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            if (!ReferenceEquals(_session, local) || !_windowActive || _handBacks >= 5 || AnyOverlayOpen && LoadingPanel.Visibility != Visibility.Visible)
+            {
+                return;
+            }
+
+            var window = local.MainWindowHandle;
+            if (window == 0)
+            {
+                return;
+            }
+
+            _handBacks++;
+            HideLoading("forgrunnen gis tilbake til spillet");
+            Foreground.AllowFor((uint)local.GameProcessId);
+            var (ok, restored) = Foreground.BringGame(window);
+            _log.Write("fokus", $"GameHome ble aktiv uten at noen ba om det; forgrunnen gitt tilbake til spillet ({(ok ? "ok" : "avslått")}{(restored ? ", gjenopprettet" : "")}, {_handBacks}/5)");
+        };
+        timer.Start();
     }
 
     private void PollGamepad()

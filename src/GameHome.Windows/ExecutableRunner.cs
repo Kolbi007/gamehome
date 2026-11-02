@@ -124,6 +124,9 @@ public sealed class LocalProcessSession : IForegroundSession
 
     public int ProcessId => _process.Id;
 
+    /// <summary>Prosessen som er selve spillet (spillet, ikke en oppstarter som blir liggende), for forgrunnen.</summary>
+    public int GameProcessId => _game is { } game ? game.Id : _process.Id;
+
     /// <summary>Hovedvinduet til spillet, for å gi det forgrunnen igjen. 0 hvis det ikke har et.</summary>
     public nint MainWindowHandle
     {
