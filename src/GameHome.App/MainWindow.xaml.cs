@@ -976,12 +976,31 @@ public sealed partial class MainWindow : Window
 
     private void PowerOption_Click(object sender, RoutedEventArgs e)
     {
-        var action = (sender as Button)?.Tag switch
+        var tag = (sender as Button)?.Tag as string;
+
+        // Avslutter bare GameHome. Et spill som kjører, fortsetter; Windows starter GameHome igjen som hjem i Xbox mode.
+        if (tag == "exit")
+        {
+            _log.Write("strøm", "Avslutt GameHome valgt");
+            StopEverything();
+            Application.Current.Exit();
+            return;
+        }
+
+        // Ukjente valg gjør ingenting; bare de tre kjente kan slå av eller starte på nytt.
+        PowerAction? choice = tag switch
         {
             "sleep" => PowerAction.Sleep,
             "restart" => PowerAction.Restart,
-            _ => PowerAction.Shutdown,
+            "shutdown" => PowerAction.Shutdown,
+            _ => null,
         };
+        if (choice is not { } action)
+        {
+            _log.Write("strøm", $"Ukjent strømvalg «{tag}» ignorert");
+            ClosePowerMenu(restoreSession: true);
+            return;
+        }
         _log.Write("strøm", $"{action} valgt");
         ClosePowerMenu(restoreSession: false);
 
