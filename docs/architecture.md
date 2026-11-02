@@ -555,6 +555,25 @@ ingen globale eller app-egne prep-kommandoer.
   (`GET /api/session/status`). Krever API-token, men ingen endring på skrivebordet. Ser grovere ut enn en rolig
   bakgrunn, men har ingen risiko for å etterlate skjulte ikoner.
 
+## Lasteskjerm: lærdom fra Stremio og Nuvio (2026-11-02)
+
+Lest fra åpen kildekode; bare teknikkene tas med, ingen kode kopieres: Stremio web `fd9a6250` (GPL-2.0) og Nuvio
+`46febb56` (GPL-3.0, Kotlin Multiplatform).
+
+| | Stremio | Nuvio |
+| --- | --- | --- |
+| Bakgrunn | Fanart som fyller skjermen, opasitet 0,6 over mørk bunn, ingen uskarphet (`src/routes/Player/styles.less:48-55`) | Bakgrunn eller plakat, justert øverst til høyre, under et slør fra topp til bunn: svart 0,3 → 0,6 (35 %) → 0,8 (70 %) → 0,9 (`OpeningOverlay.kt:96-117`) |
+| Logo | Midt på, maks 15rem; tegnes to ganger, en svak kopi (0,2) og en som «fylles» fra venstre etter fremdrift (`Buffering/Buffering.tsx:13-33`) | Midt på, maks 320 × 180 dp; tittel i ExtraBold som reserve, deretter spinner (`OpeningOverlay.kt:85-86,150-208`) |
+| Animasjon | «Pulse» 2 s: opasitet 0,4↔1 og skala 1↔1,05 (`Buffering.less:14,23-36`) | Toner inn 700 ms etter 400 ms, så «puster» 1,0↔1,04 over 2 s (`OpeningOverlay.kt:70-84`) |
+| Status | Ingen tekst | Statuslinje rett under logoen, 72 % hvit, krysstoning 260 ms (`OpeningOverlay.kt:210-235`) |
+| Skjules | Når videoen er lastet, uten uttoning (`Player.js:960-977`) | Første ferdig innlastede bilde, med uttoning; vises bare én gang per avspilling |
+
+**Brukt i GameHome (0.1.62.0):** sløret og logoplasseringen fra Nuvio, logoen toner inn (650 ms etter 350 ms) og puster
+1,0↔1,04 over 2 s, statuslinje rett under logoen, bakgrunnen glir sakte fra 1,00 til 1,06 over 20 s (egen idé), og
+tittel i ExtraBold når logo mangler. **Ikke brukt ennå:** «logo som fylles» krever et ekte fremdriftsmål, som vi ikke
+har for spillstart; uttoning ved skjuling venter til tilstandshåndteringen i Home er ryddet opp. Stream-spill har
+ingen bilder på Legion Go ennå; de kan hentes fra Vibepollo (Playnite-omslag) eller fra metadata i fase 4.
+
 ## Retro-modus
 
 Systemer og emulatorer defineres som YAML-data, ikke kode, slik at nye systemer kan legges til via pull request uten kodeendring. v1 starter med ett system og én emulator. Definisjoner lånt fra ES-DE eller Playnite (begge MIT på repo-nivå) sjekkes per fil og registreres med kilde-commit i `THIRD-PARTY-NOTICES.md`.
