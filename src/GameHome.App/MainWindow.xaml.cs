@@ -5,6 +5,10 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using GameHome.Core.Diagnostics;
+using GameHome.Core.Library;
+using GameHome.Core.Model;
+using GameHome.Core.Runners;
+using GameHome.Data;
 using GameHome.Windows;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Input;
@@ -13,23 +17,25 @@ using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Windows.Gaming.Input;
+using Windows.Storage;
 using VirtualKey = Windows.System.VirtualKey;
 
 namespace GameHome.App;
 
 /// <summary>
-/// Testflate. Kontrolleren leses med Windows.Gaming.Input bare mens vinduet har fokus. Hurtigtasten for
-/// øktmenyen er registrert bare mens en testøkt kjører.
+/// Home for fase 1: spill lagt til manuelt, start, «Kjører nå» og retur til samme flis. Kontrolleren leses med
+/// Windows.Gaming.Input bare mens vinduet har fokus. Hurtigtasten for øktmenyen er registrert bare under en økt.
 /// </summary>
 public sealed partial class MainWindow : Window
 {
-    private const int MaxVisibleEvents = 14;
+    private const int MaxVisibleEvents = 10;
     private const double StickThreshold = 0.6;
     private const double TriggerThreshold = 0.5;
     private const string LegionGoController = "vid_17ef&pid_61eb";
     private static readonly TimeSpan HidCaptureDuration = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan CloseGracePeriod = TimeSpan.FromSeconds(10);
 
-    // Kandidater for M2. Legion Space kan legge M2 på én av dem; loggen viser hvilken som kom.
+    // M2 er lagt om til Ctrl+Alt+Shift+F12 i Legion Space. De andre er reserver.
     private static readonly (int Id, HotkeyModifiers Modifiers, uint Key, string Name)[] SessionHotkeys =
     [
         (1, HotkeyModifiers.None, 0x7C, "F13"),
@@ -38,12 +44,22 @@ public sealed partial class MainWindow : Window
     ];
 
     private readonly FileLog _log;
+    private readonly string _libraryPath;
+    private readonly GameLibrary _library;
+    private readonly ExecutableRunner _runner = new();
     private readonly List<string> _events = [];
     private readonly DispatcherQueueTimer _gamepadTimer;
     private readonly DispatcherQueueTimer _metricsTimer;
     private readonly HotkeyListener _hotkeys;
     private readonly List<HidReportListener> _hidListeners = [];
-    private Process? _session;
+
+    private LocalProcessSession? _session;
+    private Game? _sessionGame;
+    private DateTime _sessionStarted;
+    private string? _focusGameId;
+    private Action? _messagePrimary;
+    private Action? _messageSecondary;
+
     private GamepadButtons _previousButtons;
     private bool _previousLeftTrigger;
     private bool _previousRightTrigger;
@@ -70,7 +86,6 @@ public sealed partial class MainWindow : Window
         _gamepadTimer.Interval = TimeSpan.FromMilliseconds(16);
         _gamepadTimer.Tick += (_, _) => PollGamepad();
 
-        // Ytelsespanelet oppdateres bare mens vinduet har fokus.
         _metricsTimer = DispatcherQueue.CreateTimer();
         _metricsTimer.Interval = TimeSpan.FromSeconds(2);
         _metricsTimer.Tick += (_, _) => UpdateMemory();
@@ -81,12 +96,16 @@ public sealed partial class MainWindow : Window
         Gamepad.GamepadAdded += (_, _) => _log.Write("kontroller", "Kontroller tilkoblet");
         Gamepad.GamepadRemoved += (_, _) => _log.Write("kontroller", "Kontroller frakoblet");
 
+        _libraryPath = Path.Combine(ApplicationData.Current.LocalFolder.Path, "library.json");
+        _library = LoadLibrary();
+        BuildGameTiles();
+
         var variant = RuntimeFeature.IsDynamicCodeSupported ? "JIT" : "Native AOT";
-        InfoText.Text = $"Versjon {typeof(MainWindow).Assembly.GetName().Version} · {variant} · logg: gamehome.log";
+        InfoText.Text = $"Versjon {typeof(MainWindow).Assembly.GetName().Version} · {variant}";
         _log.Write("start", "Vindu klart");
     }
 
-    private bool SessionActive => _session is { HasExited: false };
+    private bool SessionActive => _session is not null && !_session.Completion.IsCompleted;
 
     /// <summary>
     /// Henter vinduet frem når en ny aktivering sendes hit, for eksempel Home i Game Bar eller <c>gamehome://session</c>.
@@ -102,52 +121,226 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    // ---- Testøkt og øktmeny (POC B) ----
+    // ---- Bibliotek ----
 
-    private void StartTestSession()
+    private GameLibrary LoadLibrary()
+    {
+        try
+        {
+            var library = LibraryStore.Load(_libraryPath);
+            _log.Write("bibliotek", $"Lest {library.Games.Count} spill fra library.json");
+            return library;
+        }
+        catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException or UnauthorizedAccessException)
+        {
+            // Et ødelagt bibliotek skal aldri stoppe Home. Filen beholdes for feilsøking.
+            _log.Write("bibliotek", $"Kunne ikke lese library.json: {ex.Message}");
+            return new GameLibrary();
+        }
+    }
+
+    private void SaveLibrary()
+    {
+        try
+        {
+            LibraryStore.Save(_library, _libraryPath);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _log.Write("bibliotek", $"Kunne ikke lagre library.json: {ex.Message}");
+        }
+    }
+
+    private void BuildGameTiles()
+    {
+        GameTiles.Children.Clear();
+        foreach (var game in _library.VisibleGames)
+        {
+            var tile = new Button
+            {
+                Content = TileText(game),
+                Tag = game.Id,
+                Width = 280,
+                Height = 160,
+                FontSize = 22,
+            };
+            tile.Click += GameTile_Click;
+            GameTiles.Children.Add(tile);
+        }
+    }
+
+    private string TileText(Game game) =>
+        SessionActive && _sessionGame?.Id == game.Id ? $"▶ {GameLibrary.DisplayTitle(game)}" : GameLibrary.DisplayTitle(game);
+
+    private void RefreshTileTexts()
+    {
+        foreach (var tile in GameTiles.Children.OfType<Button>())
+        {
+            if (tile.Tag is string id && _library.Find(id) is { } game)
+            {
+                tile.Content = TileText(game);
+            }
+        }
+    }
+
+    private Button? TileFor(string? gameId) =>
+        GameTiles.Children.OfType<Button>().FirstOrDefault(b => b.Tag is string id && id == gameId);
+
+    private void FocusHome(string? gameId)
+    {
+        var target = TileFor(gameId) ?? GameTiles.Children.OfType<Button>().FirstOrDefault() ?? AddGameTile;
+        target.Focus(FocusState.Keyboard);
+        target.StartBringIntoView();
+    }
+
+    private async void AddGameTile_Click(object sender, RoutedEventArgs e)
+    {
+        LogChoice(AddGameTile);
+        var picker = new global::Windows.Storage.Pickers.FileOpenPicker
+        {
+            SuggestedStartLocation = global::Windows.Storage.Pickers.PickerLocationId.ComputerFolder,
+            ViewMode = global::Windows.Storage.Pickers.PickerViewMode.List,
+        };
+        picker.FileTypeFilter.Add(".exe");
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(this));
+
+        StorageFile? file;
+        try
+        {
+            file = await picker.PickSingleFileAsync();
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or System.Runtime.InteropServices.COMException)
+        {
+            _log.Write("bibliotek", $"Filvelgeren feilet: {ex.Message}");
+            return;
+        }
+
+        if (file is null)
+        {
+            _log.Write("bibliotek", "Ingen fil valgt");
+            AddGameTile.Focus(FocusState.Keyboard);
+            return;
+        }
+
+        var (game, added) = _library.AddExecutable(file.Path);
+        if (added)
+        {
+            SaveLibrary();
+            BuildGameTiles();
+        }
+
+        _log.Write("bibliotek", added ? $"La til «{game.Title}» ({file.Path})" : $"«{game.Title}» finnes allerede");
+        LastInput.Text = added ? $"La til {game.Title}. Trykk A for å starte." : $"{game.Title} finnes allerede.";
+        FocusHome(game.Id);
+    }
+
+    private void ConfirmRemove(Game game)
+    {
+        var title = GameLibrary.DisplayTitle(game);
+        ShowMessage(
+            $"Fjerne {title}?",
+            "Spillet fjernes bare fra GameHome. Ingen filer slettes.",
+            "Fjern fra GameHome", () =>
+            {
+                _library.Remove(game.Id);
+                SaveLibrary();
+                BuildGameTiles();
+                _log.Write("bibliotek", $"Fjernet «{title}»");
+                FocusHome(null);
+            },
+            "Avbryt", () => FocusHome(game.Id));
+    }
+
+    // ---- Start og økt ----
+
+    private void GameTile_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: string id } tile && _library.Find(id) is { } game)
+        {
+            LogChoice(tile);
+            _ = LaunchAsync(game);
+        }
+    }
+
+    private async Task LaunchAsync(Game game)
     {
         if (SessionActive)
         {
-            ShowSessionPanel("flis");
+            ShowSessionPanel("flis (økt kjører allerede)");
+            return;
+        }
+
+        var title = GameLibrary.DisplayTitle(game);
+        var action = _library.DefaultPlayAction(game.Id);
+        if (action is null)
+        {
+            ShowMessage($"{title} kan ikke startes", "Spillet har ingen måte å startes på.",
+                "Fjern fra GameHome", () => ConfirmRemove(game), "Lukk", () => FocusHome(game.Id));
             return;
         }
 
         try
         {
-            // Tegnkart er et klassisk Win32-program og fungerer som stand-in for et spill.
-            _session = Process.Start(new ProcessStartInfo("charmap.exe") { UseShellExecute = true });
+            _session = (LocalProcessSession)await _runner.LaunchAsync(action, Profile.Default, CancellationToken.None);
         }
-        catch (System.ComponentModel.Win32Exception ex)
+        catch (LaunchException ex)
         {
-            _log.Write("økt", $"Kunne ikke starte stand-in: {ex.Message}");
+            _log.Write("økt", $"Kunne ikke starte «{title}»: {ex.Failure}: {ex.Message}");
+            if (ex.Failure == LaunchFailure.FileMissing)
+            {
+                ShowMessage($"Finner ikke {title}", $"Filen finnes ikke lenger:\n{action.Target}",
+                    "Fjern fra GameHome", () => ConfirmRemove(game), "Lukk", () => FocusHome(game.Id));
+            }
+            else
+            {
+                ShowMessage($"{title} startet ikke", ex.Message,
+                    "Prøv igjen", () => _ = LaunchAsync(game), "Lukk", () => FocusHome(game.Id));
+            }
+
             return;
         }
 
-        if (_session is null)
-        {
-            _log.Write("økt", "Stand-in startet ikke");
-            return;
-        }
-
-        _session.EnableRaisingEvents = true;
-        _session.Exited += (_, _) => DispatcherQueue.TryEnqueue(EndTestSession);
+        _sessionGame = game;
+        _sessionStarted = DateTime.UtcNow;
+        _focusGameId = game.Id;
+        var session = _session;
+        session.Note += (_, note) => _log.Write("økt", note);
+        _ = session.Completion.ContinueWith(
+            t => DispatcherQueue.TryEnqueue(() => OnSessionEnded(session, t.Result)),
+            TaskScheduler.Default);
 
         var registered = SessionHotkeys.Where(h => _hotkeys.Register(h.Id, h.Modifiers, h.Key)).Select(h => h.Name).ToList();
-        _log.Write("økt", $"Testøkt startet (Tegnkart, PID {_session.Id}). Hurtigtaster: {string.Join(", ", registered)}");
-        LastInput.Text = "Testøkt kjører. Trykk M2 for øktmenyen.";
+        _log.Write("økt", $"Startet «{title}» (PID {session.ProcessId}, {action.Target}). Hurtigtaster: {string.Join(", ", registered)}");
+        RefreshTileTexts();
+        LastInput.Text = $"{title} kjører. M2 åpner menyen.";
     }
 
-    private void EndTestSession()
+    private void OnSessionEnded(LocalProcessSession session, SessionEnd end)
     {
-        _hotkeys.UnregisterAll();
-        if (_session is not null)
+        if (!ReferenceEquals(session, _session))
         {
-            _log.Write("økt", "Testøkt avsluttet (hurtigtaster fjernet)");
-            _session.Dispose();
-            _session = null;
+            return;
         }
 
-        HideSessionPanel();
+        _hotkeys.UnregisterAll();
+        var title = _sessionGame is null ? "spillet" : GameLibrary.DisplayTitle(_sessionGame);
+        var minutes = (DateTime.UtcNow - _sessionStarted).TotalMinutes;
+        _log.Write("økt", string.Create(CultureInfo.InvariantCulture,
+            $"«{title}» avsluttet: {end.Reason}, kode {end.ExitCode?.ToString(CultureInfo.InvariantCulture) ?? "–"}, {minutes:F1} min"));
+
+        session.Dispose();
+        _session = null;
+        _sessionGame = null;
+        SessionPanel.Visibility = Visibility.Collapsed;
+        SetHomeEnabled(true);
+        RefreshTileTexts();
+
+        // Tilbake til samme flis.
+        Activate();
+        var ok = Foreground.Bring(WinRT.Interop.WindowNative.GetWindowHandle(this));
+        _log.Write("fokus", ok ? "Tilbake i Home etter spillet" : "Windows avslo forgrunnen etter spillet");
+        FocusHome(_focusGameId);
+        LastInput.Text = $"Velkommen tilbake fra {title}.";
     }
 
     private void OnSessionHotkey(object? sender, int id)
@@ -162,9 +355,17 @@ public sealed partial class MainWindow : Window
 
     private void ShowSessionPanel(string via)
     {
-        SessionTitle.Text = "Tegnkart (testøkt)";
+        if (!SessionActive)
+        {
+            return;
+        }
+
+        SessionTitle.Text = _sessionGame is null ? "Spill" : GameLibrary.DisplayTitle(_sessionGame);
+        SessionDetail.Text = string.Create(CultureInfo.InvariantCulture,
+            $"Startet for {(DateTime.UtcNow - _sessionStarted).TotalMinutes:F0} min siden");
+        EndSessionButton.Content = "Avslutt spillet";
         SessionPanel.Visibility = Visibility.Visible;
-        SetTilesEnabled(false);
+        SetHomeEnabled(false);
         ResumeButton.Focus(FocusState.Keyboard);
         _log.Write("økt", $"«Kjører nå» vist via {via}");
     }
@@ -172,48 +373,104 @@ public sealed partial class MainWindow : Window
     private void HideSessionPanel()
     {
         SessionPanel.Visibility = Visibility.Collapsed;
-        SetTilesEnabled(true);
-        SessionTile.Focus(FocusState.Keyboard);
-    }
-
-    private void SetTilesEnabled(bool enabled)
-    {
-        foreach (var child in Tiles.Children.OfType<Button>())
-        {
-            child.IsEnabled = enabled;
-        }
+        SetHomeEnabled(true);
+        FocusHome(_focusGameId);
     }
 
     private void ResumeButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_session is not { HasExited: false } session)
+        if (_session is not { } session || !SessionActive)
         {
             HideSessionPanel();
             return;
         }
 
-        session.Refresh();
         var ok = Foreground.Bring(session.MainWindowHandle);
-        _log.Write("fokus", ok ? "Tilbake til spillet: stand-in fikk forgrunnen" : "Tilbake til spillet: Windows avslo");
+        _log.Write("fokus", ok ? "Tilbake til spillet: spillet fikk forgrunnen" : "Tilbake til spillet: Windows avslo");
         HideSessionPanel();
     }
 
     private void EndSessionButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_session is { HasExited: false } session)
+        if (_session is not { } session || !SessionActive)
         {
-            session.CloseMainWindow();
-            _log.Write("økt", "Ba stand-in avslutte normalt (WM_CLOSE)");
+            HideSessionPanel();
+            return;
         }
-        else
+
+        if (EndSessionButton.Content is "Tving avslutning")
         {
-            EndTestSession();
+            _log.Write("økt", "Tvangsavslutter etter bekreftelse");
+            _ = session.ForceTerminateAsync();
+            return;
         }
+
+        _ = session.RequestCloseAsync();
+        _log.Write("økt", "Ba spillet avslutte normalt (WM_CLOSE)");
+        SessionDetail.Text = "Venter på at spillet avslutter …";
+
+        // Avslutter ikke spillet selv, tilbys tvangsavslutning. Aldri automatisk.
+        var timer = DispatcherQueue.CreateTimer();
+        timer.Interval = CloseGracePeriod;
+        timer.IsRepeating = false;
+        timer.Tick += (_, _) =>
+        {
+            if (ReferenceEquals(session, _session) && SessionActive)
+            {
+                SessionDetail.Text = "Spillet svarte ikke. Tvangsavslutning kan miste ulagret fremgang.";
+                EndSessionButton.Content = "Tving avslutning";
+                _log.Write("økt", "Spillet avsluttet ikke innen 10 s; tilbyr tvangsavslutning");
+            }
+        };
+        timer.Start();
     }
 
     private void ClosePanelButton_Click(object sender, RoutedEventArgs e) => HideSessionPanel();
 
+    // ---- Meldinger med to valg ----
+
+    private void ShowMessage(string title, string text, string primary, Action onPrimary, string secondary, Action onSecondary)
+    {
+        MessageTitle.Text = title;
+        MessageText.Text = text;
+        MessagePrimary.Content = primary;
+        MessageSecondary.Content = secondary;
+        _messagePrimary = onPrimary;
+        _messageSecondary = onSecondary;
+        MessagePanel.Visibility = Visibility.Visible;
+        SetHomeEnabled(false);
+        MessageSecondary.Focus(FocusState.Keyboard);
+        _log.Write("melding", title);
+    }
+
+    private void CloseMessage(Action? then)
+    {
+        MessagePanel.Visibility = Visibility.Collapsed;
+        SetHomeEnabled(SessionPanel.Visibility != Visibility.Visible);
+        _messagePrimary = null;
+        _messageSecondary = null;
+        then?.Invoke();
+    }
+
+    private void MessagePrimary_Click(object sender, RoutedEventArgs e) => CloseMessage(_messagePrimary);
+
+    private void MessageSecondary_Click(object sender, RoutedEventArgs e) => CloseMessage(_messageSecondary);
+
+    private void SetHomeEnabled(bool enabled)
+    {
+        foreach (var child in GameTiles.Children.OfType<Button>().Concat(ToolTiles.Children.OfType<Button>()))
+        {
+            child.IsEnabled = enabled;
+        }
+    }
+
     // ---- Legion-knapp via Lenovos HID-kanaler (diagnostikk) ----
+
+    private void HidTile_Click(object sender, RoutedEventArgs e)
+    {
+        LogChoice(HidTile);
+        StartHidCapture();
+    }
 
     private void StartHidCapture()
     {
@@ -296,6 +553,8 @@ public sealed partial class MainWindow : Window
     {
         StopHidCapture();
         _hotkeys.UnregisterAll();
+
+        // Spillet får leve videre selv om GameHome lukkes.
         _session?.Dispose();
         _session = null;
     }
@@ -320,7 +579,7 @@ public sealed partial class MainWindow : Window
             StartupText.Text = string.Create(CultureInfo.InvariantCulture, $"Oppstart: {startup.TotalMilliseconds:F0} ms");
             _log.Write("ytelse", string.Create(CultureInfo.InvariantCulture,
                 $"Oppstart til første aktivering: {startup.TotalMilliseconds:F0} ms, minne: {memoryMb:F0} MB"));
-            SessionTile.Focus(FocusState.Keyboard);
+            FocusHome(null);
         }
 
         UpdateMemory();
@@ -365,12 +624,12 @@ public sealed partial class MainWindow : Window
             .ToList();
         if (leftTriggerPressed)
         {
-            names.Add(string.Create(CultureInfo.InvariantCulture, $"L2 ({reading.LeftTrigger:F2})"));
+            names.Add("L2");
         }
 
         if (rightTriggerPressed)
         {
-            names.Add(string.Create(CultureInfo.InvariantCulture, $"R2 ({reading.RightTrigger:F2})"));
+            names.Add("R2");
         }
 
         if (stickMoved)
@@ -378,9 +637,7 @@ public sealed partial class MainWindow : Window
             names.Add($"Venstre stikke {stick}");
         }
 
-        var text = string.Join(", ", names);
-        LastInput.Text = $"Kontroller: {text}";
-        _log.Write("input", $"Kontroller (Windows.Gaming.Input): {text}");
+        _log.Write("input", $"Kontroller: {string.Join(", ", names)}");
 
         var direction = DPadDirection(pressed) ?? (stickMoved ? stick : null);
         if (direction is { } dir)
@@ -388,21 +645,38 @@ public sealed partial class MainWindow : Window
             var moved = FocusManager.TryMoveFocus(dir, new FindNextElementOptions { SearchRoot = Root.XamlRoot.Content });
             if (moved && FocusManager.GetFocusedElement(Root.XamlRoot) is Button focused)
             {
-                _log.Write("fokus", $"Fokus: {focused.Content}");
+                focused.StartBringIntoView();
             }
         }
 
+        var focusedButton = FocusManager.GetFocusedElement(Root.XamlRoot) as Button;
+
         // Hvis XAML selv leverer kontrollertaster, gjør knappene jobben; ellers aktiverer vi med A.
-        if (pressed.HasFlag(GamepadButtons.A) && !_xamlGamepadKeysSeen
-            && FocusManager.GetFocusedElement(Root.XamlRoot) is Button button)
+        if (pressed.HasFlag(GamepadButtons.A) && !_xamlGamepadKeysSeen && focusedButton is not null)
         {
-            new ButtonAutomationPeer(button).Invoke();
+            new ButtonAutomationPeer(focusedButton).Invoke();
+            return;
         }
 
-        // B lukker øktpanelet.
-        if (pressed.HasFlag(GamepadButtons.B) && SessionPanel.Visibility == Visibility.Visible)
+        // Y på en spillflis: fjern fra GameHome (med bekreftelse).
+        if (pressed.HasFlag(GamepadButtons.Y) && focusedButton is { Tag: string id } && _library.Find(id) is { } game
+            && MessagePanel.Visibility != Visibility.Visible && SessionPanel.Visibility != Visibility.Visible)
         {
-            HideSessionPanel();
+            ConfirmRemove(game);
+            return;
+        }
+
+        // B lukker det øverste panelet.
+        if (pressed.HasFlag(GamepadButtons.B))
+        {
+            if (MessagePanel.Visibility == Visibility.Visible)
+            {
+                CloseMessage(_messageSecondary);
+            }
+            else if (SessionPanel.Visibility == Visibility.Visible)
+            {
+                HideSessionPanel();
+            }
         }
     }
 
@@ -437,39 +711,17 @@ public sealed partial class MainWindow : Window
         }
 
         _lastSource = isGamepadKey ? "kontroller (XAML)" : "tastatur";
-        _log.Write("input", $"Tast via XAML: {e.Key}");
     }
 
-    private void OnPointerPressed(object sender, PointerRoutedEventArgs e)
-    {
+    private void OnPointerPressed(object sender, PointerRoutedEventArgs e) =>
         _lastSource = e.Pointer.PointerDeviceType switch
         {
             PointerDeviceType.Touch => "berøring",
             PointerDeviceType.Pen => "penn",
             _ => "mus",
         };
-        _log.Write("input", $"Peker: {_lastSource}");
-    }
 
-    private void Tile_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is not Button tile)
-        {
-            return;
-        }
-
-        LastInput.Text = $"Valgt: {tile.Content} ({_lastSource})";
-        _log.Write("valg", $"{tile.Content} valgt via {_lastSource}");
-
-        if (tile == SessionTile)
-        {
-            StartTestSession();
-        }
-        else if (tile == HidTile)
-        {
-            StartHidCapture();
-        }
-    }
+    private void LogChoice(Button tile) => _log.Write("valg", $"{tile.Content} valgt via {_lastSource}");
 
     private void OnLogWritten(object? sender, string line) => DispatcherQueue.TryEnqueue(() =>
     {
