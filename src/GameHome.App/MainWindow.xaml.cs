@@ -185,6 +185,14 @@ public sealed partial class MainWindow : Window
     /// <summary>Husker flisen med fokus. Lagres i appens lokale innstillinger; skrives bare når fokus endres.</summary>
     private void RememberTile(string gameId)
     {
+        // Mens et panel er åpent, kan XAML flytte fokus mellom flisene på egen hånd; det skal ikke huskes.
+        if (MessagePanel.Visibility == Visibility.Visible || SessionPanel.Visibility == Visibility.Visible
+            || HostPanel.Visibility == Visibility.Visible || PowerPanel.Visibility == Visibility.Visible
+            || LoadingPanel.Visibility == Visibility.Visible)
+        {
+            return;
+        }
+
         _focusGameId = gameId;
         if (_rememberedTile == gameId)
         {
@@ -479,7 +487,14 @@ public sealed partial class MainWindow : Window
         Activate();
         var ok = Foreground.Bring(WinRT.Interop.WindowNative.GetWindowHandle(this));
         _log.Write("fokus", ok ? "Tilbake i Home etter spillet" : "Windows avslo forgrunnen etter spillet");
-        FocusHome(_focusGameId);
+
+        // Alltid flisen til spillet som nettopp sluttet, ikke den som tilfeldigvis fikk fokus mens menyene var åpne.
+        if (game is not null)
+        {
+            RememberTile(game.Id);
+        }
+
+        FocusHome(game?.Id ?? _focusGameId);
         LastInput.Text = $"Velkommen tilbake fra {title}.";
 
         if (end.Reason == SessionEndReason.LaunchFailed && game is not null)

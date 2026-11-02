@@ -65,6 +65,14 @@ Mulige veier, i rekkefølge etter hvor lite som må til:
    (virtuell skjerm, «launch overlay» eller lignende). Ingen endring i GameHome.
 3. **Låseskjermen:** følger av at PC-en er låst. Alternativer er Vibepollos opplåsing via streamen (dagens oppførsel),
    eller at PC-en ikke låses når den står hjemme. Autologon lagrer passordet og anbefales ikke.
+4. **Virtuell skjerm som skjerm 2 (produkteiers forslag).** I dag er Vibepollo satt til at den virtuelle skjermen er
+   den eneste (`dd_configuration_option = ensure_only_display`), så streamen viser hele skrivebordet. Idé: den
+   virtuelle skjermen er en egen skjerm med bare en valgt bakgrunn, uten ikoner og oppgavelinje, og spillet åpnes der.
+   Må undersøkes i Vibepollos kildekode: hvilke `dd_configuration_option`-verdier som finnes, om spill havner på den
+   virtuelle skjermen når den ikke er primærskjerm, og om bakgrunn og oppgavelinje kan styres per skjerm. Endring på
+   gaming-PC-en gjøres bare etter godkjenning.
+
+Bekreftet 2026-11-02 (0.1.48.0): også når PC-en ikke er låst, vises skrivebordet før spillet.
 
 Når: etter runde 3 (vekking), fordi vekking og låseskjerm henger sammen. Neste steg er å lese Vibepollos kildekode for
 punkt 2 før noe bygges.
