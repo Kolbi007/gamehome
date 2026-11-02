@@ -159,6 +159,17 @@ public class GameHomeCover : Form
         Activate();
         HideTaskbar();
 
+        // Lysbølgen: én runde på 2,6 s, 30 bilder i sekundet. Tegner bare linjens felt på nytt.
+        _animation.Interval = 33;
+        _animation.Tick += (s, a) =>
+        {
+            _sweep += 1.6f / (2.6f * 30f);
+            if (_sweep > 1.3f) _sweep = -0.3f;
+            var r = ClientRectangle;
+            Invalidate(new Rectangle(0, (int)(r.Height * 0.62) - 8, r.Width, 16 + r.Height / 270));
+        };
+        _animation.Start();
+
         // Explorer kan vise oppgavelinjen igjen et øyeblikk etter at et vindu har skiftet; skjul den en gang til.
         var again = new Timer { Interval = 1500 };
         again.Tick += (s, a) => { again.Stop(); HideTaskbar(); };
@@ -193,6 +204,25 @@ public class GameHomeCover : Form
             g.FillRectangle(line, 0, (int)(r.Height * 0.62), r.Width, Math.Max(1, r.Height / 720));
         }
 
+        // Lysbølge som glir langs linjen fra venstre mot høyre mens vi venter på spillet.
+        var lineY = (int)(r.Height * 0.62);
+        var thickness = Math.Max(2, r.Height / 540);
+        var sweepX = _sweep * r.Width;
+        var half = r.Width * 0.12f;
+        var band = new RectangleF(sweepX - half, lineY - thickness / 2f, half * 2, thickness * 2);
+        if (band.Right > 0 && band.Left < r.Width)
+        {
+            using (var glow = new LinearGradientBrush(band, Color.Transparent, Color.Transparent, LinearGradientMode.Horizontal))
+            {
+                glow.InterpolationColors = new ColorBlend
+                {
+                    Colors = new[] { Color.FromArgb(0, 170, 210, 255), Color.FromArgb(220, 200, 230, 255), Color.FromArgb(0, 170, 210, 255) },
+                    Positions = new[] { 0f, 0.5f, 1f },
+                };
+                g.FillRectangle(glow, band);
+            }
+        }
+
         // Spillets navn stort over horisontlinjen, «Starter …» under, og et lite GameHome-merke nederst.
         var scale = r.Height / 1080f;
         var hasGame = !string.IsNullOrWhiteSpace(GameTitle);
@@ -216,6 +246,14 @@ public class GameHomeCover : Form
 
     /// <summary>Navnet på spillet, fra Vibepollos SUNSHINE_APP_NAME.</summary>
     public static string GameTitle;
+
+    private readonly Timer _animation = new Timer();
+    private float _sweep = -0.3f;
+
+    // Animasjonen går bare mens dekkbildet er i forgrunnen; når spillet tar over, stopper den og bruker ingen kraft.
+    protected override void OnActivated(EventArgs e) { base.OnActivated(e); if (_animation.Interval > 0 && Visible) _animation.Start(); }
+
+    protected override void OnDeactivate(EventArgs e) { base.OnDeactivate(e); _animation.Stop(); }
 
     private static void Glow(Graphics g, float cx, float cy, float w, float h, Color color)
     {
