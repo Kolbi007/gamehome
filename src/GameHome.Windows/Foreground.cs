@@ -113,6 +113,44 @@ public static class Foreground
         return NativeMethods.SetWindowPos(window, reference, 0, 0, 0, 0, flags);
     }
 
+    /// <summary>
+    /// Legger alle synlige toppnivåvinduer fra prosesser med navnet helt bakerst (og tar bort «alltid øverst»), uten å
+    /// aktivere noe. Brukes for Legion Space, som skal ligge bak GameHome og spillene. Returnerer antall vinduer.
+    /// </summary>
+    public static int SendProcessWindowsToBack(string processName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(processName);
+        var ids = new HashSet<uint>();
+        foreach (var process in System.Diagnostics.Process.GetProcessesByName(processName))
+        {
+            using (process)
+            {
+                ids.Add((uint)process.Id);
+            }
+        }
+
+        if (ids.Count == 0)
+        {
+            return 0;
+        }
+
+        const uint flags = NativeMethods.SwpNoMove | NativeMethods.SwpNoSize | NativeMethods.SwpNoActivate;
+        var moved = 0;
+        nint window = 0;
+        while ((window = NativeMethods.FindWindowExW(0, window, null, null)) != 0)
+        {
+            if (NativeMethods.IsWindowVisible(window) && NativeMethods.GetWindowThreadProcessId(window, out var owner) != 0
+                && ids.Contains(owner))
+            {
+                NativeMethods.SetWindowPos(window, -2, 0, 0, 0, 0, flags); // HWND_NOTOPMOST
+                NativeMethods.SetWindowPos(window, 1, 0, 0, 0, 0, flags); // HWND_BOTTOM
+                moved++;
+            }
+        }
+
+        return moved;
+    }
+
     /// <summary>Om vinduet er minimert.</summary>
     public static bool IsMinimized(nint windowHandle) => NativeMethods.IsIconic(windowHandle);
 

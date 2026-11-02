@@ -2801,6 +2801,12 @@ public sealed partial class MainWindow : Window
         try
         {
             var window = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            var legion = Foreground.SendProcessWindowsToBack("LegionSpace");
+            if (legion > 0)
+            {
+                _log.Write("fokus", $"Legion Space lagt bakerst ({legion} vinduer) ({when})");
+            }
+
             foreach (var covering in Foreground.WindowsAbove(window, Environment.ProcessId))
             {
                 var moved = Foreground.PutBelow(covering.Handle, window);
@@ -2905,8 +2911,8 @@ public sealed partial class MainWindow : Window
             // Strøm: Moonlight lukker tilkoblingsvinduene sine når bildet kommer, og hver gang får GameHome (dekket øverst)
             // forgrunnen et øyeblikk. Streamvinduet (SDL i fullskjerm) minimerer seg da selv, og Legion Space ble liggende
             // øverst (målt 2026-11-02 med Mega Man 11). Gjenopprett og hent streamvinduet fram, også et øyeblikk senere.
-            Foreground.SendToBack(window);
             ShowStreamWindow(stream, "dekket er fjernet");
+            PlaceHomeBehind(stream.StreamWindowHandle, "streamen startet");
             var again = DispatcherQueue.CreateTimer();
             _streamRecheck = again;
             again.Interval = TimeSpan.FromSeconds(2);
@@ -2931,11 +2937,23 @@ public sealed partial class MainWindow : Window
         else if (SessionActive && !Foreground.IsForeground(window))
         {
             // Kjører spillet og har et annet vindu forgrunnen, skal GameHome ligge bak det, ikke foran.
-            Foreground.SendToBack(window);
-            _log.Write("laster", "GameHome lagt bakerst; spillet ligger foran");
+            PlaceHomeBehind(_session?.MainWindowHandle ?? 0, "spillet startet");
         }
 
         HideLoading(why);
+    }
+
+    /// <summary>
+    /// Legger GameHome rett bak spillets vindu, ikke helt bakerst: ligger GameHome bak alt, er Legion Space neste vindu
+    /// når spillet eller Moonlight bytter vindu, og Legion Space kom foran (feil innført i 0.1.104.0, rettet her).
+    /// Legion Space legges helt bakerst.
+    /// </summary>
+    private void PlaceHomeBehind(nint gameWindow, string when)
+    {
+        var window = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        var placed = gameWindow != 0 && Foreground.PutBelow(window, gameWindow);
+        var pushed = Foreground.SendProcessWindowsToBack("LegionSpace");
+        _log.Write("laster", $"GameHome lagt rett bak spillet{(placed ? "" : " (fant ikke spillets vindu)")}; Legion Space lagt bakerst ({pushed} vinduer) ({when})");
     }
 
     private void HideLoading(string why)
