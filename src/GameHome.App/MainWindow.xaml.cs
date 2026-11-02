@@ -2267,6 +2267,7 @@ public sealed partial class MainWindow : Window
         Activate();
         var ok = Foreground.Bring(WinRT.Interop.WindowNative.GetWindowHandle(this));
         _log.Write("fokus", ok ? "Tilbake i Home etter spillet" : "Windows avslo forgrunnen etter spillet");
+        KeepHomeOnTop("etter spillet");
 
         // Alltid flisen til spillet som nettopp sluttet, ikke den som tilfeldigvis fikk fokus mens menyene var åpne.
         if (game is not null)
@@ -2791,6 +2792,66 @@ public sealed partial class MainWindow : Window
 
     private DispatcherQueueTimer? _streamRecheck;
 
+    /// <summary>
+    /// Store vinduer fra andre programmer som ligger over Home (Legion Space etter at et spill eller en strøm slutter,
+    /// målt 2026-11-02), legges under GameHome. Bare her og nå, ikke fortløpende.
+    /// </summary>
+    private void KeepHomeOnTop(string when)
+    {
+        try
+        {
+            var window = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            foreach (var covering in Foreground.WindowsAbove(window, Environment.ProcessId))
+            {
+                var moved = Foreground.PutBelow(covering.Handle, window);
+                _log.Write("fokus", string.Create(CultureInfo.InvariantCulture,
+                    $"{covering.Process} lå over Home ({covering.Width}×{covering.Height}{(covering.Topmost ? ", alltid øverst" : "")}); {(moved ? "lagt under" : "kunne ikke flyttes")} ({when})"));
+            }
+
+            // Legion Space kan ta forgrunnen igjen et øyeblikk etter; sjekk én gang til.
+            var again = DispatcherQueue.CreateTimer();
+            _homeRecheck = again;
+            again.Interval = TimeSpan.FromSeconds(1.5);
+            again.IsRepeating = false;
+            again.Tick += (timer, _) =>
+            {
+                timer.Stop();
+                try
+                {
+                    if (SessionActive && SessionPanel.Visibility != Visibility.Visible)
+                    {
+                        return; // Et spill er startet igjen; Home skal ikke ligge over det.
+                    }
+
+                    foreach (var covering in Foreground.WindowsAbove(window, Environment.ProcessId))
+                    {
+                        Foreground.PutBelow(covering.Handle, window);
+                        _log.Write("fokus", $"{covering.Process} lå over Home igjen; lagt under ({when}, ny sjekk)");
+                    }
+
+                    if (!Foreground.IsForeground(window))
+                    {
+                        Activate();
+                        _log.Write("fokus", Foreground.Bring(window)
+                            ? $"Home tok forgrunnen tilbake fra {Foreground.CurrentProcessName() ?? "ukjent"} ({when})"
+                            : $"Windows avslo forgrunnen; {Foreground.CurrentProcessName() ?? "ukjent"} har den ({when})");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _log.Write("krasj", $"Ny sjekk av Home feilet: {ex.GetType().Name}: {ex.Message}");
+                }
+            };
+            again.Start();
+        }
+        catch (Exception ex)
+        {
+            _log.Write("krasj", $"Holde Home øverst feilet: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    private DispatcherQueueTimer? _homeRecheck;
+
     /// <summary>Gjenoppretter streamvinduet hvis det er minimert, og henter det fram hvis noe annet har forgrunnen.</summary>
     private void ShowStreamWindow(StreamSession stream, string when)
     {
@@ -2802,15 +2863,29 @@ public sealed partial class MainWindow : Window
         }
 
         var minimized = Foreground.IsMinimized(sdl);
-        if (!minimized && Foreground.IsForeground(sdl))
+        if (minimized || !Foreground.IsForeground(sdl))
         {
-            _log.Write("laster", $"Streamvinduet ligger foran ({when})");
+            var (ok, restored) = Foreground.BringGame(sdl);
+            _log.Write("laster", $"Streamvinduet hentet fram ({when}): {(ok ? "fikk forgrunnen" : "Windows avslo forgrunnen")}"
+                + $"{(restored ? ", var minimert og ble gjenopprettet" : "")}; forgrunnen er nå {Foreground.CurrentProcessName() ?? "ukjent"}");
+        }
+
+        // Et annet programs store vindu kan ligge over streamen selv om streamen har forgrunnen (målt 2026-11-02: Legion
+        // Space lå over Mega Man 11; Legion-knappen måtte til). Slike vinduer legges rett under streamvinduet.
+        var own = Environment.ProcessId;
+        var covering = Foreground.WindowsAbove(sdl, own, stream.ClientProcessId);
+        if (covering.Count == 0)
+        {
+            _log.Write("laster", $"Streamvinduet ligger øverst ({when})");
             return;
         }
 
-        var (ok, restored) = Foreground.BringGame(sdl);
-        _log.Write("laster", $"Streamvinduet hentet fram ({when}): {(ok ? "fikk forgrunnen" : "Windows avslo forgrunnen")}"
-            + $"{(restored ? ", var minimert og ble gjenopprettet" : "")}; forgrunnen er nå {Foreground.CurrentProcessName() ?? "ukjent"}");
+        foreach (var window in covering)
+        {
+            var moved = Foreground.PutBelow(window.Handle, sdl);
+            _log.Write("laster", string.Create(CultureInfo.InvariantCulture,
+                $"{window.Process} lå over streamen ({window.Width}×{window.Height}{(window.Topmost ? ", alltid øverst" : "")}); {(moved ? "lagt under streamen" : "kunne ikke flyttes")} ({when})"));
+        }
     }
 
     private void EndStreamCover(string why)
@@ -2940,6 +3015,7 @@ public sealed partial class MainWindow : Window
         }
 
         ShowSessionPanel($"hurtigtast {name}");
+        KeepHomeOnTop("M2");
     }
 
     private void ShowSessionPanel(string via)

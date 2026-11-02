@@ -55,6 +55,64 @@ public static class Foreground
     /// </summary>
     public static void Minimize(nint windowHandle) => NativeMethods.ShowWindow(windowHandle, 6); // SW_MINIMIZE
 
+    /// <summary>Et synlig toppnivåvindu over et annet: hvem som eier det, om det alltid ligger øverst, og størrelse.</summary>
+    public sealed record CoveringWindow(nint Handle, string Process, bool Topmost, int Width, int Height);
+
+    /// <summary>
+    /// Synlige, store vinduer fra andre prosesser som ligger over <paramref name="window"/> i rekkefølgen på skjermen
+    /// (høyst 20). Små vinduer (under 400 × 300) og usynlige tas ikke med.
+    /// </summary>
+    public static IReadOnlyList<CoveringWindow> WindowsAbove(nint window, params int[] ignoreProcessIds)
+    {
+        ArgumentNullException.ThrowIfNull(ignoreProcessIds);
+        var result = new List<CoveringWindow>();
+        var current = window;
+        for (var i = 0; i < 200 && result.Count < 20; i++)
+        {
+            current = NativeMethods.GetWindow(current, 3); // GW_HWNDPREV: vinduet over
+            if (current == 0)
+            {
+                break;
+            }
+
+            if (!NativeMethods.IsWindowVisible(current) || NativeMethods.IsIconic(current)
+                || !NativeMethods.GetWindowRect(current, out var rect)
+                || rect.Right - rect.Left < 400 || rect.Bottom - rect.Top < 300
+                || NativeMethods.GetWindowThreadProcessId(current, out var owner) == 0
+                || ignoreProcessIds.Contains((int)owner))
+            {
+                continue;
+            }
+
+            string name;
+            try
+            {
+                using var process = System.Diagnostics.Process.GetProcessById((int)owner);
+                name = process.ProcessName;
+            }
+            catch (ArgumentException)
+            {
+                name = owner.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            }
+
+            var topmost = (NativeMethods.GetWindowLongW(current, -20) & 0x8) != 0; // GWL_EXSTYLE, WS_EX_TOPMOST
+            result.Add(new CoveringWindow(current, name, topmost, rect.Right - rect.Left, rect.Bottom - rect.Top));
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Legger et vindu rett under <paramref name="reference"/> (tar bort «alltid øverst» først), uten å aktivere noe.
+    /// Brukes når et annet programs fullskjermvindu dekker streamen.
+    /// </summary>
+    public static bool PutBelow(nint window, nint reference)
+    {
+        const uint flags = NativeMethods.SwpNoMove | NativeMethods.SwpNoSize | NativeMethods.SwpNoActivate;
+        NativeMethods.SetWindowPos(window, -2, 0, 0, 0, 0, flags); // HWND_NOTOPMOST
+        return NativeMethods.SetWindowPos(window, reference, 0, 0, 0, 0, flags);
+    }
+
     /// <summary>Om vinduet er minimert.</summary>
     public static bool IsMinimized(nint windowHandle) => NativeMethods.IsIconic(windowHandle);
 
@@ -154,6 +212,25 @@ internal static unsafe partial class NativeMethods
 
     [LibraryImport("user32.dll")]
     internal static partial uint GetWindowThreadProcessId(nint windowHandle, out uint processId);
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct Rect
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
+    [LibraryImport("user32.dll")]
+    internal static partial nint GetWindow(nint window, uint command);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool GetWindowRect(nint window, out Rect rect);
+
+    [LibraryImport("user32.dll")]
+    internal static partial int GetWindowLongW(nint window, int index);
 
     [LibraryImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
