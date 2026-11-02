@@ -50,6 +50,7 @@ public sealed partial class MainWindow : Window
     private readonly GameLibrary _library;
     private static readonly TimeSpan SteamSyncInterval = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan LoadingPatience = TimeSpan.FromSeconds(45);
+    private static readonly TimeSpan CoveredLoadingLimit = TimeSpan.FromSeconds(10);
 
     private readonly Dictionary<string, IRunner> _runners = new()
     {
@@ -68,6 +69,8 @@ public sealed partial class MainWindow : Window
     private DispatcherQueueTimer? _firstSteamSync;
     private DispatcherQueueTimer? _loadingTimer;
     private DateTime _loadingShown;
+    private bool _loadingCovered;
+    private bool _windowActive;
     private Game? _sessionGame;
     private DateTime _sessionStarted;
     private string? _focusGameId;
@@ -499,6 +502,7 @@ public sealed partial class MainWindow : Window
         SetHomeEnabled(false);
         LoadingPulse.Begin();
         _loadingShown = DateTime.UtcNow;
+        _loadingCovered = false;
 
         _loadingTimer?.Stop();
         _loadingTimer = DispatcherQueue.CreateTimer();
@@ -563,6 +567,13 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        // Spillet ligger foran: lasteskjermen trengs ikke lenger.
+        if (!_windowActive)
+        {
+            HideLoading("spillet er i forgrunnen");
+            return;
+        }
+
         LoadingStatus.Text = "Det tar lang tid …";
         LoadingChoices.Visibility = Visibility.Visible;
         LoadingWaitButton.Focus(FocusState.Keyboard);
@@ -590,7 +601,11 @@ public sealed partial class MainWindow : Window
     {
         LoadingChoices.Visibility = Visibility.Collapsed;
         LoadingStatus.Text = "Venter …";
-        _loadingTimer?.Start();
+        if (_loadingTimer is not null)
+        {
+            _loadingTimer.Interval = LoadingPatience;
+            _loadingTimer.Start();
+        }
     }
 
     private void LoadingHomeButton_Click(object sender, RoutedEventArgs e)
@@ -642,9 +657,13 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        var ok = Foreground.Bring(session.MainWindowHandle);
-        _log.Write("fokus", ok ? "Tilbake til spillet: spillet fikk forgrunnen" : "Tilbake til spillet: Windows avslo");
+        // Panelet skjules og fokus settes i Home før spillet får forgrunnen. Motsatt rekkefølge gjorde at fokus i
+        // XAML aktiverte GameHome igjen, så spillet ble liggende bak (0.1.33.0).
         HideSessionPanel();
+        var handle = session.MainWindowHandle;
+        var ok = handle != 0 && Foreground.Bring(handle);
+        _log.Write("fokus", ok ? "Tilbake til spillet: spillet fikk forgrunnen"
+            : handle == 0 ? "Tilbake til spillet: fant ikke spillets vindu" : "Tilbake til spillet: Windows avslo");
     }
 
     private void EndSessionButton_Click(object sender, RoutedEventArgs e)
@@ -826,13 +845,31 @@ public sealed partial class MainWindow : Window
             _metricsTimer.Stop();
             _log.Write("fokus", "Mistet fokus (kontrollerlesing og målinger stoppet)");
 
-            // Spillet (eller noe annet) tok forgrunnen: lasteskjermen har gjort jobben. Vi slåss ikke om forgrunnen.
-            if (LoadingPanel.Visibility == Visibility.Visible)
+            // Lasteskjermen blir liggende bak det som tok forgrunnen. Steam tar den ofte først med et lite vindu, og
+            // spillet tegner seg over lasteskjermen når det er klart. Den skjules når GameHome blir aktiv igjen.
+            _windowActive = false;
+            if (LoadingPanel.Visibility == Visibility.Visible && !_loadingCovered)
             {
-                HideLoading($"forgrunnen gikk til {Foreground.CurrentProcessName() ?? "ukjent"}");
+                _loadingCovered = true;
+                _log.Write("laster", string.Create(CultureInfo.InvariantCulture,
+                    $"Forgrunnen gikk til {Foreground.CurrentProcessName() ?? "ukjent"} etter {(DateTime.UtcNow - _loadingShown).TotalSeconds:F1} s; lasteskjermen ligger bak"));
+
+                // Animasjonen skal ikke gå bak spillet lenge: lasteskjermen fjernes etter kort tid.
+                if (_loadingTimer is not null)
+                {
+                    _loadingTimer.Stop();
+                    _loadingTimer.Interval = CoveredLoadingLimit;
+                    _loadingTimer.Start();
+                }
             }
 
             return;
+        }
+
+        _windowActive = true;
+        if (LoadingPanel.Visibility == Visibility.Visible && _loadingCovered)
+        {
+            HideLoading("GameHome aktiv igjen");
         }
 
         if (!_startupLogged)
