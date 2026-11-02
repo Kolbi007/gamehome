@@ -76,7 +76,7 @@ public sealed class LaunchException : Exception
 /// En lokal økt. Avslutter startprosessen raskt og et annet program fra samme mappe kjører (en liten oppstarter),
 /// følger økten det programmet i stedet.
 /// </summary>
-public sealed class LocalProcessSession : ISession, IDisposable
+public sealed class LocalProcessSession : IForegroundSession
 {
     private static readonly TimeSpan LauncherWindow = TimeSpan.FromSeconds(20);
 
@@ -122,6 +122,10 @@ public sealed class LocalProcessSession : ISession, IDisposable
             }
         }
     }
+
+    public string Status => $"PID {ProcessId}";
+
+    public event EventHandler? StatusChanged;
 
     /// <summary>Skrives til loggen av appen, for eksempel når økten følger en oppstarter.</summary>
     public event EventHandler<string>? Note;
@@ -191,6 +195,7 @@ public sealed class LocalProcessSession : ISession, IDisposable
         if (!_closeRequested && DateTime.UtcNow - _started < LauncherWindow && FindSuccessor(process.Id) is { } next)
         {
             Note?.Invoke(this, $"Startprosessen avsluttet ({exitCode}); følger {next.ProcessName} (PID {next.Id})");
+            StatusChanged?.Invoke(this, EventArgs.Empty);
             _process = next;
             process.Dispose();
             Watch(next);

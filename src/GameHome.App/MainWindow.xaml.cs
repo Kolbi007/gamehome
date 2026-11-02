@@ -9,6 +9,7 @@ using GameHome.Core.Library;
 using GameHome.Core.Model;
 using GameHome.Core.Runners;
 using GameHome.Data;
+using GameHome.Sources.Steam;
 using GameHome.Windows;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Input;
@@ -46,14 +47,22 @@ public sealed partial class MainWindow : Window
     private readonly FileLog _log;
     private readonly string _libraryPath;
     private readonly GameLibrary _library;
-    private readonly ExecutableRunner _runner = new();
+    private static readonly TimeSpan SteamSyncInterval = TimeSpan.FromMinutes(1);
+
+    private readonly Dictionary<string, IRunner> _runners = new()
+    {
+        [GameLibrary.ExecutableRunnerId] = new ExecutableRunner(),
+        [GameLibrary.SteamRunnerId] = new SteamRunner(),
+    };
     private readonly List<string> _events = [];
     private readonly DispatcherQueueTimer _gamepadTimer;
     private readonly DispatcherQueueTimer _metricsTimer;
     private readonly HotkeyListener _hotkeys;
     private readonly List<HidReportListener> _hidListeners = [];
 
-    private LocalProcessSession? _session;
+    private IForegroundSession? _session;
+    private DateTime _lastSteamSync = DateTime.MinValue;
+    private bool _steamSyncRunning;
     private Game? _sessionGame;
     private DateTime _sessionStarted;
     private string? _focusGameId;
@@ -186,11 +195,30 @@ public sealed partial class MainWindow : Window
     private Button? TileFor(string? gameId) =>
         GameTiles.Children.OfType<Button>().FirstOrDefault(b => b.Tag is string id && id == gameId);
 
+    /// <summary>
+    /// Gir flisen fokus. En nylaget flis får fokus først når den er lastet: fokus og scrolling på et element som ikke
+    /// er lagt ut ennå, krasjet appen ved oppstart (0.1.27.0, E_INVALIDARG i XAML). ScrollViewer scroller selv til
+    /// elementet med fokus.
+    /// </summary>
     private void FocusHome(string? gameId)
     {
         var target = TileFor(gameId) ?? GameTiles.Children.OfType<Button>().FirstOrDefault() ?? AddGameTile;
-        target.Focus(FocusState.Keyboard);
-        target.StartBringIntoView();
+        if (target.IsLoaded)
+        {
+            target.Focus(FocusState.Keyboard);
+            return;
+        }
+
+        void OnLoaded(object sender, RoutedEventArgs e)
+        {
+            target.Loaded -= OnLoaded;
+            if (MessagePanel.Visibility != Visibility.Visible && SessionPanel.Visibility != Visibility.Visible)
+            {
+                target.Focus(FocusState.Keyboard);
+            }
+        }
+
+        target.Loaded += OnLoaded;
     }
 
     private async void AddGameTile_Click(object sender, RoutedEventArgs e)
@@ -279,9 +307,16 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        if (!_runners.TryGetValue(action.RunnerId, out var runner))
+        {
+            ShowMessage($"{title} kan ikke startes", $"GameHome kan ikke starte spill fra «{action.RunnerId}» ennå.",
+                "Fjern fra GameHome", () => ConfirmRemove(game), "Lukk", () => FocusHome(game.Id));
+            return;
+        }
+
         try
         {
-            _session = (LocalProcessSession)await _runner.LaunchAsync(action, Profile.Default, CancellationToken.None);
+            _session = (IForegroundSession)await runner.LaunchAsync(action, Profile.Default, CancellationToken.None);
         }
         catch (LaunchException ex)
         {
@@ -305,17 +340,24 @@ public sealed partial class MainWindow : Window
         _focusGameId = game.Id;
         var session = _session;
         session.Note += (_, note) => _log.Write("økt", note);
+        session.StatusChanged += (_, _) => DispatcherQueue.TryEnqueue(() =>
+        {
+            if (ReferenceEquals(session, _session) && SessionPanel.Visibility == Visibility.Visible)
+            {
+                SessionDetail.Text = session.Status;
+            }
+        });
         _ = session.Completion.ContinueWith(
             t => DispatcherQueue.TryEnqueue(() => OnSessionEnded(session, t.Result)),
             TaskScheduler.Default);
 
         var registered = SessionHotkeys.Where(h => _hotkeys.Register(h.Id, h.Modifiers, h.Key)).Select(h => h.Name).ToList();
-        _log.Write("økt", $"Startet «{title}» (PID {session.ProcessId}, {action.Target}). Hurtigtaster: {string.Join(", ", registered)}");
+        _log.Write("økt", $"Startet «{title}» ({action.RunnerId} {action.Target}, {session.Status}). Hurtigtaster: {string.Join(", ", registered)}");
         RefreshTileTexts();
-        LastInput.Text = $"{title} kjører. M2 åpner menyen.";
+        LastInput.Text = $"{title} starter. M2 åpner menyen.";
     }
 
-    private void OnSessionEnded(LocalProcessSession session, SessionEnd end)
+    private void OnSessionEnded(IForegroundSession session, SessionEnd end)
     {
         if (!ReferenceEquals(session, _session))
         {
@@ -323,10 +365,11 @@ public sealed partial class MainWindow : Window
         }
 
         _hotkeys.UnregisterAll();
-        var title = _sessionGame is null ? "spillet" : GameLibrary.DisplayTitle(_sessionGame);
+        var game = _sessionGame;
+        var title = game is null ? "spillet" : GameLibrary.DisplayTitle(game);
         var minutes = (DateTime.UtcNow - _sessionStarted).TotalMinutes;
         _log.Write("økt", string.Create(CultureInfo.InvariantCulture,
-            $"«{title}» avsluttet: {end.Reason}, kode {end.ExitCode?.ToString(CultureInfo.InvariantCulture) ?? "–"}, {minutes:F1} min"));
+            $"«{title}» avsluttet: {end.Reason}, kode {end.ExitCode?.ToString(CultureInfo.InvariantCulture) ?? "–"}, {minutes:F1} min{(end.Detail is null ? "" : $" ({end.Detail})")}"));
 
         session.Dispose();
         _session = null;
@@ -341,6 +384,66 @@ public sealed partial class MainWindow : Window
         _log.Write("fokus", ok ? "Tilbake i Home etter spillet" : "Windows avslo forgrunnen etter spillet");
         FocusHome(_focusGameId);
         LastInput.Text = $"Velkommen tilbake fra {title}.";
+
+        if (end.Reason == SessionEndReason.LaunchFailed && game is not null)
+        {
+            ShowMessage($"{title} startet ikke", end.Detail ?? "Spillet startet ikke.",
+                "Prøv igjen", () => _ = LaunchAsync(game), "Lukk", () => FocusHome(game.Id));
+        }
+    }
+
+    // ---- Steam ----
+
+    /// <summary>
+    /// Leser Steams bibliotekfiler på en bakgrunnstråd og oppdaterer Home. Aldri mens et spill kjører, og høyst
+    /// én gang i minuttet.
+    /// </summary>
+    private void SyncSteamInBackground()
+    {
+        if (SessionActive || _steamSyncRunning || DateTime.UtcNow - _lastSteamSync < SteamSyncInterval)
+        {
+            return;
+        }
+
+        _steamSyncRunning = true;
+        _lastSteamSync = DateTime.UtcNow;
+        _ = Task.Run(() =>
+        {
+            var root = SteamClient.FindRoot();
+            IReadOnlyList<StoreEntry>? entries = null;
+            if (root is not null)
+            {
+                entries = SteamLibraryReader.Scan(root, message => _log.Write("steam", message));
+            }
+
+            DispatcherQueue.TryEnqueue(() => ApplySteamScan(root, entries));
+        });
+    }
+
+    private void ApplySteamScan(string? root, IReadOnlyList<StoreEntry>? entries)
+    {
+        _steamSyncRunning = false;
+        if (root is null || entries is null)
+        {
+            _log.Write("steam", "Steam er ikke installert");
+            return;
+        }
+
+        var result = _library.SyncStore(GameLibrary.SteamRunnerId, entries);
+        _log.Write("steam", $"Fant {entries.Count} installerte spill; {result.Added.Count} nye, {result.MarkedMissing} borte");
+        if (!result.Changed)
+        {
+            return;
+        }
+
+        SaveLibrary();
+        var focused = (FocusManager.GetFocusedElement(Root.XamlRoot) as Button)?.Tag as string;
+        BuildGameTiles();
+        SetHomeEnabled(MessagePanel.Visibility != Visibility.Visible && SessionPanel.Visibility != Visibility.Visible);
+        if (MessagePanel.Visibility != Visibility.Visible && SessionPanel.Visibility != Visibility.Visible)
+        {
+            FocusHome(focused ?? (result.Added.Count > 0 ? result.Added[0].Id : null));
+        }
     }
 
     private void OnSessionHotkey(object? sender, int id)
@@ -406,7 +509,7 @@ public sealed partial class MainWindow : Window
         }
 
         _ = session.RequestCloseAsync();
-        _log.Write("økt", "Ba spillet avslutte normalt (WM_CLOSE)");
+        _log.Write("økt", "«Avslutt spillet» valgt");
         SessionDetail.Text = "Venter på at spillet avslutter …";
 
         // Avslutter ikke spillet selv, tilbys tvangsavslutning. Aldri automatisk.
@@ -584,6 +687,7 @@ public sealed partial class MainWindow : Window
 
         UpdateMemory();
         _metricsTimer.Start();
+        SyncSteamInBackground();
         _gamepadTimer.Start();
         _log.Write("fokus", $"Fikk fokus ({args.WindowActivationState})");
     }
@@ -642,11 +746,7 @@ public sealed partial class MainWindow : Window
         var direction = DPadDirection(pressed) ?? (stickMoved ? stick : null);
         if (direction is { } dir)
         {
-            var moved = FocusManager.TryMoveFocus(dir, new FindNextElementOptions { SearchRoot = Root.XamlRoot.Content });
-            if (moved && FocusManager.GetFocusedElement(Root.XamlRoot) is Button focused)
-            {
-                focused.StartBringIntoView();
-            }
+            FocusManager.TryMoveFocus(dir, new FindNextElementOptions { SearchRoot = Root.XamlRoot.Content });
         }
 
         var focusedButton = FocusManager.GetFocusedElement(Root.XamlRoot) as Button;

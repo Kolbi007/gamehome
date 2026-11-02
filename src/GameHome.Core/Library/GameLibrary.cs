@@ -11,6 +11,7 @@ namespace GameHome.Core.Library;
 public sealed class GameLibrary
 {
     public const string ExecutableRunnerId = "exe";
+    public const string SteamRunnerId = "steam";
 
     // Filnavn som sier lite om spillet; da brukes mappenavnet i stedet.
     private static readonly HashSet<string> GenericExeNames = new(StringComparer.OrdinalIgnoreCase)
@@ -36,9 +37,66 @@ public sealed class GameLibrary
 
     public IReadOnlyList<PlayAction> PlayActions => _actions;
 
-    /// <summary>Synlige spill sortert etter tittel.</summary>
+    /// <summary>Synlige spill sortert etter tittel. Spill der ingen spillemåte er installert, vises ikke.</summary>
     public IReadOnlyList<Game> VisibleGames =>
-        [.. _games.Where(g => !g.Overrides.Hidden).OrderBy(DisplayTitle, StringComparer.CurrentCultureIgnoreCase)];
+        [.. _games
+            .Where(g => !g.Overrides.Hidden && _actions.Exists(a => a.GameId == g.Id && a.Availability != Availability.Missing))
+            .OrderBy(DisplayTitle, StringComparer.CurrentCultureIgnoreCase)];
+
+    /// <summary>
+    /// Oppdaterer biblioteket med det en butikk sier er installert. Nye spill legges til med butikkens ID; spill som
+    /// ikke lenger er installert, merkes <see cref="Availability.Missing"/> og beholdes med brukerens rettelser.
+    /// </summary>
+    public StoreSyncResult SyncStore(string runnerId, IReadOnlyCollection<StoreEntry> installed)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(runnerId);
+        ArgumentNullException.ThrowIfNull(installed);
+
+        var added = new List<Game>();
+        var updatedCount = 0;
+        var present = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var entry in installed)
+        {
+            present.Add(entry.Id);
+            var index = _actions.FindIndex(a => a.RunnerId == runnerId && a.Target == entry.Id);
+            if (index >= 0)
+            {
+                var updated = _actions[index] with
+                {
+                    Availability = Availability.Installed,
+                    WorkingDirectory = entry.InstallDirectory,
+                };
+                if (updated != _actions[index])
+                {
+                    _actions[index] = updated;
+                    updatedCount++;
+                }
+
+                continue;
+            }
+
+            var game = new Game(NewId(), entry.Title, [new ExternalIdentity(runnerId, entry.Id)], ArtSet.Empty, UserOverrides.None);
+            _games.Add(game);
+            _actions.Add(new PlayAction(
+                NewId(), game.Id, PlayKind.Store, runnerId, entry.Id,
+                Arguments: null, WorkingDirectory: entry.InstallDirectory, LaunchMode.ClientOnDemand,
+                ProfileId: null, Availability.Installed));
+            added.Add(game);
+        }
+
+        var missing = 0;
+        for (var i = 0; i < _actions.Count; i++)
+        {
+            if (_actions[i].RunnerId == runnerId && !present.Contains(_actions[i].Target)
+                && _actions[i].Availability != Availability.Missing)
+            {
+                _actions[i] = _actions[i] with { Availability = Availability.Missing };
+                missing++;
+            }
+        }
+
+        return new StoreSyncResult(added, updatedCount, missing);
+    }
 
     public static string DisplayTitle(Game game) => game.Overrides.Title ?? game.Title;
 
@@ -117,4 +175,13 @@ public sealed class GameLibrary
     }
 
     private static string NewId() => Guid.NewGuid().ToString("N");
+}
+
+/// <summary>Et installert spill slik en butikk ser det.</summary>
+/// <param name="Id">Butikkens ID, for eksempel Steam-appid.</param>
+public sealed record StoreEntry(string Id, string Title, string? InstallDirectory);
+
+public sealed record StoreSyncResult(IReadOnlyList<Game> Added, int Updated, int MarkedMissing)
+{
+    public bool Changed => Added.Count > 0 || Updated > 0 || MarkedMissing > 0;
 }

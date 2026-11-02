@@ -36,6 +36,28 @@ Hver testrunde tar 15–45 minutter på Legion Go. Resultater skrives i `docs/te
    byttes når GameHome starter programmet, rekkefølge ved oppstart, og om den dekker det høyre Legion-knapp brukes
    til i dag (skjerm, profil, strøm). Lisens og drivere vurderes før anbefaling.
 
+## Ønsker fra produkteier
+
+### Lasteskjerm med spillets logo (2026-11-02)
+
+Fra A trykkes til spillet vises, går det ofte noen sekunder, særlig med Steam. En lasteskjerm viser at trykket ble
+registrert og gir en konsollfølelse (inspirert av Stremio).
+
+- **Utseende:** fullskjerm med spillets logo over et mørkt eller uskarpt bakgrunnsbilde og en enkel pulserende
+  animasjon. Uten bilder vises tittelen i stor tekst.
+- **Forsvinner** når spillvinduet får forgrunnen. GameHome får det som hendelse fra Windows (`SetWinEventHook`,
+  `EVENT_SYSTEM_FOREGROUND`), ingen polling.
+- **Ingen blindvei:** B avbryter og går tilbake til flisen. Etter en tidsgrense vises «Det tar lang tid …» med Vent og
+  Avbryt.
+- **Ingen kamp om forgrunnen:** tar spillet forgrunnen tidlig, forsvinner lasteskjermen.
+- **Bilder:** Steam-spill bruker Steams lokale bildecache (virker uten nett og API-nøkkel). Manuelle spill får bilder
+  fra SteamGridDB eller IGDB i fase 4.
+
+| Trinn | Innhold | Når |
+| --- | --- | --- |
+| 1 | Lasteskjerm med tittel, og logo for Steam-spill fra Steams lokale bilder | Fase 1 |
+| 2 | Logo og bakgrunnsbilde for alle spill | Fase 4 |
+
 ## Gjort
 
 - 2026-11-01: repo, CI, signert test-MSIX, SSH til Legion Go, testflate.
