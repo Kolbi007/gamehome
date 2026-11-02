@@ -11,6 +11,9 @@ namespace GameHome.Windows;
 /// <summary>Resultatet av et forsøk på å få hosten til å svare.</summary>
 public sealed record WakeResult(bool Awake, bool WasAsleep, int PacketsSent, TimeSpan Elapsed);
 
+/// <summary>Status underveis i vekkingen, for live visning: pakker sendt, forsøk på å nå hosten og tid brukt.</summary>
+public sealed record WakeProgress(int PacketsSent, int Probes, TimeSpan Elapsed);
+
 /// <summary>
 /// Sjekker om hosten svarer (TCP 47989, Vibepollos HTTP-port for Moonlight), og vekker den med Wake-on-LAN hvis ikke.
 /// Bare før start; ingen nettverkstrafikk mens et spill kjører.
@@ -61,7 +64,7 @@ public static class HostWaker
     /// <paramref name="onWaking"/> kalles én gang når vekking starter, så Home kan vise «Vekker …».
     /// </summary>
     public static async Task<WakeResult> EnsureAwakeAsync(MoonlightHost host, TimeSpan limit, Action? onWaking = null,
-        CancellationToken ct = default)
+        Action<WakeProgress>? progress = null, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(host);
         var watch = Stopwatch.StartNew();
@@ -80,6 +83,7 @@ public static class HostWaker
 
         // Ingen pakke sendt ennå. (TimeSpan.MinValue her ga overflyt i 0.1.68.0–0.1.69.0, så vekkingen stoppet.)
         TimeSpan? lastSend = null;
+        var probes = 1;
         while (watch.Elapsed < limit && !ct.IsCancellationRequested)
         {
             if (lastSend is null || watch.Elapsed - lastSend.Value >= ResendEvery)
@@ -88,10 +92,13 @@ public static class HostWaker
                 lastSend = watch.Elapsed;
             }
 
+            probes++;
             if (await IsAwakeAsync(host.Address, ct).ConfigureAwait(false))
             {
                 return new WakeResult(true, true, sent, watch.Elapsed);
             }
+
+            progress?.Invoke(new WakeProgress(sent, probes, watch.Elapsed));
 
             await Task.Delay(TimeSpan.FromSeconds(1), ct).ConfigureAwait(false);
         }

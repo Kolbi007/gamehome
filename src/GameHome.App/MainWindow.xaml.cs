@@ -1139,9 +1139,9 @@ public sealed partial class MainWindow : Window
             result = await HostWaker.EnsureAwakeAsync(host, TimeSpan.FromSeconds(90), onWaking: () => DispatcherQueue.TryEnqueue(() =>
             {
                 _waking = true;
-                LoadingStatus.Text = $"Vekker {host.DisplayName} … (opptil 90 s)";
+                LoadingStatus.Text = $"Vekker {host.DisplayName} …";
                 _log.Write("vekking", $"{host.DisplayName} svarer ikke; sender Wake-on-LAN (MAC {(host.Mac is null ? "ukjent" : "kjent")})");
-            }));
+            }), progress: p => DispatcherQueue.TryEnqueue(() => LoadingStatus.Text = WakeStatusText(host, p)));
         }
         finally
         {
@@ -1159,6 +1159,62 @@ public sealed partial class MainWindow : Window
         }
 
         return result.Awake || host.Address is null;
+    }
+
+    /// <summary>Live status under vekking, for eksempel «Vekker Gaming Laptop · 3 vekkesignaler · ingen svar · 21/90 s».</summary>
+    private static string WakeStatusText(MoonlightHost host, WakeProgress p) => string.Create(CultureInfo.InvariantCulture,
+        $"Vekker {host.DisplayName} · {p.PacketsSent / 4} vekkesignal{(p.PacketsSent / 4 == 1 ? "" : "er")} · ingen svar ennå · {p.Elapsed.TotalSeconds:F0}/90 s");
+
+    // ---- Test av tilkobling til gaming-PC-en ----
+
+    /// <summary>
+    /// Vekker og sjekker gaming-PC-en uten å starte Moonlight eller et spill, med live status. For rask feilsøking av
+    /// Wake-on-LAN og nettverk.
+    /// </summary>
+    private async void TestHostTile_Click(object sender, RoutedEventArgs e)
+    {
+        LogChoice(TestHostTile);
+        var hosts = MoonlightClient.FindHosts();
+        var host = hosts.Count > 0 ? hosts[0] : null;
+        HostGames.Children.Clear();
+        HostTitle.Text = host is null ? "Test tilkobling" : $"Test {host.DisplayName}";
+        HostPanel.Visibility = Visibility.Visible;
+        SetHomeEnabled(false);
+        HostCloseButton.Focus(FocusState.Keyboard);
+        if (host?.Address is null)
+        {
+            HostStatus.Text = "Moonlight kjenner ingen PC med adresse ennå.";
+            return;
+        }
+
+        var lines = new List<string>
+        {
+            $"Adresse: {host.Address} · vekkeadresse (MAC): {(host.Mac is null ? "mangler" : "kjent")}",
+        };
+        void Show(string line)
+        {
+            lines.Add(line);
+            HostStatus.Text = string.Join('\n', lines);
+        }
+
+        Show("Sjekker om den svarer …");
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var result = await HostWaker.EnsureAwakeAsync(host, TimeSpan.FromSeconds(90),
+            onWaking: () => DispatcherQueue.TryEnqueue(() => Show("Svarer ikke. Sender vekkesignal (Wake-on-LAN) …")),
+            progress: p => DispatcherQueue.TryEnqueue(() =>
+            {
+                lines[^1] = WakeStatusText(host, p);
+                HostStatus.Text = string.Join('\n', lines);
+            }));
+
+        var summary = result switch
+        {
+            { Awake: true, WasAsleep: false } => string.Create(CultureInfo.InvariantCulture, $"✓ {host.DisplayName} er våken og svarer ({watch.Elapsed.TotalSeconds:F1} s)."),
+            { Awake: true } => string.Create(CultureInfo.InvariantCulture, $"✓ {host.DisplayName} våknet etter {result.Elapsed.TotalSeconds:F0} s ({result.PacketsSent / 4} vekkesignaler)."),
+            _ => string.Create(CultureInfo.InvariantCulture, $"✗ {host.DisplayName} svarte ikke på {result.Elapsed.TotalSeconds:F0} s ({result.PacketsSent / 4} vekkesignaler)."),
+        };
+        Show(summary);
+        _log.Write("vekking", $"Test: {summary}");
     }
 
     private static string FirstLine(string text) =>
