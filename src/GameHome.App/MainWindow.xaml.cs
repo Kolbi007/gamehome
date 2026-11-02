@@ -929,7 +929,7 @@ public sealed partial class MainWindow : Window
             var remembered = LoadRememberedTile();
             var found = remembered is not null && TileFor(remembered) is not null;
             _log.Write("fokus", remembered is null ? "Ingen husket flis; fokus på første"
-                : found ? $"Husket flis: «{_library.Find(remembered) is { } g ? GameLibrary.DisplayTitle(g) : remembered}»"
+                : found ? $"Husket flis: «{(_library.Find(remembered) is { } g ? GameLibrary.DisplayTitle(g) : remembered)}»"
                 : "Husket flis finnes ikke lenger; fokus på første");
             FocusHome(found ? remembered : null);
         }
