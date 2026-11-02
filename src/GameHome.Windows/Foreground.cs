@@ -17,6 +17,26 @@ public static class Foreground
 
     /// <summary>Ber om å få vinduet i forgrunnen. Returnerer false hvis Windows avslår.</summary>
     public static bool Bring(nint windowHandle) => NativeMethods.SetForegroundWindow(windowHandle);
+
+    /// <summary>Navnet på prosessen som eier forgrunnsvinduet, for loggen. Null hvis det ikke kan leses.</summary>
+    public static string? CurrentProcessName()
+    {
+        var window = NativeMethods.GetForegroundWindow();
+        if (window == 0 || NativeMethods.GetWindowThreadProcessId(window, out var processId) == 0)
+        {
+            return null;
+        }
+
+        try
+        {
+            using var process = System.Diagnostics.Process.GetProcessById((int)processId);
+            return process.ProcessName;
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+    }
 }
 
 internal static unsafe partial class NativeMethods
@@ -28,6 +48,12 @@ internal static unsafe partial class NativeMethods
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool SetForegroundWindow(nint windowHandle);
+
+    [LibraryImport("user32.dll")]
+    internal static partial nint GetForegroundWindow();
+
+    [LibraryImport("user32.dll")]
+    internal static partial uint GetWindowThreadProcessId(nint windowHandle, out uint processId);
 
     [LibraryImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

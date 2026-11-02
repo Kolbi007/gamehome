@@ -17,6 +17,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Gaming.Input;
 using Windows.Storage;
 using VirtualKey = Windows.System.VirtualKey;
@@ -48,6 +49,7 @@ public sealed partial class MainWindow : Window
     private readonly string _libraryPath;
     private readonly GameLibrary _library;
     private static readonly TimeSpan SteamSyncInterval = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan LoadingPatience = TimeSpan.FromSeconds(45);
 
     private readonly Dictionary<string, IRunner> _runners = new()
     {
@@ -64,6 +66,8 @@ public sealed partial class MainWindow : Window
     private DateTime _lastSteamSync = DateTime.MinValue;
     private bool _steamSyncRunning;
     private DispatcherQueueTimer? _firstSteamSync;
+    private DispatcherQueueTimer? _loadingTimer;
+    private DateTime _loadingShown;
     private Game? _sessionGame;
     private DateTime _sessionStarted;
     private string? _focusGameId;
@@ -342,12 +346,14 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        ShowLoading(game, action);
         try
         {
             _session = (IForegroundSession)await runner.LaunchAsync(action, Profile.Default, CancellationToken.None);
         }
         catch (LaunchException ex)
         {
+            HideLoading("start feilet");
             _log.Write("økt", $"Kunne ikke starte «{title}»: {ex.Failure}: {ex.Message}");
             if (ex.Failure == LaunchFailure.FileMissing)
             {
@@ -393,6 +399,7 @@ public sealed partial class MainWindow : Window
         }
 
         _hotkeys.UnregisterAll();
+        HideLoading("økten avsluttet");
         var game = _sessionGame;
         var title = game is null ? "spillet" : GameLibrary.DisplayTitle(game);
         var minutes = (DateTime.UtcNow - _sessionStarted).TotalMinutes;
@@ -477,10 +484,126 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    // ---- Lasteskjerm ----
+
+    private void ShowLoading(Game game, PlayAction action)
+    {
+        var title = GameLibrary.DisplayTitle(game);
+        LoadingTitle.Text = title;
+        LoadingTitle.Visibility = Visibility.Visible;
+        LoadingLogo.Source = null;
+        LoadingHero.Source = null;
+        LoadingStatus.Text = action.RunnerId == GameLibrary.SteamRunnerId ? "Starter via Steam …" : "Starter …";
+        LoadingChoices.Visibility = Visibility.Collapsed;
+        LoadingPanel.Visibility = Visibility.Visible;
+        SetHomeEnabled(false);
+        LoadingPulse.Begin();
+        _loadingShown = DateTime.UtcNow;
+
+        _loadingTimer?.Stop();
+        _loadingTimer = DispatcherQueue.CreateTimer();
+        _loadingTimer.Interval = LoadingPatience;
+        _loadingTimer.IsRepeating = false;
+        _loadingTimer.Tick += (_, _) => OnLoadingSlow();
+        _loadingTimer.Start();
+
+        var art = action.RunnerId == GameLibrary.SteamRunnerId && SteamClient.FindRoot() is { } root
+            ? SteamArt.Find(root, action.Target)
+            : game.Art;
+        _log.Write("laster", $"Lasteskjerm for «{title}» (logo: {(art.Logo is null ? "nei" : "ja")}, bakgrunn: {(art.Hero is null ? "nei" : "ja")})");
+        _ = LoadArtAsync(art);
+    }
+
+    private async Task LoadArtAsync(ArtSet art)
+    {
+        var shownAt = _loadingShown;
+        var logo = await LoadImageAsync(art.Logo, 720);
+        var hero = await LoadImageAsync(art.Hero, 1280);
+
+        // Kom bildene etter at lasteskjermen var borte, eller for en ny start, brukes de ikke.
+        if (LoadingPanel.Visibility != Visibility.Visible || shownAt != _loadingShown)
+        {
+            return;
+        }
+
+        if (logo is not null)
+        {
+            LoadingLogo.Source = logo;
+            LoadingTitle.Visibility = Visibility.Collapsed;
+        }
+
+        LoadingHero.Source = hero;
+    }
+
+    private async Task<BitmapImage?> LoadImageAsync(string? path, int decodeWidth)
+    {
+        if (path is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            using var stream = File.OpenRead(path);
+            var image = new BitmapImage { DecodePixelWidth = decodeWidth };
+            await image.SetSourceAsync(stream.AsRandomAccessStream());
+            return image;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Runtime.InteropServices.COMException)
+        {
+            _log.Write("laster", $"Kunne ikke lese bilde: {ex.Message}");
+            return null;
+        }
+    }
+
+    private void OnLoadingSlow()
+    {
+        if (LoadingPanel.Visibility != Visibility.Visible)
+        {
+            return;
+        }
+
+        LoadingStatus.Text = "Det tar lang tid …";
+        LoadingChoices.Visibility = Visibility.Visible;
+        LoadingWaitButton.Focus(FocusState.Keyboard);
+        _log.Write("laster", "Tar lang tid; viser Vent og Tilbake til Home");
+    }
+
+    private void HideLoading(string why)
+    {
+        if (LoadingPanel.Visibility != Visibility.Visible)
+        {
+            return;
+        }
+
+        _loadingTimer?.Stop();
+        LoadingPulse.Stop();
+        LoadingPanel.Visibility = Visibility.Collapsed;
+        LoadingLogo.Source = null;
+        LoadingHero.Source = null;
+        SetHomeEnabled(MessagePanel.Visibility != Visibility.Visible && SessionPanel.Visibility != Visibility.Visible);
+        _log.Write("laster", string.Create(CultureInfo.InvariantCulture,
+            $"Lasteskjerm skjult etter {(DateTime.UtcNow - _loadingShown).TotalSeconds:F1} s: {why}"));
+    }
+
+    private void LoadingWaitButton_Click(object sender, RoutedEventArgs e)
+    {
+        LoadingChoices.Visibility = Visibility.Collapsed;
+        LoadingStatus.Text = "Venter …";
+        _loadingTimer?.Start();
+    }
+
+    private void LoadingHomeButton_Click(object sender, RoutedEventArgs e)
+    {
+        HideLoading("tilbake til Home");
+        FocusHome(_focusGameId);
+    }
+
     private void OnSessionHotkey(object? sender, int id)
     {
         var name = SessionHotkeys.FirstOrDefault(h => h.Id == id).Name ?? id.ToString(CultureInfo.InvariantCulture);
         _log.Write("hurtigtast", $"Mottatt: {name}");
+        HideLoading("M2");
         Activate();
         var ok = Foreground.Bring(WinRT.Interop.WindowNative.GetWindowHandle(this));
         _log.Write("fokus", ok ? "Tok forgrunnen etter hurtigtast" : "Windows avslo forgrunnen etter hurtigtast");
@@ -702,6 +825,13 @@ public sealed partial class MainWindow : Window
             _gamepadTimer.Stop();
             _metricsTimer.Stop();
             _log.Write("fokus", "Mistet fokus (kontrollerlesing og målinger stoppet)");
+
+            // Spillet (eller noe annet) tok forgrunnen: lasteskjermen har gjort jobben. Vi slåss ikke om forgrunnen.
+            if (LoadingPanel.Visibility == Visibility.Visible)
+            {
+                HideLoading($"forgrunnen gikk til {Foreground.CurrentProcessName() ?? "ukjent"}");
+            }
+
             return;
         }
 
@@ -816,6 +946,11 @@ public sealed partial class MainWindow : Window
             if (MessagePanel.Visibility == Visibility.Visible)
             {
                 CloseMessage(_messageSecondary);
+            }
+            else if (LoadingPanel.Visibility == Visibility.Visible)
+            {
+                HideLoading("B");
+                FocusHome(_focusGameId);
             }
             else if (SessionPanel.Visibility == Visibility.Visible)
             {

@@ -148,3 +148,34 @@ public class SteamTests
         Assert.Single(library.VisibleGames);
     }
 }
+
+public class SteamArtTests
+{
+    [Fact]
+    public void Finds_new_and_legacy_cache_layouts()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"gamehome-art-{Guid.NewGuid():N}");
+        try
+        {
+            var cache = Path.Combine(root, "appcache", "librarycache");
+            var hashed = Directory.CreateDirectory(Path.Combine(cache, "2062430", "776432359d")).FullName;
+            File.WriteAllText(Path.Combine(hashed, "logo.png"), "x");
+            Directory.CreateDirectory(cache);
+            File.WriteAllText(Path.Combine(cache, "2062430_library_hero.jpg"), "x");
+
+            var art = SteamArt.Find(root, "2062430");
+
+            Assert.Equal(Path.Combine(hashed, "logo.png"), art.Logo);
+            Assert.Equal(Path.Combine(cache, "2062430_library_hero.jpg"), art.Hero);
+            Assert.Null(art.Cover);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Missing_cache_gives_no_art() =>
+        Assert.Equal(ArtSet.Empty, SteamArt.Find(Path.Combine(Path.GetTempPath(), $"none-{Guid.NewGuid():N}"), "1"));
+}
