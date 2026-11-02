@@ -141,6 +141,12 @@ vinduer). Skriptet skjuler den nå helt under streamen og viser den alltid igjen
 `POST /api/apps/close` i stedet for `Moonlight.exe quit`, så Moonlight ikke viser «Quitting». Tokenet kan også vise om
 spillet fortsatt kjører på PC-en etter «Koble fra». Krever at produkteier lager et token med smal tilgang.
 
+**Bygget 2026-11-02 (PR #18):** GameHome bruker Vibepollo-API-et når nøkkelen finnes: omslag for spill fra PC-en som
+ikke finnes på Steam, «Avslutt spillet» uten Moonlights «Quitting»-vindu (Moonlight som reserve), «▶ På Gaming Laptop»
+på flisen når et spill kjører der uten strøm, og spørsmål før et annet spill på PC-en lukkes. Nøkkelen ligger i Windows'
+Credential Locker på Legion Go, sertifikatet festes ved første tilkobling. **Gjenstår:** testnøkkelen ble limt inn i en
+chat og må byttes (lag ny i Vibepollo, slett den gamle, legg den nye inn på Legion Go).
+
 Når: etter runde 3 (vekking), fordi vekking og låseskjerm henger sammen. Neste steg er å lese Vibepollos kildekode for
 punkt 2 før noe bygges.
 
