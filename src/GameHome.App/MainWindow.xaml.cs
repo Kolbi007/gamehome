@@ -2807,6 +2807,14 @@ public sealed partial class MainWindow : Window
             Foreground.SendToBack(window);
             _log.Write("laster", "GameHome lagt bakerst; spillet ligger foran");
         }
+        else if (SessionActive && _session is StreamSession stream && stream.StreamWindowHandle is var streamWindow and not 0)
+        {
+            // GameHome har forgrunnen (fikk den da Moonlights tilkoblingsvindu lukket seg): gi den til streamvinduet.
+            // GameHome er forgrunnen og har derfor lov.
+            var (ok, _) = Foreground.BringGame(streamWindow);
+            Foreground.SendToBack(window);
+            _log.Write("laster", ok ? "Forgrunnen gitt til streamvinduet; GameHome lagt bakerst" : "Windows avslo å gi forgrunnen til streamvinduet");
+        }
 
         HideLoading(why);
     }
@@ -4133,9 +4141,17 @@ public sealed partial class MainWindow : Window
         }
 
         _windowActive = true;
-        if (LoadingPanel.Visibility == Visibility.Visible && _loadingCovered)
+
+        // Mens lasteskjermen dekker Moonlights tilkobling, blir GameHome aktiv når Moonlights tilkoblingsvindu lukkes
+        // (målt 2026-11-02 med Mega Man 11). Da skal dekket bli liggende til streamen viser bilde, ikke avsluttes her;
+        // ellers ble GameHome liggende foran streamen og fikk kontrolleren.
+        if (LoadingPanel.Visibility == Visibility.Visible && _loadingCovered && _streamCover is null)
         {
             HideLoading("GameHome aktiv igjen");
+        }
+        else if (_streamCover is not null)
+        {
+            _log.Write("laster", "GameHome ble aktiv mens dekket venter på streamen; dekket blir liggende");
         }
 
         if (!_startupLogged)
