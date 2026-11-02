@@ -60,8 +60,8 @@ public sealed class HotkeyListener
     /// <summary>
     /// Reserve under en økt: en tastaturkrok på lavt nivå (WH_KEYBOARD_LL, dokumentert). Noen spill leser tastaturet med
     /// «raw input» og slår av programmers hurtigtaster mens de har fokus (målt 2026-11-02: Assassin's Creed Rogue; M2 kom
-    /// aldri fram). Kroken ser tasten før spillet, sender den videre som hurtigtast til GameHome og holder den unna
-    /// spillet. Den gjør bare en sammenligning per tast og fjernes når økten slutter.
+    /// aldri fram). Kroken ser tasten før spillet og melder den; kommer ikke den vanlige hurtigtasten innen 150 ms,
+    /// brukes kroken. Den gjør bare en sammenligning per tast og fjernes når økten slutter.
     /// </summary>
     public unsafe bool StartHook()
     {
@@ -89,25 +89,65 @@ public sealed class HotkeyListener
         }
     }
 
+    // Kroken melder en tast med WmHookSeen; RegisterHotKey-veien gir WmHotkey. Kommer ikke WmHotkey innen 150 ms
+    // (spillet har slått av hurtigtaster), brukes kroken. Bare RegisterHotKey-veien gir lov til å ta forgrunnen, så den
+    // foretrekkes (0.1.96.0 brukte alltid kroken, og da avslo Windows forgrunnen også i Broforce).
+    private const uint WmHookSeen = 0x8000 + 0x47; // WM_APP + 0x47
+    private const uint WmTimer = 0x0113;
+    private const nuint FallbackTimer = 0x4748;
+    private int _pendingId = -1;
+
     [UnmanagedCallersOnly]
     private static nint SubclassProc(nint hwnd, uint message, nint wParam, nint lParam, nuint subclassId, nuint refData)
     {
-        if (message == WmHotkey && s_current is { } listener)
+        if (s_current is not { } listener)
         {
-            // Samme hurtigtast fra både kroken og RegisterHotKey innen 400 ms teller én gang.
-            var id = (int)wParam;
-            var now = Environment.TickCount64;
-            if (id != listener._lastId || now - listener._lastTicks > 400)
+            return NativeMethods.DefSubclassProc(hwnd, message, wParam, lParam);
+        }
+
+        if (message == WmHotkey)
+        {
+            listener._pendingId = -1;
+            NativeMethods.KillTimer(hwnd, FallbackTimer);
+            listener.Fire((int)wParam);
+            return 0;
+        }
+
+        if (message == WmHookSeen)
+        {
+            listener._pendingId = (int)wParam;
+            NativeMethods.SetTimer(hwnd, FallbackTimer, 150, 0);
+            return 0;
+        }
+
+        if (message == WmTimer && wParam == (nint)FallbackTimer)
+        {
+            NativeMethods.KillTimer(hwnd, FallbackTimer);
+            if (listener._pendingId >= 0)
             {
-                listener._lastId = id;
-                listener._lastTicks = now;
-                listener.Pressed?.Invoke(listener, id);
+                var id = listener._pendingId;
+                listener._pendingId = -1;
+                listener.Fire(id);
             }
 
             return 0;
         }
 
         return NativeMethods.DefSubclassProc(hwnd, message, wParam, lParam);
+    }
+
+    /// <summary>Samme hurtigtast fra begge veier innen 400 ms teller én gang.</summary>
+    private void Fire(int id)
+    {
+        var now = Environment.TickCount64;
+        if (id == _lastId && now - _lastTicks < 400)
+        {
+            return;
+        }
+
+        _lastId = id;
+        _lastTicks = now;
+        Pressed?.Invoke(this, id);
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -147,8 +187,9 @@ public sealed class HotkeyListener
             {
                 if (wantedKey == key && wanted == modifiers)
                 {
-                    NativeMethods.PostMessageW(listener._window, WmHotkey, id, 0);
-                    return 1; // Holdes unna spillet.
+                    // Tasten slippes videre, så RegisterHotKey-veien (med lov til forgrunnen) får den først.
+                    NativeMethods.PostMessageW(listener._window, WmHookSeen, id, 0);
+                    break;
                 }
             }
         }

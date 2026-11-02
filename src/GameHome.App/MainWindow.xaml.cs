@@ -2788,8 +2788,23 @@ public sealed partial class MainWindow : Window
         _log.Write("hurtigtast", $"Mottatt: {name}");
         HideLoading("M2");
         Activate();
-        var ok = Foreground.Bring(WinRT.Interop.WindowNative.GetWindowHandle(this));
-        _log.Write("fokus", ok ? "Tok forgrunnen etter hurtigtast" : "Windows avslo forgrunnen etter hurtigtast");
+        var window = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        var ok = Foreground.Bring(window);
+
+        // Kom hurtigtasten via reserven (spillet slår av hurtigtaster), gir ikke Windows forgrunnen. Da minimeres spillet,
+        // som Alt+Tab, og Windows aktiverer neste vindu, GameHome. «Tilbake til spillet» gjenoppretter det.
+        if (!ok && _session is LocalProcessSession { MainWindowHandle: var game and not 0 })
+        {
+            Foreground.Minimize(game);
+            Activate();
+            ok = Foreground.Bring(window) || Foreground.IsForeground(window);
+            _log.Write("fokus", ok ? "Windows avslo forgrunnen; spillet ble minimert og GameHome tok forgrunnen" : "Windows avslo forgrunnen, også etter at spillet ble minimert");
+        }
+        else
+        {
+            _log.Write("fokus", ok ? "Tok forgrunnen etter hurtigtast" : "Windows avslo forgrunnen etter hurtigtast");
+        }
+
         ShowSessionPanel($"hurtigtast {name}");
     }
 

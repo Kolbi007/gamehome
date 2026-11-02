@@ -49,6 +49,12 @@ public static class Foreground
         NativeMethods.SetWindowPos(windowHandle, 1, 0, 0, 0, 0,
             NativeMethods.SwpNoMove | NativeMethods.SwpNoSize | NativeMethods.SwpNoActivate);
 
+    /// <summary>
+    /// Minimerer et vindu (som Alt+Tab). Når forgrunnsvinduet minimeres, aktiverer Windows neste vindu; brukes når et spill
+    /// ikke slipper forgrunnen for M2. <see cref="BringGame"/> gjenoppretter det.
+    /// </summary>
+    public static void Minimize(nint windowHandle) => NativeMethods.ShowWindow(windowHandle, 6); // SW_MINIMIZE
+
     /// <summary>Om vinduet er forgrunnsvinduet.</summary>
     public static bool IsForeground(nint windowHandle) => NativeMethods.GetForegroundWindow() == windowHandle;
 
@@ -168,6 +174,13 @@ internal static unsafe partial class NativeMethods
 
     [LibraryImport("kernel32.dll", StringMarshalling = StringMarshalling.Utf16)]
     internal static partial nint GetModuleHandleW(string? moduleName);
+
+    [LibraryImport("user32.dll")]
+    internal static partial nuint SetTimer(nint window, nuint id, uint milliseconds, nint callback);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool KillTimer(nint window, nuint id);
 
     [LibraryImport("cfgmgr32.dll")]
     internal static partial uint CM_Get_Device_Interface_List_SizeW(out uint length, ref Guid interfaceClass, nint deviceId, uint flags);
