@@ -2789,6 +2789,30 @@ public sealed partial class MainWindow : Window
         _log.Write("laster", "Lasteskjermen dekker Moonlight mens spillet avsluttes");
     }
 
+    private DispatcherQueueTimer? _streamRecheck;
+
+    /// <summary>Gjenoppretter streamvinduet hvis det er minimert, og henter det fram hvis noe annet har forgrunnen.</summary>
+    private void ShowStreamWindow(StreamSession stream, string when)
+    {
+        var sdl = stream.StreamWindowHandle;
+        if (sdl == 0)
+        {
+            _log.Write("laster", $"Streamvinduet finnes ikke ({when})");
+            return;
+        }
+
+        var minimized = Foreground.IsMinimized(sdl);
+        if (!minimized && Foreground.IsForeground(sdl))
+        {
+            _log.Write("laster", $"Streamvinduet ligger foran ({when})");
+            return;
+        }
+
+        var (ok, restored) = Foreground.BringGame(sdl);
+        _log.Write("laster", $"Streamvinduet hentet fram ({when}): {(ok ? "fikk forgrunnen" : "Windows avslo forgrunnen")}"
+            + $"{(restored ? ", var minimert og ble gjenopprettet" : "")}; forgrunnen er nå {Foreground.CurrentProcessName() ?? "ukjent"}");
+    }
+
     private void EndStreamCover(string why)
     {
         if (_streamCover is null)
@@ -2801,19 +2825,39 @@ public sealed partial class MainWindow : Window
         var window = WinRT.Interop.WindowNative.GetWindowHandle(this);
         Foreground.SetTopmost(window, false);
 
-        // Kjører spillet og har et annet vindu forgrunnen, skal GameHome ligge bak det, ikke foran.
-        if (SessionActive && !Foreground.IsForeground(window))
+        if (SessionActive && _session is StreamSession stream)
         {
+            // Strøm: Moonlight lukker tilkoblingsvinduene sine når bildet kommer, og hver gang får GameHome (dekket øverst)
+            // forgrunnen et øyeblikk. Streamvinduet (SDL i fullskjerm) minimerer seg da selv, og Legion Space ble liggende
+            // øverst (målt 2026-11-02 med Mega Man 11). Gjenopprett og hent streamvinduet fram, også et øyeblikk senere.
+            Foreground.SendToBack(window);
+            ShowStreamWindow(stream, "dekket er fjernet");
+            var again = DispatcherQueue.CreateTimer();
+            _streamRecheck = again;
+            again.Interval = TimeSpan.FromSeconds(2);
+            again.IsRepeating = false;
+            again.Tick += (timer, _) =>
+            {
+                timer.Stop();
+                try
+                {
+                    if (ReferenceEquals(_session, stream) && SessionActive && !_windowActive)
+                    {
+                        ShowStreamWindow(stream, "ny sjekk etter 2 s");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _log.Write("krasj", $"Sjekk av streamvinduet feilet: {ex.GetType().Name}: {ex.Message}");
+                }
+            };
+            again.Start();
+        }
+        else if (SessionActive && !Foreground.IsForeground(window))
+        {
+            // Kjører spillet og har et annet vindu forgrunnen, skal GameHome ligge bak det, ikke foran.
             Foreground.SendToBack(window);
             _log.Write("laster", "GameHome lagt bakerst; spillet ligger foran");
-        }
-        else if (SessionActive && _session is StreamSession stream && stream.StreamWindowHandle is var streamWindow and not 0)
-        {
-            // GameHome har forgrunnen (fikk den da Moonlights tilkoblingsvindu lukket seg): gi den til streamvinduet.
-            // GameHome er forgrunnen og har derfor lov.
-            var (ok, _) = Foreground.BringGame(streamWindow);
-            Foreground.SendToBack(window);
-            _log.Write("laster", ok ? "Forgrunnen gitt til streamvinduet; GameHome lagt bakerst" : "Windows avslo å gi forgrunnen til streamvinduet");
         }
 
         HideLoading(why);
@@ -4151,7 +4195,17 @@ public sealed partial class MainWindow : Window
         }
         else if (_streamCover is not null)
         {
-            _log.Write("laster", "GameHome ble aktiv mens dekket venter på streamen; dekket blir liggende");
+            // Viser streamen allerede bilde, avsluttes dekket nå: GameHome har forgrunnen akkurat nå og har derfor lov til
+            // å gi den til streamvinduet (venter vi til neste tikk, har Windows ofte gitt den til noe annet).
+            if (_session is StreamSession { IsStreamVisible: true })
+            {
+                _log.Write("laster", "GameHome ble aktiv mens streamen viser bilde; gir forgrunnen til streamvinduet nå");
+                EndStreamCover("streamen viser bilde");
+            }
+            else
+            {
+                _log.Write("laster", "GameHome ble aktiv mens dekket venter på streamen; dekket blir liggende");
+            }
         }
 
         if (!_startupLogged)

@@ -55,6 +55,9 @@ public static class Foreground
     /// </summary>
     public static void Minimize(nint windowHandle) => NativeMethods.ShowWindow(windowHandle, 6); // SW_MINIMIZE
 
+    /// <summary>Om vinduet er minimert.</summary>
+    public static bool IsMinimized(nint windowHandle) => NativeMethods.IsIconic(windowHandle);
+
     /// <summary>Om vinduet er forgrunnsvinduet.</summary>
     public static bool IsForeground(nint windowHandle) => NativeMethods.GetForegroundWindow() == windowHandle;
 
