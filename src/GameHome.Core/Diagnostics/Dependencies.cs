@@ -216,6 +216,60 @@ public static partial class Dependencies
         return Evaluate(is64, dlls, exists);
     }
 
+    /// <summary>
+    /// Som <see cref="Check(Stream, Func{string, bool, bool})"/>, men følger også DLL-filene spillet har med selv
+    /// (<paramref name="openLocal"/> åpner en DLL fra spillmappen, eller gir null), høyst <paramref name="maxDepth"/>
+    /// ledd ned. AC Rogue: ACC.exe → Tobii.EyeX.Client.dll → MSVCR110.dll (Visual C++ 2012), målt 2026-11-02.
+    /// Manglende DLL-er oppgis med filen som trenger dem, for eksempel «MSVCR110.dll (Tobii.EyeX.Client.dll)».
+    /// </summary>
+    public static DependencyResult CheckTree(Stream exe, Func<string, Stream?> openLocal, Func<string, bool, bool> exists, int maxDepth = 3)
+    {
+        ArgumentNullException.ThrowIfNull(openLocal);
+        ArgumentNullException.ThrowIfNull(exists);
+        var (is64, rootImports) = ReadImports(exe);
+        var missingDlls = new List<string>();
+        var missing = new List<Redistributable>();
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var queue = new Queue<(string? Via, IReadOnlyList<string> Imports, int Depth)>();
+        queue.Enqueue((null, rootImports, 0));
+        while (queue.Count > 0 && visited.Count < 64)
+        {
+            var (via, imports, depth) = queue.Dequeue();
+            foreach (var dll in imports)
+            {
+                if (PackageFor(dll, is64) is { } package)
+                {
+                    if (!exists(dll, is64))
+                    {
+                        var label = via is null ? dll : $"{dll} ({via})";
+                        if (!missingDlls.Contains(label, StringComparer.OrdinalIgnoreCase))
+                        {
+                            missingDlls.Add(label);
+                        }
+
+                        if (!missing.Exists(p => p.Id == package.Id))
+                        {
+                            missing.Add(package);
+                        }
+                    }
+
+                    continue;
+                }
+
+                // En DLL spillet har med selv: les dens avhengigheter også.
+                if (depth < maxDepth && visited.Add(dll) && openLocal(dll) is { } stream)
+                {
+                    using (stream)
+                    {
+                        queue.Enqueue((dll, ReadImports(stream).Dlls, depth + 1));
+                    }
+                }
+            }
+        }
+
+        return new DependencyResult(is64, missingDlls, missing);
+    }
+
     /// <summary>Leser importtabellen i en PE-fil (Windows-programfil): 64-bit eller ikke, og DLL-navnene.</summary>
     public static (bool Is64Bit, IReadOnlyList<string> Dlls) ReadImports(byte[] b)
     {

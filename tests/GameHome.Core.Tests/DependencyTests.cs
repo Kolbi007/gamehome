@@ -102,3 +102,54 @@ public class DependencyTests
         }
     }
 }
+
+public class DependencyTreeTests
+{
+    [Fact]
+    public void A_dll_the_game_ships_is_followed_to_its_own_dependencies()
+    {
+        var exe = Environment.ProcessPath!;
+        var bytes = File.ReadAllBytes(exe);
+        if (bytes[0] != 'M')
+        {
+            return;
+        }
+
+        // Testprogrammet importerer KERNEL32.dll; vi later som spillet har sin egen «KERNEL32.dll» som igjen trenger
+        // msvcr110.dll (som en Tobii-DLL i AC Rogue). Den skal rapporteres med filen som trenger den.
+        var fake = ShippedDllImporting("MSVCR110.dll");
+        using var stream = new MemoryStream(bytes);
+        var result = Core.Diagnostics.Dependencies.CheckTree(
+            stream,
+            dll => dll.Equals("KERNEL32.dll", StringComparison.OrdinalIgnoreCase) ? new MemoryStream(fake) : null,
+            (_, _) => false);
+
+        Assert.Contains(result.Missing, p => p.Id.StartsWith("vc2012", StringComparison.Ordinal));
+        Assert.Contains(result.MissingDlls, d => d.StartsWith("MSVCR110.dll (", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>En minimal PE-fil (64-bit) med én import, laget for testen.</summary>
+    private static byte[] ShippedDllImporting(string dll)
+    {
+        var b = new byte[0x600];
+        b[0] = (byte)'M';
+        b[1] = (byte)'Z';
+        BitConverter.TryWriteBytes(b.AsSpan(0x3C), 0x80);
+        b[0x80] = (byte)'P';
+        b[0x81] = (byte)'E';
+        BitConverter.TryWriteBytes(b.AsSpan(0x80 + 6), (ushort)1); // én seksjon
+        BitConverter.TryWriteBytes(b.AsSpan(0x80 + 20), (ushort)240); // valgfritt hode, 64-bit
+        var optional = 0x80 + 24;
+        BitConverter.TryWriteBytes(b.AsSpan(optional), (ushort)0x20B);
+        BitConverter.TryWriteBytes(b.AsSpan(optional + 112 + 8), 0x1000u); // importtabell RVA
+        var section = optional + 240;
+        BitConverter.TryWriteBytes(b.AsSpan(section + 8), 0x400u); // virtuell størrelse
+        BitConverter.TryWriteBytes(b.AsSpan(section + 12), 0x1000u); // virtuell adresse
+        BitConverter.TryWriteBytes(b.AsSpan(section + 16), 0x400u); // rå størrelse
+        BitConverter.TryWriteBytes(b.AsSpan(section + 20), 0x200u); // rå posisjon
+        BitConverter.TryWriteBytes(b.AsSpan(0x200 + 12), 0x1100u); // navnet ligger på RVA 0x1100
+        var name = System.Text.Encoding.ASCII.GetBytes(dll);
+        name.CopyTo(b, 0x300);
+        return b;
+    }
+}

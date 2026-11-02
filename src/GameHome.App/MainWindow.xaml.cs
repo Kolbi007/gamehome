@@ -2229,9 +2229,10 @@ public sealed partial class MainWindow : Window
             }
             else
             {
-                ShowMessage($"{title} mangler en fil", "Windows fant ikke en fil spillet trenger, men GameHome ser ikke hvilken pakke det er. " +
-                    "Ofte er det DirectX (juni 2010). Det er trygt å installere den; Windows hopper over det som allerede finnes.",
-                    "Installer DirectX (juni 2010)", () => _ = InstallRedistributableAsync(game, exeAction, Dependencies.DirectX),
+                // Ingen gjetning: GameHome foreslår bare en pakke den faktisk har sett at mangler.
+                ShowMessage($"{title} mangler en fil", "Windows fant ikke en fil spillet trenger, men GameHome ser ikke hvilken det er. " +
+                    "Navnet står i Windows-meldingen (for eksempel «MSVCR110.dll»). Den lastes kanskje først når spillet kjører, og da kan ikke GameHome se den på forhånd.",
+                    "Prøv igjen", () => _ = LaunchAsync(game, exeAction),
                     "Lukk", () => FocusHome(game.Id));
             }
 
@@ -2290,7 +2291,14 @@ public sealed partial class MainWindow : Window
             DependencyResult result;
             using (var stream = new FileStream(exePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 4096))
             {
-                result = Dependencies.Check(stream, Exists);
+                // Følger også DLL-ene spillet har med (andre ledd), som Tobii.EyeX.Client.dll → MSVCR110.dll i AC Rogue.
+                Stream? OpenLocal(string dll)
+                {
+                    var local = Path.Combine(gameDir, dll);
+                    return File.Exists(local) ? new FileStream(local, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 4096) : null;
+                }
+
+                result = Dependencies.CheckTree(stream, OpenLocal, Exists);
             }
 
             _dependencies.Remember(exePath, info.Length, info.LastWriteTimeUtc, [.. result.Missing.Select(p => p.Id)]);

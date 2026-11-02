@@ -7,7 +7,7 @@ using System.Text.Json.Serialization;
 namespace GameHome.Data;
 
 /// <summary>Én sjekket programfil: hvordan den så ut da (størrelse og endringstid) og hva som manglet.</summary>
-public sealed record CheckedExecutable(long Size, DateTime ModifiedUtc, DateTime CheckedUtc, IReadOnlyList<string> MissingPackages);
+public sealed record CheckedExecutable(long Size, DateTime ModifiedUtc, DateTime CheckedUtc, IReadOnlyList<string> MissingPackages, int Version = 1);
 
 /// <summary>
 /// GameHomes lille oversikt over avhengigheter: hvilke programfiler som er sjekket (så uendrede spill der alt var i
@@ -19,13 +19,19 @@ public sealed class DependencyDocument
 
     public Dictionary<string, DateTime> InstalledPackages { get; init; } = new(StringComparer.Ordinal);
 
+    /// <summary>
+    /// Hvor grundig sjekken er. Økes når sjekken blir bedre, så gamle «i orden»-resultater sjekkes på nytt
+    /// (2: følger også DLL-ene spillet har med, 2026-11-02).
+    /// </summary>
+    public const int CheckVersion = 2;
+
     /// <summary>Om programfilen er sjekket uten mangler og ikke endret siden.</summary>
     public bool IsKnownGood(string exePath, long size, DateTime modifiedUtc) =>
         Executables.TryGetValue(exePath, out var known)
-        && known.Size == size && known.ModifiedUtc == modifiedUtc && known.MissingPackages.Count == 0;
+        && known.Version == CheckVersion && known.Size == size && known.ModifiedUtc == modifiedUtc && known.MissingPackages.Count == 0;
 
     public void Remember(string exePath, long size, DateTime modifiedUtc, IReadOnlyList<string> missingPackages) =>
-        Executables[exePath] = new CheckedExecutable(size, modifiedUtc, DateTime.UtcNow, missingPackages);
+        Executables[exePath] = new CheckedExecutable(size, modifiedUtc, DateTime.UtcNow, missingPackages, CheckVersion);
 
     /// <summary>Glemmer sjekken (for eksempel når spillet krasjet med «DLL ikke funnet»), så neste start sjekker på nytt.</summary>
     public void Forget(string exePath) => Executables.Remove(exePath);
