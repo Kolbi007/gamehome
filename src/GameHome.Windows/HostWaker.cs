@@ -21,19 +21,38 @@ public static class HostWaker
     private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(1.5);
     private static readonly TimeSpan ResendEvery = TimeSpan.FromSeconds(10);
 
+    /// <summary>
+    /// Om hosten svarer. Har en hard tidsgrense: et tilkoblingsforsøk mot en maskin som sover, kan ellers bli hengende
+    /// mye lenger enn avbruddet ber om (0.1.68.0 ble stående på «Vekker …» etter at maskinen var våken).
+    /// </summary>
     public static async Task<bool> IsAwakeAsync(string address, CancellationToken ct = default)
     {
-        using var client = new TcpClient();
-        using var limit = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        limit.CancelAfter(ProbeTimeout);
-        try
-        {
-            await client.ConnectAsync(address, StreamPort, limit.Token).ConfigureAwait(false);
-            return true;
-        }
-        catch (Exception ex) when (ex is SocketException or OperationCanceledException)
+        if (!IPAddress.TryParse(address, out var ip))
         {
             return false;
+        }
+
+        var socket = new Socket(ip.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+        try
+        {
+            var connect = socket.ConnectAsync(new IPEndPoint(ip, StreamPort));
+            var finished = await Task.WhenAny(connect, Task.Delay(ProbeTimeout, ct)).ConfigureAwait(false);
+            if (finished != connect)
+            {
+                return false;
+            }
+
+            await connect.ConfigureAwait(false);
+            return socket.Connected;
+        }
+        catch (Exception ex) when (ex is SocketException or OperationCanceledException or ObjectDisposedException)
+        {
+            return false;
+        }
+        finally
+        {
+            // Lukker også et forsøk som fortsatt pågår.
+            socket.Dispose();
         }
     }
 

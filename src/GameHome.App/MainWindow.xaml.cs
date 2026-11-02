@@ -73,6 +73,8 @@ public sealed partial class MainWindow : Window
     private DispatcherQueueTimer? _loadingTimer;
     private DispatcherQueueTimer? _streamCover;
     private DateTime _loadingShown;
+    private bool _waking;
+    private string? _statusBeforeSlow;
     private bool _loadingCovered;
     private bool _windowActive;
     private Game? _sessionGame;
@@ -383,7 +385,26 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Starter et spill. Feil underveis logges og gir en melding med valg; de skal aldri forsvinne stille og etterlate
+    /// en lasteskjerm som henger (0.1.68.0).
+    /// </summary>
     private async Task LaunchAsync(Game game, PlayAction? chosen = null)
+    {
+        try
+        {
+            await LaunchCoreAsync(game, chosen);
+        }
+        catch (Exception ex)
+        {
+            _log.Write("krasj", $"Start av «{GameLibrary.DisplayTitle(game)}» feilet: {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}");
+            HideLoading("feil under start");
+            ShowMessage($"{GameLibrary.DisplayTitle(game)} startet ikke", ex.Message,
+                "Prøv igjen", () => _ = LaunchAsync(game, chosen), "Lukk", () => FocusHome(game.Id));
+        }
+    }
+
+    private async Task LaunchCoreAsync(Game game, PlayAction? chosen)
     {
         if (SessionActive)
         {
@@ -680,6 +701,14 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        // Under vekking av gaming-PC-en har vekkingen sin egen tidsgrense og melding; ikke spør i tillegg.
+        if (_waking)
+        {
+            _loadingTimer?.Start();
+            return;
+        }
+
+        _statusBeforeSlow = LoadingStatus.Text;
         LoadingStatus.Text = "Det tar lang tid …";
         LoadingChoices.Visibility = Visibility.Visible;
         LoadingWaitButton.Focus(FocusState.Keyboard);
@@ -824,7 +853,9 @@ public sealed partial class MainWindow : Window
     private void LoadingWaitButton_Click(object sender, RoutedEventArgs e)
     {
         LoadingChoices.Visibility = Visibility.Collapsed;
-        LoadingStatus.Text = "Venter …";
+
+        // Vis hva vi fortsatt venter på (for eksempel «Kobler til Gaming Laptop …»), ikke bare «Venter».
+        LoadingStatus.Text = string.IsNullOrEmpty(_statusBeforeSlow) ? "Venter på spillet …" : _statusBeforeSlow;
         if (_loadingTimer is not null)
         {
             _loadingTimer.Interval = LoadingPatience;
@@ -1102,11 +1133,20 @@ public sealed partial class MainWindow : Window
             return true;
         }
 
-        var result = await HostWaker.EnsureAwakeAsync(host, TimeSpan.FromSeconds(90), onWaking: () => DispatcherQueue.TryEnqueue(() =>
+        WakeResult result;
+        try
         {
-            LoadingStatus.Text = $"Vekker {host.DisplayName} …";
-            _log.Write("vekking", $"{host.DisplayName} svarer ikke; sender Wake-on-LAN (MAC {(host.Mac is null ? "ukjent" : "kjent")})");
-        }));
+            result = await HostWaker.EnsureAwakeAsync(host, TimeSpan.FromSeconds(90), onWaking: () => DispatcherQueue.TryEnqueue(() =>
+            {
+                _waking = true;
+                LoadingStatus.Text = $"Vekker {host.DisplayName} … (opptil 90 s)";
+                _log.Write("vekking", $"{host.DisplayName} svarer ikke; sender Wake-on-LAN (MAC {(host.Mac is null ? "ukjent" : "kjent")})");
+            }));
+        }
+        finally
+        {
+            _waking = false;
+        }
 
         if (result.WasAsleep)
         {
