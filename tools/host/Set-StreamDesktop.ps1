@@ -308,6 +308,30 @@ public static class GameHomeDesktop
         SendMessage(view, WM_COMMAND, (IntPtr)TOGGLE_DESKTOP_ICONS, IntPtr.Zero);
         return true;
     }
+
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr window, int command);
+
+    /// <summary>
+    /// Skjuler eller viser oppgavelinjen helt. Automatisk skjult oppgavelinje spretter fram når et nytt program åpner et
+    /// vindu (målt 2026-11-02: synlig et øyeblikk da spillet startet); en skjult oppgavelinje gjør ikke det.
+    /// </summary>
+    public static void SetTaskbarVisible(bool visible)
+    {
+        foreach (var name in new[] { "Shell_TrayWnd", "Shell_SecondaryTrayWnd" })
+        {
+            var window = IntPtr.Zero;
+            while ((window = FindWindowEx(IntPtr.Zero, window, name, null)) != IntPtr.Zero)
+            {
+                ShowWindow(window, visible ? 5 : 0); // SW_SHOW / SW_HIDE
+            }
+        }
+    }
+
+    public static bool TaskbarVisible
+    {
+        get { var tray = FindWindow("Shell_TrayWnd", null); return tray != IntPtr.Zero && IsWindowVisible(tray); }
+    }
 }
 '@ -ErrorAction SilentlyContinue
 
@@ -316,7 +340,7 @@ public static class GameHomeDesktop
 
     switch ($Action) {
         'Status' {
-            "Ikoner synlige: $icons, oppgavelinje automatisk skjult: $autoHide, lagret tilstand: $(Test-Path $stateFile)"
+            "Ikoner synlige: $icons, oppgavelinje synlig: $([GameHomeDesktop]::TaskbarVisible), automatisk skjult: $autoHide, lagret tilstand: $(Test-Path $stateFile)"
         }
         'Hide' {
             # Lagre bare første gang, så en ny Hide (for eksempel etter gjenoppkobling) ikke overskriver originalen.
@@ -330,12 +354,16 @@ public static class GameHomeDesktop
             }
             if ($icons -eq $true) { [void][GameHomeDesktop]::ToggleIcons() }
             if (-not $autoHide) { [GameHomeDesktop]::TaskbarAutoHide = $true }
+            [GameHomeDesktop]::SetTaskbarVisible($false)
             Start-Cover
             Write-Log "ikoner var $icons, autoskjul var $autoHide, minimerte vinduer: $firstHide, dekkbilde åpnet"
             Remove-Item -Path $hidePidFile -Force -ErrorAction SilentlyContinue
         }
         'Restore' {
             Stop-Cover
+
+            # Oppgavelinjen vises alltid igjen, også uten lagret tilstand (sikkerhetsnett ved pålogging).
+            [GameHomeDesktop]::SetTaskbarVisible($true)
             if (-not (Test-Path $stateFile)) {
                 Write-Log 'ingen lagret tilstand; ingenting å sette tilbake'
                 break
