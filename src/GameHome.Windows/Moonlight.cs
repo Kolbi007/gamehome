@@ -312,7 +312,7 @@ public sealed class StreamSession : IForegroundSession
 
     public nint MainWindowHandle => _client.MainWindowHandle;
 
-    public string Status => "Strømmer fra PC-en";
+    public string Status => "Strømmer";
 
     public event EventHandler<string>? Note;
 
@@ -332,6 +332,21 @@ public sealed class StreamSession : IForegroundSession
     {
         var result = await MoonlightClient.RunAsync(["quit", _host], TimeSpan.FromSeconds(30)).ConfigureAwait(false);
         Note?.Invoke(this, string.Create(System.Globalization.CultureInfo.InvariantCulture, $"Avslutt fjernspill: exit {result.ExitCode} etter {result.Elapsed.TotalSeconds:F1} s"));
+        if (result.ExitCode != 0)
+        {
+            return result;
+        }
+
+        // Spillet på hosten er avsluttet. Moonlight blir stående med «connection terminated» (målt 2026-11-02), så den
+        // lokale klienten lukkes: først normalt, så med tvang etter 5 s. Det rammer bare Moonlight, ikke spillet.
+        await _client.RequestCloseAsync().ConfigureAwait(false);
+        var closed = await Task.WhenAny(_client.Completion, Task.Delay(TimeSpan.FromSeconds(5))).ConfigureAwait(false) == _client.Completion;
+        if (!closed)
+        {
+            await _client.ForceTerminateAsync().ConfigureAwait(false);
+            Note?.Invoke(this, "Moonlight lukket etter avsluttet fjernspill");
+        }
+
         return result;
     }
 

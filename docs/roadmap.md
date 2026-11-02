@@ -45,6 +45,30 @@ Funn og kilder står i `docs/architecture.md`, «Fase 2: funn fra kildekoden». 
 10. PC-en i dvale: GameHome vekker den med Wake-on-LAN og starter når den svarer.
 11. En annen app kjører på PC-en: GameHome spør før den avslutter den.
 
+**Resultater 2026-11-02 (0.1.45.0–0.1.47.0)**
+
+- Listen: 37 apper, 33 spill på 1,8 s, etter at listen regnes som ferdig når utskriften stopper (Moonlight avslutter
+  ikke selv etter `list`). Playnite måtte oppdateres for at Vibepollo-tillegget skulle lastes (krevde SDK 6.15).
+- 007 First Light lagt til fra undermenyen og strømmet. Playnite ble aldri vist.
+- «Avslutt spillet på Gaming Laptop» avsluttet spillet (`quit` exit 0 etter 6,2 s), men Moonlight ble stående med
+  «connection terminated -1», så økten og ▶ på flisen ble hengende. Rettet: Moonlight lukkes etter et vellykket `quit`.
+
+**Hypotese: vis streamen først når spillet faktisk vises (ønske 2026-11-02)**
+
+I dag ser brukeren hostens låseskjerm (hvis den er låst), så skrivebordet, før spillet kommer i fullskjerm.
+Mulige veier, i rekkefølge etter hvor lite som må til:
+
+1. **Lasteskjermen i GameHome ligger over Moonlight til spillet er klart.** GameHome kan ikke se hva streamen viser,
+   men kan bruke Vibepollos `GET /api/session/status` (`appRunning`) eller vente til Moonlights vindu har vært i
+   forgrunnen en stund. Krever enten API-token (valgfritt oppsett) eller en grov tidsgrense.
+2. **Vibepollo viser svart skjerm til appen har startet.** Må sjekkes i Vibepollos kildekode og innstillinger
+   (virtuell skjerm, «launch overlay» eller lignende). Ingen endring i GameHome.
+3. **Låseskjermen:** følger av at PC-en er låst. Alternativer er Vibepollos opplåsing via streamen (dagens oppførsel),
+   eller at PC-en ikke låses når den står hjemme. Autologon lagrer passordet og anbefales ikke.
+
+Når: etter runde 3 (vekking), fordi vekking og låseskjerm henger sammen. Neste steg er å lese Vibepollos kildekode for
+punkt 2 før noe bygges.
+
 ## Beslutningspunkter som kan endre planen
 
 1. **FSE virker ikke uten utviklermodus:** GameHome blir en fullskjermsapp som starter ved pålogging. Resten står.
