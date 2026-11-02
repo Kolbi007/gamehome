@@ -195,11 +195,30 @@ public sealed partial class MainWindow : Window
     private Button? TileFor(string? gameId) =>
         GameTiles.Children.OfType<Button>().FirstOrDefault(b => b.Tag is string id && id == gameId);
 
+    /// <summary>
+    /// Gir flisen fokus. En nylaget flis får fokus først når den er lastet: fokus og scrolling på et element som ikke
+    /// er lagt ut ennå, krasjet appen ved oppstart (0.1.27.0, E_INVALIDARG i XAML). ScrollViewer scroller selv til
+    /// elementet med fokus.
+    /// </summary>
     private void FocusHome(string? gameId)
     {
         var target = TileFor(gameId) ?? GameTiles.Children.OfType<Button>().FirstOrDefault() ?? AddGameTile;
-        target.Focus(FocusState.Keyboard);
-        target.StartBringIntoView();
+        if (target.IsLoaded)
+        {
+            target.Focus(FocusState.Keyboard);
+            return;
+        }
+
+        void OnLoaded(object sender, RoutedEventArgs e)
+        {
+            target.Loaded -= OnLoaded;
+            if (MessagePanel.Visibility != Visibility.Visible && SessionPanel.Visibility != Visibility.Visible)
+            {
+                target.Focus(FocusState.Keyboard);
+            }
+        }
+
+        target.Loaded += OnLoaded;
     }
 
     private async void AddGameTile_Click(object sender, RoutedEventArgs e)
@@ -490,7 +509,7 @@ public sealed partial class MainWindow : Window
         }
 
         _ = session.RequestCloseAsync();
-        _log.Write("økt", "Ba spillet avslutte normalt (WM_CLOSE)");
+        _log.Write("økt", "«Avslutt spillet» valgt");
         SessionDetail.Text = "Venter på at spillet avslutter …";
 
         // Avslutter ikke spillet selv, tilbys tvangsavslutning. Aldri automatisk.
@@ -727,11 +746,7 @@ public sealed partial class MainWindow : Window
         var direction = DPadDirection(pressed) ?? (stickMoved ? stick : null);
         if (direction is { } dir)
         {
-            var moved = FocusManager.TryMoveFocus(dir, new FindNextElementOptions { SearchRoot = Root.XamlRoot.Content });
-            if (moved && FocusManager.GetFocusedElement(Root.XamlRoot) is Button focused)
-            {
-                focused.StartBringIntoView();
-            }
+            FocusManager.TryMoveFocus(dir, new FindNextElementOptions { SearchRoot = Root.XamlRoot.Content });
         }
 
         var focusedButton = FocusManager.GetFocusedElement(Root.XamlRoot) as Button;
