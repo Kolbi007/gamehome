@@ -12,6 +12,7 @@ public sealed class GameLibrary
 {
     public const string ExecutableRunnerId = "exe";
     public const string SteamRunnerId = "steam";
+    public const string MoonlightRunnerId = "moonlight";
 
     // Filnavn som sier lite om spillet; da brukes mappenavnet i stedet.
     private static readonly HashSet<string> GenericExeNames = new(StringComparer.OrdinalIgnoreCase)
@@ -97,6 +98,56 @@ public sealed class GameLibrary
 
         return new StoreSyncResult(added, updatedCount, missing);
     }
+
+    /// <summary>Om en app på en host allerede er lagt til som spillemåte.</summary>
+    public bool HasStream(string hostId, string appName) =>
+        _actions.Exists(a => IsStream(a, hostId, appName));
+
+    /// <summary>
+    /// Legger en app på en host til i Home, valgt av brukeren. Finnes et spill med samme tittel, blir streamen en ekstra
+    /// spillemåte på samme flis (ett spill, ikke to kopier). Ellers lages et nytt spill.
+    /// </summary>
+    public (Game Game, bool NewTile) AddStream(string hostId, string appName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(hostId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(appName);
+
+        var existing = _actions.Find(a => IsStream(a, hostId, appName));
+        if (existing is not null && Find(existing.GameId) is { } known)
+        {
+            return (known, false);
+        }
+
+        var key = TitleKey(appName);
+        var sameTitle = _games.Find(g => !g.Overrides.Hidden && TitleKey(DisplayTitle(g)) == key);
+        var game = sameTitle ?? new Game(NewId(), appName.Trim(), [], ArtSet.Empty, UserOverrides.None);
+        if (sameTitle is null)
+        {
+            _games.Add(game);
+        }
+
+        _actions.Add(new PlayAction(
+            NewId(), game.Id, PlayKind.Stream, MoonlightRunnerId, appName,
+            Arguments: null, WorkingDirectory: null, LaunchMode.ClientRequired,
+            ProfileId: null, Availability.Installed, HostId: hostId));
+        return (game, sameTitle is null);
+    }
+
+    /// <summary>Spillemåtene som kan brukes nå, lokale først.</summary>
+    public IReadOnlyList<PlayAction> AvailableActionsFor(string gameId) =>
+        [.. _actions.Where(a => a.GameId == gameId && a.Availability != Availability.Missing).OrderBy(a => a.IsRemote)];
+
+    /// <summary>Tittel for sammenligning: uten store bokstaver, varemerketegn og ekstra mellomrom.</summary>
+    public static string TitleKey(string title)
+    {
+        ArgumentNullException.ThrowIfNull(title);
+        var cleaned = new string([.. title.Where(c => c is not ('™' or '®' or '©'))]);
+        return string.Join(' ', cleaned.Split(' ', StringSplitOptions.RemoveEmptyEntries)).ToUpperInvariant();
+    }
+
+    private static bool IsStream(PlayAction action, string hostId, string appName) =>
+        action.RunnerId == MoonlightRunnerId && action.HostId == hostId
+        && string.Equals(action.Target, appName, StringComparison.OrdinalIgnoreCase);
 
     public static string DisplayTitle(Game game) => game.Overrides.Title ?? game.Title;
 
