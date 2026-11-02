@@ -51,6 +51,45 @@
             <TextBlock x:Name="EventText" Grid.Row="4" FontFamily="Consolas" FontSize="13" Foreground="#8A9199" TextWrapping="NoWrap" />
         </Grid>
 
+        <!--
+          Lasteskjerm mens spillet starter: logo over et mørkt bakgrunnsbilde, eller tittelen i stor tekst.
+          Forsvinner når spillet tar forgrunnen. B går tilbake til Home uten å stoppe spillet.
+        -->
+        <Grid x:Name="LoadingPanel" Background="#0B0D10" Visibility="Collapsed">
+            <Grid.Resources>
+                <Storyboard x:Name="LoadingPulse" RepeatBehavior="Forever" AutoReverse="True">
+                    <DoubleAnimation Storyboard.TargetName="LoadingCenter" Storyboard.TargetProperty="Opacity"
+                                     From="1" To="0.55" Duration="0:0:1.1">
+                        <DoubleAnimation.EasingFunction>
+                            <SineEase EasingMode="EaseInOut" />
+                        </DoubleAnimation.EasingFunction>
+                    </DoubleAnimation>
+                </Storyboard>
+            </Grid.Resources>
+            <Image x:Name="LoadingHero" Stretch="UniformToFill" Opacity="0.35" />
+            <Rectangle>
+                <Rectangle.Fill>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                        <GradientStop Color="#550B0D10" Offset="0" />
+                        <GradientStop Color="#F00B0D10" Offset="1" />
+                    </LinearGradientBrush>
+                </Rectangle.Fill>
+            </Rectangle>
+            <Grid x:Name="LoadingCenter" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Image x:Name="LoadingLogo" MaxWidth="720" MaxHeight="300" Stretch="Uniform" />
+                <TextBlock x:Name="LoadingTitle" FontSize="64" FontWeight="SemiBold" Foreground="White"
+                           TextAlignment="Center" TextWrapping="Wrap" MaxWidth="1000" />
+            </Grid>
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,56" Spacing="20">
+                <TextBlock x:Name="LoadingStatus" FontSize="20" Foreground="#C8CDD3" HorizontalAlignment="Center" />
+                <StackPanel x:Name="LoadingChoices" Orientation="Horizontal" Spacing="16" HorizontalAlignment="Center" Visibility="Collapsed">
+                    <Button x:Name="LoadingWaitButton" Content="Vent" Click="LoadingWaitButton_Click" Width="240" Height="64" FontSize="20" />
+                    <Button x:Name="LoadingHomeButton" Content="Tilbake til Home" Click="LoadingHomeButton_Click" Width="240" Height="64" FontSize="20" />
+                </StackPanel>
+                <TextBlock Text="B: tilbake til Home (spillet fortsetter å starte)" FontSize="16" Foreground="#8A9199" HorizontalAlignment="Center" />
+            </StackPanel>
+        </Grid>
+
         <!-- «Kjører nå»: fullskjermspanel. Ingen overlay over spillet; GameHome tar forgrunnen. -->
         <Grid x:Name="SessionPanel" Background="#F00B0D10" Visibility="Collapsed">
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="24" Width="560">
