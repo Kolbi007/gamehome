@@ -10,7 +10,7 @@ using Microsoft.Win32;
 namespace GameHome.Windows;
 
 /// <summary>En host Moonlight er paret med. Bare navn og adresser; nøkler og sertifikater leses aldri.</summary>
-public sealed record MoonlightHost(string Uuid, string Name, string? Address)
+public sealed record MoonlightHost(string Uuid, string Name, string? Address, byte[]? Mac = null)
 {
     /// <summary>
     /// Navn som vises i GameHome. Windows-standardnavn som LAPTOP-1G28Q2RP sier lite; de vises som «Gaming Laptop» eller
@@ -74,7 +74,16 @@ public static class MoonlightClient
                 address = host.GetValue("localaddress") as string;
             }
 
-            hosts.Add(new MoonlightHost(uuid, host.GetValue("hostname") as string ?? uuid, string.IsNullOrWhiteSpace(address) ? null : address));
+            // MAC-adressen (for Wake-on-LAN) lagrer Moonlight som Qt-tekst «@ByteArray(...)»; den er ikke hemmelig.
+            var mac = host.GetValue("mac") switch
+            {
+                byte[] raw when raw.Length == GameHome.Core.Network.WakeOnLan.MacLength => raw,
+                string text => GameHome.Core.Network.WakeOnLan.ParseQtByteArray(text),
+                _ => null,
+            };
+
+            hosts.Add(new MoonlightHost(uuid, host.GetValue("hostname") as string ?? uuid,
+                string.IsNullOrWhiteSpace(address) ? null : address, mac));
         }
 
         return hosts;

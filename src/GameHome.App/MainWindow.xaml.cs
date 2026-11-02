@@ -422,6 +422,17 @@ public sealed partial class MainWindow : Window
         }
 
         ShowLoading(game, action);
+
+        // Stream: sover gaming-PC-en, vekkes den først (Wake-on-LAN), så Moonlight ikke gir opp etter 30 s.
+        if (action.IsRemote && !await WakeHostAsync(action.HostId!))
+        {
+            HideLoading("PC-en våknet ikke");
+            ShowMessage($"{HostLabel} svarer ikke",
+                $"GameHome prøvde å vekke {HostLabel}. Sjekk at den har strøm og nettverkskabel, og prøv igjen.",
+                "Prøv igjen", () => _ = LaunchAsync(game, action), "Lukk", () => FocusHome(game.Id));
+            return;
+        }
+
         try
         {
             _session = (IForegroundSession)await runner.LaunchAsync(action, Profile.Default, CancellationToken.None);
@@ -986,6 +997,21 @@ public sealed partial class MainWindow : Window
         var host = hosts[0];
         HostTitle.Text = $"Spill fra {host.DisplayName}";
         HostStatus.Text = $"Henter spill fra {host.DisplayName} …";
+        var wake = await HostWaker.EnsureAwakeAsync(host, TimeSpan.FromSeconds(90), onWaking: () => DispatcherQueue.TryEnqueue(() =>
+        {
+            HostStatus.Text = $"Vekker {host.DisplayName} …";
+            _log.Write("vekking", $"{host.DisplayName} svarer ikke; sender Wake-on-LAN før listen hentes");
+        }));
+        if (wake.WasAsleep)
+        {
+            _log.Write("vekking", string.Create(CultureInfo.InvariantCulture,
+                $"{host.DisplayName} {(wake.Awake ? "våknet" : "våknet ikke")} etter {wake.Elapsed.TotalSeconds:F1} s"));
+            HostStatus.Text = wake.Awake ? $"Henter spill fra {host.DisplayName} …" : $"{host.DisplayName} våknet ikke. Er den slått på?";
+            if (!wake.Awake)
+            {
+                return;
+            }
+        }
         MoonlightResult result;
         try
         {
@@ -1061,6 +1087,38 @@ public sealed partial class MainWindow : Window
         HostPanel.Visibility = Visibility.Collapsed;
         SetHomeEnabled(true);
         FocusHome(_focusGameId);
+    }
+
+    /// <summary>
+    /// Sørger for at gaming-PC-en svarer. Sover den, sendes Wake-on-LAN og lasteskjermen viser «Vekker …» til den
+    /// svarer, høyst 90 s. Returnerer false hvis den ikke våknet.
+    /// </summary>
+    private async Task<bool> WakeHostAsync(string hostId)
+    {
+        var host = MoonlightClient.FindHosts().FirstOrDefault(h => h.Uuid == hostId);
+        if (host is null)
+        {
+            _log.Write("vekking", "Fant ikke hosten i Moonlights liste; lar Moonlight prøve selv");
+            return true;
+        }
+
+        var result = await HostWaker.EnsureAwakeAsync(host, TimeSpan.FromSeconds(90), onWaking: () => DispatcherQueue.TryEnqueue(() =>
+        {
+            LoadingStatus.Text = $"Vekker {host.DisplayName} …";
+            _log.Write("vekking", $"{host.DisplayName} svarer ikke; sender Wake-on-LAN (MAC {(host.Mac is null ? "ukjent" : "kjent")})");
+        }));
+
+        if (result.WasAsleep)
+        {
+            _log.Write("vekking", string.Create(CultureInfo.InvariantCulture,
+                $"{host.DisplayName} {(result.Awake ? "våknet" : "våknet ikke")} etter {result.Elapsed.TotalSeconds:F1} s, {result.PacketsSent} pakker"));
+            if (result.Awake)
+            {
+                LoadingStatus.Text = $"Kobler til {host.DisplayName} …";
+            }
+        }
+
+        return result.Awake || host.Address is null;
     }
 
     private static string FirstLine(string text) =>
