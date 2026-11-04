@@ -505,13 +505,9 @@
                     <Button x:Name="DebugCloseButton" Content="Lukk" Click="DebugCloseButton_Click" Height="52" Padding="20,0" FontSize="{StaticResource GhSizeCaption}" />
                 </StackPanel>
                 <StackPanel Grid.Row="3" Spacing="10">
-                    <!-- Fokusbrytere (2026-11-02): av = som 0.1.95.0. Slås på én om gangen for å finne fokusfeilen. -->
-                    <TextBlock Text="Fokusbrytere (av = som før 2. november kveld)" FontSize="{StaticResource GhSizeCaption}" Foreground="{StaticResource GhTextSecondaryBrush}" />
+                    <TextBlock Text="M2 i spill som blokkerer hurtigtaster" FontSize="{StaticResource GhSizeCaption}" Foreground="{StaticResource GhTextSecondaryBrush}" />
                     <StackPanel Orientation="Horizontal" Spacing="10">
                         <Button x:Name="FlagHook" Tag="hook" Click="FocusFlag_Click" Height="48" Padding="16,0" FontSize="{StaticResource GhSizeSmall}" />
-                        <Button x:Name="FlagFollow" Tag="follow" Click="FocusFlag_Click" Height="48" Padding="16,0" FontSize="{StaticResource GhSizeSmall}" />
-                        <Button x:Name="FlagHandBack" Tag="handback" Click="FocusFlag_Click" Height="48" Padding="16,0" FontSize="{StaticResource GhSizeSmall}" />
-                        <Button x:Name="FlagOrder" Tag="order" Click="FocusFlag_Click" Height="48" Padding="16,0" FontSize="{StaticResource GhSizeSmall}" />
                     </StackPanel>
                     <!-- Resultatet av «Test tilkobling» vises her, ikke i et eget panel. -->
                     <TextBlock x:Name="DebugResultText" FontSize="{StaticResource GhSizeBody}" Foreground="{StaticResource GhTextPrimaryBrush}" TextWrapping="Wrap"

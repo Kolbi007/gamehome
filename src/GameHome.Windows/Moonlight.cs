@@ -327,12 +327,6 @@ public sealed class StreamSession : IForegroundSession
     /// </summary>
     public bool IsStreamVisible => Foreground.HasVisibleWindow(_client.ProcessId, "SDL_app");
 
-    /// <summary>Moonlight-prosessen.</summary>
-    public int ClientProcessId => _client.ProcessId;
-
-    /// <summary>Selve streamvinduet (SDL) hvis det er synlig, ellers 0. Moonlights skjulte hovedvindu brukes aldri.</summary>
-    public nint StreamWindowHandle => Foreground.FindVisibleWindow(_client.ProcessId, "SDL_app");
-
     public string Status => "Strømmer";
 
     public event EventHandler<string>? Note;

@@ -158,7 +158,7 @@ public sealed partial class MainWindow : Window
         MenuSounds.Enabled = ApplicationData.Current.LocalSettings.Values[SoundSetting] is not false;
         SoundToggleText.Text = MenuSounds.Enabled ? "Menylyder: på" : "Menylyder: av";
         UpdateClock();
-        LoadFocusFlags();
+        ShowM2Fallback();
         BuildGameTiles();
 
         // Pakkeversjonen er den som installeres og oppgraderes (0.1.N.0); assembly-versjonen er alltid 1.0.0.0.
@@ -2047,39 +2047,21 @@ public sealed partial class MainWindow : Window
         return running;
     }
 
-    // ---- Fokusbrytere (2026-11-02): av som standard; slås på én om gangen for å finne fokusfeilen ----
+    // ---- M2-reserve: tastaturkrok under spill som slår av hurtigtaster (Assassin's Creed Rogue, 2026-11-02) ----
+    // Fokusproblemene 2.–4. november skyldtes Legion Space, ikke kroken; de andre fokusbryterne er fjernet.
 
-    private static bool ReadFlag(string name) => ApplicationData.Current.LocalSettings.Values["focus." + name] is true;
+    private const string M2FallbackSetting = "m2.fallback";
 
-    private void LoadFocusFlags()
-    {
-        FocusExperiments.KeyboardHook = ReadFlag("hook");
-        FocusExperiments.FollowGameProcess = ReadFlag("follow");
-        FocusExperiments.HandForegroundBack = ReadFlag("handback");
-        FocusExperiments.WindowOrder = ReadFlag("order");
-        ShowFocusFlags();
-        _log.Write("start", $"Fokusbrytere: {FocusExperiments.Describe()}");
-    }
+    private static bool M2Fallback => ApplicationData.Current.LocalSettings.Values[M2FallbackSetting] is not false;
 
-    private void ShowFocusFlags()
-    {
-        FlagHook.Content = $"Tastaturkrok (M2-reserve): {(FocusExperiments.KeyboardHook ? "på" : "av")}";
-        FlagFollow.Content = $"Følg spillprosess: {(FocusExperiments.FollowGameProcess ? "på" : "av")}";
-        FlagHandBack.Content = $"Gi forgrunnen tilbake: {(FocusExperiments.HandForegroundBack ? "på" : "av")}";
-        FlagOrder.Content = $"Vindusrekkefølge: {(FocusExperiments.WindowOrder ? "på" : "av")}";
-    }
+    private void ShowM2Fallback() => FlagHook.Content = $"M2-reserve (tastaturkrok): {(M2Fallback ? "på" : "av")}";
 
     private void FocusFlag_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { Tag: string name })
-        {
-            return;
-        }
-
-        var value = !ReadFlag(name);
-        ApplicationData.Current.LocalSettings.Values["focus." + name] = value;
-        LoadFocusFlags();
-        _log.Write("feilsøk", $"Fokusbryter «{name}» satt til {(value ? "på" : "av")}; gjelder fra neste spillstart");
+        var value = !M2Fallback;
+        ApplicationData.Current.LocalSettings.Values[M2FallbackSetting] = value;
+        ShowM2Fallback();
+        _log.Write("feilsøk", $"M2-reserve satt til {(value ? "på" : "av")}; gjelder fra neste spillstart");
     }
 
     private void DebugTile_Click(object sender, RoutedEventArgs e)
@@ -2320,9 +2302,9 @@ public sealed partial class MainWindow : Window
         }
 
         var registered = SessionHotkeys.Where(h => _hotkeys.Register(h.Id, h.Modifiers, h.Key)).Select(h => h.Name).ToList();
-        var hook = FocusExperiments.KeyboardHook && _hotkeys.StartHook();
+        var hook = M2Fallback && _hotkeys.StartHook();
         _log.Write("økt", $"Startet «{title}» ({action.RunnerId} {action.Target}, {session.Status}). Hurtigtaster: {string.Join(", ", registered)}"
-            + (hook ? " (+ tastaturkrok som reserve)" : "") + $"; fokusbrytere: {FocusExperiments.Describe()}");
+            + (hook ? " (+ tastaturkrok som reserve)" : ""));
         RefreshTileTexts();
         LastInput.Text = $"{title} starter. M2 åpner menyen.";
     }
@@ -2365,10 +2347,6 @@ public sealed partial class MainWindow : Window
         Activate();
         var ok = Foreground.Bring(WinRT.Interop.WindowNative.GetWindowHandle(this));
         _log.Write("fokus", ok ? "Tilbake i Home etter spillet" : "Windows avslo forgrunnen etter spillet");
-        if (FocusExperiments.WindowOrder)
-        {
-            KeepHomeOnTop("etter spillet");
-        }
 
         // Alltid flisen til spillet som nettopp sluttet, ikke den som tilfeldigvis fikk fokus mens menyene var åpne.
         if (game is not null)
@@ -2907,110 +2885,6 @@ public sealed partial class MainWindow : Window
         _log.Write("laster", "Lasteskjermen dekker Moonlight mens spillet avsluttes");
     }
 
-    private DispatcherQueueTimer? _streamRecheck;
-
-    /// <summary>
-    /// Store vinduer fra andre programmer som ligger over Home (Legion Space etter at et spill eller en strøm slutter,
-    /// målt 2026-11-02), legges under GameHome. Bare her og nå, ikke fortløpende.
-    /// </summary>
-    private void KeepHomeOnTop(string when)
-    {
-        try
-        {
-            var window = WinRT.Interop.WindowNative.GetWindowHandle(this);
-            var legion = Foreground.SendProcessWindowsToBack("LegionSpace");
-            if (legion > 0)
-            {
-                _log.Write("fokus", $"Legion Space lagt bakerst ({legion} vinduer) ({when})");
-            }
-
-            foreach (var covering in Foreground.WindowsAbove(window, Environment.ProcessId))
-            {
-                var moved = Foreground.PutBelow(covering.Handle, window);
-                _log.Write("fokus", string.Create(CultureInfo.InvariantCulture,
-                    $"{covering.Process} lå over Home ({covering.Width}×{covering.Height}{(covering.Topmost ? ", alltid øverst" : "")}); {(moved ? "lagt under" : "kunne ikke flyttes")} ({when})"));
-            }
-
-            // Legion Space kan ta forgrunnen igjen et øyeblikk etter; sjekk én gang til.
-            var again = DispatcherQueue.CreateTimer();
-            _homeRecheck = again;
-            again.Interval = TimeSpan.FromSeconds(1.5);
-            again.IsRepeating = false;
-            again.Tick += (timer, _) =>
-            {
-                timer.Stop();
-                try
-                {
-                    if (SessionActive && SessionPanel.Visibility != Visibility.Visible)
-                    {
-                        return; // Et spill er startet igjen; Home skal ikke ligge over det.
-                    }
-
-                    foreach (var covering in Foreground.WindowsAbove(window, Environment.ProcessId))
-                    {
-                        Foreground.PutBelow(covering.Handle, window);
-                        _log.Write("fokus", $"{covering.Process} lå over Home igjen; lagt under ({when}, ny sjekk)");
-                    }
-
-                    if (!Foreground.IsForeground(window))
-                    {
-                        Activate();
-                        _log.Write("fokus", Foreground.Bring(window)
-                            ? $"Home tok forgrunnen tilbake fra {Foreground.CurrentProcessName() ?? "ukjent"} ({when})"
-                            : $"Windows avslo forgrunnen; {Foreground.CurrentProcessName() ?? "ukjent"} har den ({when})");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _log.Write("krasj", $"Ny sjekk av Home feilet: {ex.GetType().Name}: {ex.Message}");
-                }
-            };
-            again.Start();
-        }
-        catch (Exception ex)
-        {
-            _log.Write("krasj", $"Holde Home øverst feilet: {ex.GetType().Name}: {ex.Message}");
-        }
-    }
-
-    private DispatcherQueueTimer? _homeRecheck;
-
-    /// <summary>Gjenoppretter streamvinduet hvis det er minimert, og henter det fram hvis noe annet har forgrunnen.</summary>
-    private void ShowStreamWindow(StreamSession stream, string when)
-    {
-        var sdl = stream.StreamWindowHandle;
-        if (sdl == 0)
-        {
-            _log.Write("laster", $"Streamvinduet finnes ikke ({when})");
-            return;
-        }
-
-        var minimized = Foreground.IsMinimized(sdl);
-        if (minimized || !Foreground.IsForeground(sdl))
-        {
-            var (ok, restored) = Foreground.BringGame(sdl);
-            _log.Write("laster", $"Streamvinduet hentet fram ({when}): {(ok ? "fikk forgrunnen" : "Windows avslo forgrunnen")}"
-                + $"{(restored ? ", var minimert og ble gjenopprettet" : "")}; forgrunnen er nå {Foreground.CurrentProcessName() ?? "ukjent"}");
-        }
-
-        // Et annet programs store vindu kan ligge over streamen selv om streamen har forgrunnen (målt 2026-11-02: Legion
-        // Space lå over Mega Man 11; Legion-knappen måtte til). Slike vinduer legges rett under streamvinduet.
-        var own = Environment.ProcessId;
-        var covering = Foreground.WindowsAbove(sdl, own, stream.ClientProcessId);
-        if (covering.Count == 0)
-        {
-            _log.Write("laster", $"Streamvinduet ligger øverst ({when})");
-            return;
-        }
-
-        foreach (var window in covering)
-        {
-            var moved = Foreground.PutBelow(window.Handle, sdl);
-            _log.Write("laster", string.Create(CultureInfo.InvariantCulture,
-                $"{window.Process} lå over streamen ({window.Width}×{window.Height}{(window.Topmost ? ", alltid øverst" : "")}); {(moved ? "lagt under streamen" : "kunne ikke flyttes")} ({when})"));
-        }
-    }
-
     private void EndStreamCover(string why)
     {
         if (_streamCover is null)
@@ -3023,63 +2897,14 @@ public sealed partial class MainWindow : Window
         var window = WinRT.Interop.WindowNative.GetWindowHandle(this);
         Foreground.SetTopmost(window, false);
 
-        if (!FocusExperiments.WindowOrder)
+        // Kjører spillet og har et annet vindu forgrunnen, skal GameHome ligge bak det, ikke foran.
+        if (SessionActive && !Foreground.IsForeground(window))
         {
-            // Som 0.1.95.0 (virket): har et annet vindu forgrunnen, legges GameHome bak.
-            if (SessionActive && !Foreground.IsForeground(window))
-            {
-                Foreground.SendToBack(window);
-                _log.Write("laster", "GameHome lagt bakerst; spillet ligger foran");
-            }
-        }
-        else if (SessionActive && _session is StreamSession stream)
-        {
-            // Strøm: Moonlight lukker tilkoblingsvinduene sine når bildet kommer, og hver gang får GameHome (dekket øverst)
-            // forgrunnen et øyeblikk. Streamvinduet (SDL i fullskjerm) minimerer seg da selv, og Legion Space ble liggende
-            // øverst (målt 2026-11-02 med Mega Man 11). Gjenopprett og hent streamvinduet fram, også et øyeblikk senere.
-            ShowStreamWindow(stream, "dekket er fjernet");
-            PlaceHomeBehind(stream.StreamWindowHandle, "streamen startet");
-            var again = DispatcherQueue.CreateTimer();
-            _streamRecheck = again;
-            again.Interval = TimeSpan.FromSeconds(2);
-            again.IsRepeating = false;
-            again.Tick += (timer, _) =>
-            {
-                timer.Stop();
-                try
-                {
-                    if (ReferenceEquals(_session, stream) && SessionActive && !_windowActive)
-                    {
-                        ShowStreamWindow(stream, "ny sjekk etter 2 s");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _log.Write("krasj", $"Sjekk av streamvinduet feilet: {ex.GetType().Name}: {ex.Message}");
-                }
-            };
-            again.Start();
-        }
-        else if (SessionActive && !Foreground.IsForeground(window))
-        {
-            // Kjører spillet og har et annet vindu forgrunnen, skal GameHome ligge bak det, ikke foran.
-            PlaceHomeBehind(_session?.MainWindowHandle ?? 0, "spillet startet");
+            Foreground.SendToBack(window);
+            _log.Write("laster", "GameHome lagt bakerst; spillet ligger foran");
         }
 
         HideLoading(why);
-    }
-
-    /// <summary>
-    /// Legger GameHome rett bak spillets vindu, ikke helt bakerst: ligger GameHome bak alt, er Legion Space neste vindu
-    /// når spillet eller Moonlight bytter vindu, og Legion Space kom foran (feil innført i 0.1.104.0, rettet her).
-    /// Legion Space legges helt bakerst.
-    /// </summary>
-    private void PlaceHomeBehind(nint gameWindow, string when)
-    {
-        var window = WinRT.Interop.WindowNative.GetWindowHandle(this);
-        var placed = gameWindow != 0 && Foreground.PutBelow(window, gameWindow);
-        var pushed = Foreground.SendProcessWindowsToBack("LegionSpace");
-        _log.Write("laster", $"GameHome lagt rett bak spillet{(placed ? "" : " (fant ikke spillets vindu)")}; Legion Space lagt bakerst ({pushed} vinduer) ({when})");
     }
 
     private void HideLoading(string why)
@@ -3155,7 +2980,7 @@ public sealed partial class MainWindow : Window
 
         // Kom hurtigtasten via reserven (spillet slår av hurtigtaster), gir ikke Windows forgrunnen. Da minimeres spillet,
         // som Alt+Tab, og Windows aktiverer neste vindu, GameHome. «Tilbake til spillet» gjenoppretter det.
-        if (!ok && FocusExperiments.KeyboardHook && _session is LocalProcessSession { MainWindowHandle: var game and not 0 })
+        if (!ok && _hotkeys.HookActive && _session is LocalProcessSession { MainWindowHandle: var game and not 0 })
         {
             Foreground.Minimize(game);
             Activate();
@@ -3168,10 +2993,6 @@ public sealed partial class MainWindow : Window
         }
 
         ShowSessionPanel($"hurtigtast {name}");
-        if (FocusExperiments.WindowOrder)
-        {
-            KeepHomeOnTop("M2");
-        }
     }
 
     private void ShowSessionPanel(string via)
@@ -4417,35 +4238,9 @@ public sealed partial class MainWindow : Window
         }
 
         _windowActive = true;
-
-        // Mens lasteskjermen dekker Moonlights tilkobling, blir GameHome aktiv når Moonlights tilkoblingsvindu lukkes
-        // (målt 2026-11-02 med Mega Man 11). Da skal dekket bli liggende til streamen viser bilde, ikke avsluttes her;
-        // ellers ble GameHome liggende foran streamen og fikk kontrolleren.
-        if (!FocusExperiments.WindowOrder)
-        {
-            // Som 0.1.95.0 (virket): lasteskjermen fjernes når GameHome blir aktiv igjen.
-            if (LoadingPanel.Visibility == Visibility.Visible && _loadingCovered)
-            {
-                HideLoading("GameHome aktiv igjen");
-            }
-        }
-        else if (LoadingPanel.Visibility == Visibility.Visible && _loadingCovered && _streamCover is null)
+        if (LoadingPanel.Visibility == Visibility.Visible && _loadingCovered)
         {
             HideLoading("GameHome aktiv igjen");
-        }
-        else if (_streamCover is not null)
-        {
-            // Viser streamen allerede bilde, avsluttes dekket nå: GameHome har forgrunnen akkurat nå og har derfor lov til
-            // å gi den til streamvinduet (venter vi til neste tikk, har Windows ofte gitt den til noe annet).
-            if (_session is StreamSession { IsStreamVisible: true })
-            {
-                _log.Write("laster", "GameHome ble aktiv mens streamen viser bilde; gir forgrunnen til streamvinduet nå");
-                EndStreamCover("streamen viser bilde");
-            }
-            else
-            {
-                _log.Write("laster", "GameHome ble aktiv mens dekket venter på streamen; dekket blir liggende");
-            }
         }
 
         if (!_startupLogged)
@@ -4498,83 +4293,6 @@ public sealed partial class MainWindow : Window
         _gamepadTimer.Interval = TimeSpan.FromMilliseconds(16);
         _gamepadTimer.Start();
         _log.Write("fokus", $"Fikk fokus ({args.WindowActivationState})");
-        HandForegroundBackIfUnrequested();
-    }
-
-    private int _handBacks;
-    private string? _handBackSession;
-
-    /// <summary>
-    /// Noen spill bytter vindu eller skjermmodus rett etter start; et øyeblikk har de ikke noe vindu i forgrunnen, og
-    /// Windows gir forgrunnen til GameHome (målt 2026-11-02: Assassin's Creed Rogue ble liggende bak). Ble GameHome aktiv
-    /// under et lokalt spill uten at brukeren ba om det (ingen meny åpen), gis forgrunnen tilbake til spillet. GameHome har
-    /// forgrunnen og har derfor lov. Bare de første 90 s, høyst fem ganger per økt.
-    /// </summary>
-    private void HandForegroundBackIfUnrequested()
-    {
-        // Gjelder også strøm: Moonlight bytter fra tilkoblingsvinduet til streamvinduet, og et øyeblikk får GameHome
-        // forgrunnen (målt 2026-11-02 med Mega Man 11; kontrolleren gikk da til GameHome i stedet for spillet).
-        if (!FocusExperiments.HandForegroundBack || _session is not { } local || !SessionActive || DateTime.UtcNow - _sessionStarted > TimeSpan.FromSeconds(90))
-        {
-            return;
-        }
-
-        if (_handBackSession != local.SessionId)
-        {
-            _handBackSession = local.SessionId;
-            _handBacks = 0;
-        }
-
-        // Feltet holder tidtakeren i live til den har gått (en lokal variabel kan ryddes bort av GC før den går).
-        _handBackTimer?.Stop();
-        _handBackTimer = DispatcherQueue.CreateTimer();
-        _handBackTimer.Interval = TimeSpan.FromMilliseconds(400);
-        _handBackTimer.IsRepeating = false;
-        _handBackTimer.Tick += (timer, _) =>
-        {
-            timer.Stop();
-            try
-            {
-                HandForegroundBack(local);
-            }
-            catch (Exception ex)
-            {
-                // Aldri la dette ta ned appen (0.1.101.0 forsvant her uten spor under strøm).
-                _log.Write("krasj", $"Gi forgrunnen tilbake feilet: {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}");
-            }
-        };
-        _handBackTimer.Start();
-    }
-
-    private DispatcherQueueTimer? _handBackTimer;
-
-    private void HandForegroundBack(IForegroundSession local)
-    {
-        // Mens lasteskjermen dekker Moonlights tilkobling (_streamCover), skal GameHome ligge øverst; ikke gi tilbake da.
-        if (!ReferenceEquals(_session, local) || !_windowActive || _handBacks >= 5 || _streamCover is not null
-            || (AnyOverlayOpen && LoadingPanel.Visibility != Visibility.Visible))
-        {
-            return;
-        }
-
-        // Strøm: bare selve streamvinduet (SDL), og bare når det er synlig. Moonlights skjulte hovedvindu røres ikke.
-        var window = local is StreamSession stream ? stream.StreamWindowHandle : local.MainWindowHandle;
-        _log.Write("fokus", string.Create(CultureInfo.InvariantCulture,
-            $"GameHome ble aktiv uten at noen ba om det; vindu for spillet: 0x{window:X}"));
-        if (window == 0)
-        {
-            return;
-        }
-
-        _handBacks++;
-        HideLoading("forgrunnen gis tilbake til spillet");
-        if (local is LocalProcessSession process)
-        {
-            Foreground.AllowFor((uint)process.GameProcessId);
-        }
-
-        var (ok, restored) = Foreground.BringGame(window);
-        _log.Write("fokus", $"Forgrunnen gitt tilbake til spillet ({(ok ? "ok" : "avslått")}{(restored ? ", gjenopprettet" : "")}, {_handBacks}/5)");
     }
 
     private void PollGamepad()

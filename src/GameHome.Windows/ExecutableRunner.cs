@@ -46,7 +46,7 @@ public sealed class ExecutableRunner : IRunner
             throw new LaunchException(LaunchFailure.StartFailed, ex.Message, ex);
         }
 
-        return Task.FromResult<ISession>(new LocalProcessSession(action, process));
+        return Task.FromResult<ISession>(new LocalProcessSession(action, process, followGame: true));
     }
 }
 
@@ -91,7 +91,7 @@ public sealed class LocalProcessSession : IForegroundSession
     private Process? _game;
     private bool _closeRequested;
 
-    public LocalProcessSession(PlayAction action, Process process, string? directory = null)
+    public LocalProcessSession(PlayAction action, Process process, string? directory = null, bool followGame = false)
     {
         ArgumentNullException.ThrowIfNull(action);
         ArgumentNullException.ThrowIfNull(process);
@@ -103,8 +103,8 @@ public sealed class LocalProcessSession : IForegroundSession
 
         // Launcher som blir liggende (for eksempel en oppstarter som starter spillet og venter): finn spillet i samme
         // mappe, så økten slutter når spillet slutter, og M2 og «Tilbake til spillet» treffer spillets vindu.
-        // Av som standard (FocusExperiments): undersøkes som mulig årsak til fokusfeil ved strømstart 2026-11-02.
-        if (FocusExperiments.FollowGameProcess)
+        // Bare for spill startet fra programfilen (ikke Moonlight, Xbox eller Battle.net, som finner spillet selv).
+        if (followGame)
         {
             // Prosessene som fantes før start: bare nye prosesser undersøkes når spillet letes etter (billig).
             _before = [.. Process.GetProcesses().Select(p =>
