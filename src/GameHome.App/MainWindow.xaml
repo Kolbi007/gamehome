@@ -112,6 +112,12 @@
                         <TextBlock Text="Legg til spill" />
                     </StackPanel>
                 </Button>
+                <Button x:Name="SteamLibraryTile" Click="SteamLibraryTile_Click" Visibility="Collapsed" Height="48" Padding="18,0" FontSize="{StaticResource GhSizeCaption}" CornerRadius="24">
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE896;" FontSize="14" />
+                        <TextBlock Text="Installer fra Steam" />
+                    </StackPanel>
+                </Button>
                 <Button x:Name="DebugTile" Click="DebugTile_Click" Height="48" Padding="18,0" FontSize="{StaticResource GhSizeCaption}" CornerRadius="24">
                     <StackPanel Orientation="Horizontal" Spacing="10">
                         <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xEBE8;" FontSize="14" />
@@ -456,7 +462,7 @@
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
-                <TextBlock Text="Finn riktig spill" FontSize="{StaticResource GhSizeCaption}" Foreground="{StaticResource GhTextTertiaryBrush}" />
+                <TextBlock x:Name="FindHeading" Text="Finn riktig spill" FontSize="{StaticResource GhSizeCaption}" Foreground="{StaticResource GhTextTertiaryBrush}" />
                 <TextBlock x:Name="FindTitle" Grid.Row="1" FontFamily="{StaticResource GhFontDisplay}" FontSize="{StaticResource GhSizeTitle}" FontWeight="SemiBold"
                            Foreground="{StaticResource GhTextPrimaryBrush}" TextWrapping="Wrap" />
                 <Grid Grid.Row="2" ColumnSpacing="10">

@@ -251,3 +251,23 @@ hjørne, ikke midt på skjermen: i Home og i «Kjører nå» (M2).
   «Koble fra», «Avslutt spillet på Gaming Laptop», rent skrivebord med dekkbilde på gaming-PC-en, lasteskjerm over
   Moonlight og Steam, og fliser med bilder. Wake-on-LAN er bygget, men gaming-PC-en støtter det ikke (Modern Standby).
   **Barebones med stream er i praksis nådd**, med M2 som hurtigknapp i stedet for venstre Legion-knapp.
+
+## Bygget 2026-11-05: butikker, metadata og Steam-biblioteket (venter på nøkler)
+
+- **Butikker uten tunge klienter:** GOG (registeret og `goggame-*.info`, startes direkte), Epic (manifestene, startes
+  via Epic-URI-en), Xbox (pakkelisten) og Battle.net (World of Warcraft-utgavene, startes via Battle.net) leses fra
+  disk uten at klientene kjører. Under Feilsøking: «Butikkklienter og oppstart» (bare lesing) og «Lukk Steam etter
+  spillet» (av som standard; `steam -shutdown` ett minutt etter spillet, aldri med makt).
+- **Fase 4:** SteamGridDB (bilder for spill utenfor Steam, egen fane i «Velg bilder») og IGDB (info for spill utenfor
+  Steam, spilletid for alle). Av til nøklene finnes.
+- **Steam-biblioteket:** «Installer fra Steam» i Home viser eide spill som ikke er installert og starter Steams egen
+  `steam://install/<appid>`. Vises først når nøkkelen finnes.
+- **Handheld Companion** erstatter Legion Space (ADR 0006).
+
+**Nøkler (når vi nærmer oss live):** legg filene i `C:\Users\chris\.gamehome-secrets\`, så kopieres de til appens
+LocalState på Legion Go og flyttes av GameHome inn i Windows' sikre lager (filene slettes). Filnavn:
+`steamgriddb.txt`, `igdb-client-id.txt`, `igdb-client-secret.txt`, `steam-webapi-key.txt`, `steam-id.txt` (64-bit
+Steam-ID eller profilnavn). Vibepollo-nøkkelen skal også byttes.
+
+**Ikke verifisert før nøklene finnes:** IGDBs Steam-kobling (`external_game_sources` = 1), feltene `width`/`height` i
+SteamGridDB (fra den offisielle Node-klienten), og svarformatet til Steam Web API (fra wiki-speilet av Valves dokumentasjon).

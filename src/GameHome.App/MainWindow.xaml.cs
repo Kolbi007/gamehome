@@ -162,6 +162,7 @@ public sealed partial class MainWindow : Window
         UpdateClock();
         ShowM2Fallback();
         ShowSteamCloseSetting();
+        ShowSteamLibraryTile();
         BuildGameTiles();
 
         // Pakkeversjonen er den som installeres og oppgraderes (0.1.N.0); assembly-versjonen er alltid 1.0.0.0.
@@ -1070,6 +1071,12 @@ public sealed partial class MainWindow : Window
     /// <summary>Fem beste treff på Steam for teksten i søkefeltet, som knapper med lite bilde.</summary>
     private async Task RunFindAsync()
     {
+        if (_findLibrary)
+        {
+            await RunLibraryAsync();
+            return;
+        }
+
         var term = FindQuery.Text.Trim();
         if (term.Length < 2)
         {
@@ -1165,10 +1172,158 @@ public sealed partial class MainWindow : Window
 
     private void FindCloseButton_Click(object sender, RoutedEventArgs e) => CloseFind();
 
+    // ---- Steam-biblioteket: eide spill som ikke er installert, installeres med Steams egen steam://install (nøkkel kreves) ----
+
+    private SteamWebApiClient? _steamWebApi;
+    private bool _steamWebApiChecked;
+    private bool _findLibrary;
+    private IReadOnlyList<SteamOwnedGame>? _ownedGames;
+
+    private SteamWebApiClient? SteamWebApi
+    {
+        get
+        {
+            if (!_steamWebApiChecked)
+            {
+                _steamWebApiChecked = true;
+                if (Secrets.Load(Secrets.SteamWebApiKey, KeyLog) is { } key && Secrets.Load(Secrets.SteamId, KeyLog) is not null)
+                {
+                    _steamWebApi = new SteamWebApiClient(ArtHttp, key);
+                    _log.Write("steam", "Steam Web API-nøkkel funnet; «Installer fra Steam» er på");
+                }
+            }
+
+            return _steamWebApi;
+        }
+    }
+
+    private void ShowSteamLibraryTile() => SteamLibraryTile.Visibility = SteamWebApi is null ? Visibility.Collapsed : Visibility.Visible;
+
+    private void SteamLibraryTile_Click(object sender, RoutedEventArgs e)
+    {
+        _log.Write("valg", "Installer fra Steam valgt");
+        _findLibrary = true;
+        _findGame = null;
+        FindHeading.Text = "Steam-biblioteket";
+        FindTitle.Text = "Spill du eier som ikke er installert";
+        FindQuery.Text = "";
+        FindUseNameButton.Visibility = Visibility.Collapsed;
+        FindResults.Children.Clear();
+        FindStatus.Text = "Henter biblioteket …";
+        FindPanel.Visibility = Visibility.Visible;
+        FadeIn(FindPanel);
+        SetHomeEnabled(false);
+        FindSearchButton.Focus(FocusState.Keyboard);
+        _ = RunLibraryAsync();
+    }
+
+    /// <summary>Eide Steam-spill som ikke er installert, filtrert på søketeksten, mest spilt først (høyst 30).</summary>
+    private async Task RunLibraryAsync()
+    {
+        if (SteamWebApi is not { } api || Secrets.Load(Secrets.SteamId, KeyLog) is not { } who)
+        {
+            FindStatus.Text = "Steam-nøkkelen er ikke lagt inn.";
+            return;
+        }
+
+        if (_ownedGames is null)
+        {
+            var id = ulong.TryParse(who, CultureInfo.InvariantCulture, out var parsed) ? parsed : await api.ResolveVanityUrlAsync(who);
+            if (id is not { } steamId)
+            {
+                FindStatus.Text = "Fant ikke Steam-profilen. Sjekk Steam-ID-en.";
+                return;
+            }
+
+            _ownedGames = await api.GetOwnedGamesAsync(steamId);
+            if (_ownedGames is null)
+            {
+                FindStatus.Text = "Fikk ikke hentet biblioteket fra Steam (nettverk eller nøkkel).";
+                return;
+            }
+
+            _log.Write("steam", string.Create(CultureInfo.InvariantCulture, $"Steam-biblioteket: {_ownedGames.Count} spill"));
+        }
+
+        var installed = _library.Games
+            .SelectMany(g => _library.PlayActionsFor(g.Id))
+            .Where(a => a.RunnerId == GameLibrary.SteamRunnerId && a.Availability == Availability.Installed)
+            .Select(a => a.Target)
+            .ToHashSet(StringComparer.Ordinal);
+        var term = FindQuery.Text.Trim();
+        var candidates = _ownedGames
+            .Where(g => !installed.Contains(g.AppId.ToString(CultureInfo.InvariantCulture)))
+            .Where(g => term.Length == 0 || (g.Name?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false))
+            .OrderByDescending(g => g.PlaytimeForeverMinutes)
+            .ThenBy(g => g.Name, StringComparer.CurrentCultureIgnoreCase)
+            .Take(30)
+            .ToList();
+
+        FindResults.Children.Clear();
+        if (candidates.Count == 0)
+        {
+            FindStatus.Text = term.Length == 0 ? "Alle spillene dine er installert, eller profilen er privat." : $"Ingen ikke-installerte spill med «{term}».";
+            return;
+        }
+
+        FindStatus.Text = "Velg et spill for å installere det med Steam:";
+        foreach (var owned in candidates)
+        {
+            var name = owned.Name ?? owned.AppId.ToString(CultureInfo.InvariantCulture);
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 16 };
+            var capsule = SteamStoreClient.ImageUrls(owned.AppId).Hero.Replace("library_hero.jpg", "capsule_184x69.jpg", StringComparison.Ordinal);
+            row.Children.Add(new Image
+            {
+                Width = 120,
+                Height = 45,
+                Stretch = Microsoft.UI.Xaml.Media.Stretch.UniformToFill,
+                Source = new BitmapImage(new Uri(capsule)) { DecodePixelWidth = Px(120) },
+            });
+            row.Children.Add(new TextBlock { Text = name, FontSize = 20, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
+            var button = new Button
+            {
+                Content = row,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Left,
+                Height = 64,
+                Padding = new Thickness(12, 0, 12, 0),
+            };
+            button.Click += (_, _) =>
+            {
+                try
+                {
+                    using var _ = Process.Start(new ProcessStartInfo($"steam://install/{owned.AppId.ToString(CultureInfo.InvariantCulture)}") { UseShellExecute = true });
+                    _log.Write("steam", $"Installasjon av «{name}» (appid {owned.AppId}) startet i Steam");
+                    FindStatus.Text = $"Steam viser installasjonen av «{name}». Når den er ferdig, dukker spillet opp i Home.";
+                }
+                catch (System.ComponentModel.Win32Exception ex)
+                {
+                    FindStatus.Text = $"Steam kunne ikke åpnes: {ex.Message}";
+                }
+            };
+            FindResults.Children.Add(button);
+        }
+
+        if (FindResults.Children[0] is Button first)
+        {
+            first.Focus(FocusState.Keyboard);
+        }
+    }
+
     private void CloseFind()
     {
         FindPanel.Visibility = Visibility.Collapsed;
         FindResults.Children.Clear();
+        if (_findLibrary)
+        {
+            _findLibrary = false;
+            FindHeading.Text = "Finn riktig spill";
+            FindUseNameButton.Visibility = Visibility.Visible;
+            SetHomeEnabled(true);
+            SteamLibraryTile.Focus(FocusState.Keyboard);
+            return;
+        }
+
         SetHomeEnabled(true);
         FocusHome(_findGame?.Id ?? _focusGameId);
     }
@@ -1298,7 +1453,7 @@ public sealed partial class MainWindow : Window
 
         ArtStatus.Text = tab switch
         {
-            "steamgriddb" => "SteamGridDB har mange bilder laget av brukere, men krever en gratis nøkkel som ikke er satt opp ennå (kommer i fase 4).",
+            "steamgriddb" when SteamGridDb is null => "SteamGridDB har mange bilder laget av brukere, men krever en gratis nøkkel som ikke er lagt inn ennå.",
             _ when options.Count == 0 => "Ingen bilder fra denne kilden.",
             _ => "Velg et bilde med A. Valget ditt vinner over automatiske bilder.",
         };
@@ -1376,6 +1531,22 @@ public sealed partial class MainWindow : Window
                     }
                 }
 
+                break;
+            }
+
+            case "steamgriddb" when SteamGridDb is { } sgdb:
+            {
+                var appId = SteamAppIdFor(game);
+                var match = appId is { } id ? await sgdb.GetGameBySteamAppIdAsync(id) : null;
+                match ??= First(await sgdb.SearchAsync(GameLibrary.DisplayTitle(game)));
+                if (match is null)
+                {
+                    break;
+                }
+
+                options.AddRange((await sgdb.GetHeroesAsync(match.Id)).Take(12).Select(i => new ArtOption(ArtHero, i.Thumb ?? i.Url, i.Url)));
+                options.AddRange((await sgdb.GetLogosAsync(match.Id)).Take(12).Select(i => new ArtOption(ArtLogo, i.Thumb ?? i.Url, i.Url)));
+                options.AddRange((await sgdb.GetGridsAsync(match.Id, SteamGridDbGridShape.Portrait)).Take(12).Select(i => new ArtOption(ArtCover, i.Thumb ?? i.Url, i.Url)));
                 break;
             }
 
@@ -1618,6 +1789,13 @@ public sealed partial class MainWindow : Window
             {
                 facts.Add(details.Publisher is { } publisher && publisher != developer ? $"{developer} / {publisher}" : developer);
             }
+
+            if (details.HoursMain is { } main)
+            {
+                facts.Add(details.HoursComplete is { } all && all > main
+                    ? string.Create(CultureInfo.InvariantCulture, $"ca. {main} t (alt: {all} t)")
+                    : string.Create(CultureInfo.InvariantCulture, $"ca. {main} t"));
+            }
         }
 
         DetailsFacts.Text = facts.Count > 0 ? string.Join("  ·  ", facts) : "";
@@ -1644,7 +1822,8 @@ public sealed partial class MainWindow : Window
         DetailsPlayText.Text = resume ? "Fortsett" : "Spill";
         DetailsSource.Text = details is null
             ? "Ingen info lagret ennå."
-            : $"Info fra {details.Source}, hentet {details.FetchedUtc.ToLocalTime():d. MMM yyyy}. Spilletid fra HowLongToBeat er ikke med: siden stenger for automatisk henting. IGDB (gratis nøkkel) kan gi spilletid senere.";
+            : $"Info fra {details.Source}, hentet {details.FetchedUtc.ToLocalTime():d. MMM yyyy}."
+                + (details.HoursMain is null ? (Igdb is null ? " Spilletid kommer fra IGDB når nøkkelen er lagt inn." : " IGDB har ikke spilletid for dette spillet.") : " Spilletid fra IGDB.");
     }
 
     /// <summary>Henter spillinfo fra Steam Store (appid fra Steam-spillet, ellers butikksøk på tittelen).</summary>
@@ -1676,13 +1855,25 @@ public sealed partial class MainWindow : Window
         {
             var store = new SteamStoreClient(ArtHttp);
             var appId = SteamAppIdFor(game) ?? await store.FindAppIdAsync(title);
-            if (appId is not { } steamId || await store.GetDetailsAsync(steamId) is not { } details)
+            var details = appId is { } steamId ? await store.GetDetailsAsync(steamId) : null;
+
+            // IGDB (når nøklene finnes): spilletid for alle spill, og info for spill Steam ikke har.
+            if (await IgdbDetailsAsync(game, appId) is { } igdb)
             {
-                _log.Write("info", $"Fant ikke info om «{title}» på Steam");
-                AddNotice("info:" + game.Id, game.Id, $"Fant ikke info om «{title}» på Steam.");
+                details = (details ?? igdb.Details) with
+                {
+                    HoursMain = Hours(igdb.Time?.HastilySeconds ?? igdb.Time?.NormallySeconds),
+                    HoursComplete = Hours(igdb.Time?.CompletelySeconds),
+                };
+            }
+
+            if (details is null)
+            {
+                _log.Write("info", $"Fant ikke info om «{title}» på Steam{(Igdb is null ? "" : " eller IGDB")}");
+                AddNotice("info:" + game.Id, game.Id, $"Fant ikke info om «{title}».");
                 if (_detailsGame?.Id == game.Id)
                 {
-                    DetailsSource.Text = $"Fant ikke «{title}» på Steam Store.";
+                    DetailsSource.Text = $"Fant ikke «{title}» på Steam Store{(Igdb is null ? "" : " eller IGDB")}.";
                 }
 
                 return;
@@ -1690,7 +1881,7 @@ public sealed partial class MainWindow : Window
 
             _details[game.Id] = details;
             SaveDetails();
-            _log.Write("info", $"Info om «{title}» hentet fra Steam Store (appid {steamId})");
+            _log.Write("info", $"Info om «{title}» hentet fra {details.Source}{(details.HoursMain is null ? "" : ", med spilletid fra IGDB")}");
             if (_detailsGame?.Id == game.Id && DetailsPanel.Visibility == Visibility.Visible)
             {
                 FillDetails(game);
@@ -3447,6 +3638,99 @@ public sealed partial class MainWindow : Window
     private static readonly HttpClient ArtHttp = new() { Timeout = TimeSpan.FromSeconds(15) };
     private readonly HashSet<string> _artTried = new(StringComparer.Ordinal);
 
+    // ---- Fase 4: SteamGridDB og IGDB (av til nøklene er lagt inn, se Secrets) ----
+
+    private SteamGridDbClient? _steamGridDb;
+    private bool _steamGridDbChecked;
+    private IgdbClient? _igdb;
+    private bool _igdbChecked;
+
+    private void KeyLog(string message) => _log.Write("nøkler", message);
+
+    /// <summary>SteamGridDB-klienten hvis nøkkelen finnes, ellers null. Nøkkelen leses én gang.</summary>
+    private SteamGridDbClient? SteamGridDb
+    {
+        get
+        {
+            if (!_steamGridDbChecked)
+            {
+                _steamGridDbChecked = true;
+                if (Secrets.Load(Secrets.SteamGridDb, KeyLog) is { } key)
+                {
+                    _steamGridDb = new SteamGridDbClient(ArtHttp, key);
+                    _log.Write("bilder", "SteamGridDB-nøkkel funnet; brukes for spill som ikke finnes på Steam");
+                }
+            }
+
+            return _steamGridDb;
+        }
+    }
+
+    /// <summary>IGDB-klienten hvis begge nøklene finnes, ellers null.</summary>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Reliability", "CA2000", Justification = "Lever like lenge som vinduet.")]
+    private IgdbClient? Igdb
+    {
+        get
+        {
+            if (!_igdbChecked)
+            {
+                _igdbChecked = true;
+                if (Secrets.Load(Secrets.IgdbClientId, KeyLog) is { } id && Secrets.Load(Secrets.IgdbClientSecret, KeyLog) is { } secret)
+                {
+                    _igdb = new IgdbClient(ArtHttp, id, secret);
+                    _log.Write("info", "IGDB-nøkler funnet; brukes for info og spilletid");
+                }
+            }
+
+            return _igdb;
+        }
+    }
+
+    /// <summary>Omslag, bakgrunn og logo fra SteamGridDB (første treff på tittelen), eller null.</summary>
+    private async Task<(string? Cover, string? Hero, string? Logo)?> SteamGridDbArtAsync(Game game)
+    {
+        if (SteamGridDb is not { } sgdb)
+        {
+            return null;
+        }
+
+        var appId = SteamAppIdFor(game);
+        var match = appId is { } id ? await sgdb.GetGameBySteamAppIdAsync(id) : null;
+        match ??= First(await sgdb.SearchAsync(GameLibrary.DisplayTitle(game)));
+        if (match is null)
+        {
+            return null;
+        }
+
+        var cover = First(await sgdb.GetGridsAsync(match.Id, SteamGridDbGridShape.Portrait))?.Url;
+        var hero = First(await sgdb.GetHeroesAsync(match.Id))?.Url;
+        var logo = First(await sgdb.GetLogosAsync(match.Id))?.Url;
+        return cover is null && hero is null && logo is null ? null : (cover, hero, logo);
+    }
+
+    /// <summary>Info og spilletid fra IGDB (via Steam-appid hvis kjent, ellers tittelen), eller null.</summary>
+    private async Task<(GameDetails Details, IgdbTimeToBeat? Time)?> IgdbDetailsAsync(Game game, int? steamAppId)
+    {
+        if (Igdb is not { } igdb)
+        {
+            return null;
+        }
+
+        var match = steamAppId is { } id ? await igdb.FindBySteamAppIdAsync(id) : null;
+        match ??= First(await igdb.SearchAsync(GameLibrary.DisplayTitle(game), 1));
+        if (match is null)
+        {
+            return null;
+        }
+
+        var time = await igdb.GetTimeToBeatAsync(match.Id);
+        return (IgdbClient.ToDetails(match, DateTime.UtcNow), time);
+    }
+
+    private static T? First<T>(IReadOnlyList<T> items) where T : class => items.Count > 0 ? items[0] : null;
+
+    private static int? Hours(int? seconds) => seconds is { } s and > 0 ? (int)Math.Round(s / 3600.0) : null;
+
     /// <summary>
     /// Henter omslag, bakgrunn og logo fra Steams butikk for spill i Home som mangler bilder: Steam-appid fra butikksøket
     /// (bare samme tittel), så de offentlige butikkbildene. Viser fremdrift øverst. Aldri mens et spill kjører, og hvert
@@ -3504,9 +3788,21 @@ public sealed partial class MainWindow : Window
                             found++;
                             _log.Write("bilder", $"Omslag for «{title}» fra Vibepollo (Playnite)");
                         }
+                        else if (await SteamGridDbArtAsync(game) is { } grid && await DownloadArtAsync(game, grid.Cover, grid.Hero, grid.Logo) is { } gridArt)
+                        {
+                            _library.SetArt(game.Id, gridArt);
+                            SaveLibrary();
+                            if (TileFor(game.Id) is { } gridTile && _library.Find(game.Id) is { } withGrid)
+                            {
+                                SetTileContent(gridTile, withGrid);
+                            }
+
+                            found++;
+                            _log.Write("bilder", $"Bilder for «{title}» fra SteamGridDB");
+                        }
                         else
                         {
-                            _log.Write("bilder", $"Fant ikke bilder for «{title}» på Steam eller i Vibepollo");
+                            _log.Write("bilder", $"Fant ikke bilder for «{title}» på Steam, i Vibepollo eller på SteamGridDB");
                             AddNotice("art:" + game.Id, game.Id, $"Fant ikke bilder for «{title}». Riktig navn gjør at Steam finner spillet.");
                         }
                     }
@@ -3658,13 +3954,21 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>Laster ned bildene som finnes (Steam har ikke alltid logo eller bakgrunn), til GameHomes bildemappe.</summary>
-    private static async Task<ArtSet?> DownloadArtAsync(Game game, SteamImageUrls urls)
+    private static Task<ArtSet?> DownloadArtAsync(Game game, SteamImageUrls urls) => DownloadArtAsync(game, urls.Cover, urls.Hero, urls.Logo);
+
+    /// <summary>Laster ned de bildene som finnes (null hoppes over) til appens art-mappe.</summary>
+    private static async Task<ArtSet?> DownloadArtAsync(Game game, string? coverUrl, string? heroUrl, string? logoUrl)
     {
         var folder = Path.Combine(ApplicationData.Current.LocalFolder.Path, "art");
         Directory.CreateDirectory(folder);
 
-        async Task<string?> Get(string url, string kind)
+        async Task<string?> Get(string? url, string kind)
         {
+            if (url is null)
+            {
+                return null;
+            }
+
             using var response = await ArtHttp.GetAsync(new Uri(url));
             if (!response.IsSuccessStatusCode)
             {
@@ -3680,9 +3984,9 @@ public sealed partial class MainWindow : Window
             return target;
         }
 
-        var cover = await Get(urls.Cover, "cover");
-        var hero = await Get(urls.Hero, "hero");
-        var logo = await Get(urls.Logo, "logo");
+        var cover = await Get(coverUrl, "cover");
+        var hero = await Get(heroUrl, "hero");
+        var logo = await Get(logoUrl, "logo");
         return cover is null && hero is null && logo is null
             ? null
             : new ArtSet(cover ?? game.Art.Cover, hero ?? game.Art.Hero, logo ?? game.Art.Logo);

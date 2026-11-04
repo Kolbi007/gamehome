@@ -17,7 +17,9 @@ public sealed record GameDetails(
     IReadOnlyList<string> Genres,
     int? Metacritic,
     string Source,
-    DateTime FetchedUtc);
+    DateTime FetchedUtc,
+    int? HoursMain = null,
+    int? HoursComplete = null);
 
 /// <summary>Lokalt lager for <see cref="GameDetails"/>, én fil med alle spill (spill-ID → detaljer).</summary>
 public static partial class GameDetailsStore
