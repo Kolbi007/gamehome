@@ -77,6 +77,8 @@ public sealed partial class MainWindow : Window
         [GameLibrary.MoonlightRunnerId] = new MoonlightRunner(),
         [XboxRunner.Id] = new XboxRunner(),
         [BattleNetRunner.Id] = new BattleNetRunner(),
+        [GogRunner.Id] = new GogRunner(),
+        [EpicRunner.Id] = new EpicRunner(),
     };
     private readonly List<string> _events = [];
     private readonly DispatcherQueueTimer _gamepadTimer;
@@ -159,6 +161,7 @@ public sealed partial class MainWindow : Window
         SoundToggleText.Text = MenuSounds.Enabled ? "Menylyder: på" : "Menylyder: av";
         UpdateClock();
         ShowM2Fallback();
+        ShowSteamCloseSetting();
         BuildGameTiles();
 
         // Pakkeversjonen er den som installeres og oppgraderes (0.1.N.0); assembly-versjonen er alltid 1.0.0.0.
@@ -2017,6 +2020,65 @@ public sealed partial class MainWindow : Window
 
     private void WifiReconnectTile_Click(object sender, RoutedEventArgs e) => _ = ReconnectWifiAsync();
 
+    // ---- Butikkklienter: autostart-sjekk (bare lesing) og valgfri lukking av Steam etter spillet ----
+
+    private const string SteamCloseSetting = "stores.closeSteamAfterGame";
+
+    private static bool CloseSteamAfterGame => ApplicationData.Current.LocalSettings.Values[SteamCloseSetting] is true;
+
+    private DispatcherQueueTimer? _steamExitTimer;
+
+    private void ShowSteamCloseSetting() => SteamCloseTile.Content = $"Lukk Steam etter spillet: {(CloseSteamAfterGame ? "på" : "av")}";
+
+    private void SteamCloseTile_Click(object sender, RoutedEventArgs e)
+    {
+        var value = !CloseSteamAfterGame;
+        ApplicationData.Current.LocalSettings.Values[SteamCloseSetting] = value;
+        ShowSteamCloseSetting();
+        _log.Write("butikk", $"Lukk Steam etter spillet: {(value ? "på" : "av")} (valgt av brukeren)");
+    }
+
+    /// <summary>
+    /// Ber Steam avslutte seg selv ett minutt etter spillet (så skylagringen blir ferdig), med Steams egen kommando.
+    /// Aldri med makt, og ikke hvis et nytt spill er startet i mellomtiden.
+    /// </summary>
+    private void ScheduleSteamExit()
+    {
+        _steamExitTimer?.Stop();
+        _steamExitTimer = DispatcherQueue.CreateTimer();
+        _steamExitTimer.Interval = TimeSpan.FromMinutes(1);
+        _steamExitTimer.IsRepeating = false;
+        _steamExitTimer.Tick += (timer, _) =>
+        {
+            timer.Stop();
+            if (SessionActive || _launching)
+            {
+                _log.Write("butikk", "Steam lukkes ikke: et nytt spill er startet");
+                return;
+            }
+
+            _log.Write("butikk", SteamShutdown.RequestExit() ? "Ba Steam avslutte etter spillet" : "Steam kjørte ikke lenger");
+        };
+        _steamExitTimer.Start();
+        _log.Write("butikk", "Steam lukkes om ett minutt (skylagring får gjøre seg ferdig)");
+    }
+
+    private async void StoreAutostartTile_Click(object sender, RoutedEventArgs e)
+    {
+        DebugResultText.Visibility = Visibility.Visible;
+        DebugResultText.Text = "Sjekker butikkklienter …";
+        var clients = await Task.Run(StoreAutostart.Check);
+        var lines = clients
+            .Where(c => c.Autostarts || c.Running)
+            .Select(c => string.Create(CultureInfo.InvariantCulture,
+                $"{c.DisplayName}: {(c.Autostarts ? (c.Enabled ? "starter med Windows" : "autostart avslått") : "starter ikke med Windows")}, {(c.Running ? $"kjører nå ({c.WorkingSetMegabytes} MB)" : "kjører ikke")}"))
+            .ToList();
+        DebugResultText.Text = lines.Count == 0
+            ? "Ingen butikkklienter starter med Windows eller kjører nå."
+            : string.Join("\n", lines) + "\nAutostart slås av under Innstillinger → Apper → Oppstart. GameHome endrer det ikke.";
+        _log.Write("butikk", "Butikkklienter: " + (lines.Count == 0 ? "ingen" : string.Join("; ", lines)));
+    }
+
     // ---- Legion Space: tar forgrunnen fra Moonlight og spill mens den kjører (også i bakgrunnen) ----
     // GameHome lukker den aldri selv: tvangslukking 2026-11-04 etterlot kontrollerne uten data til Legion Space startet igjen.
 
@@ -2061,6 +2123,7 @@ public sealed partial class MainWindow : Window
         var value = !M2Fallback;
         ApplicationData.Current.LocalSettings.Values[M2FallbackSetting] = value;
         ShowM2Fallback();
+        ShowSteamCloseSetting();
         _log.Write("feilsøk", $"M2-reserve satt til {(value ? "på" : "av")}; gjelder fra neste spillstart");
     }
 
@@ -2328,6 +2391,12 @@ public sealed partial class MainWindow : Window
         if (game is not null && end.Reason != SessionEndReason.LaunchFailed)
         {
             RecordPlayTime(game, minutes);
+        }
+
+        if (CloseSteamAfterGame && game is not null
+            && _library.PlayActionsFor(game.Id).Any(a => a.Id == session.PlayActionId && a.RunnerId == GameLibrary.SteamRunnerId))
+        {
+            ScheduleSteamExit();
         }
 
         session.Dispose();
@@ -2615,14 +2684,33 @@ public sealed partial class MainWindow : Window
             var xbox = XboxGames.Scan(message => _log.Write("xbox", message));
             var xboxMs = watch.ElapsedMilliseconds;
             var battleNet = BattleNetGames.Scan();
+            var gog = GogGames.Scan(message => _log.Write("gog", message));
+            var epic = EpicGames.Scan(message => _log.Write("epic", message));
 
             DispatcherQueue.TryEnqueue(() =>
             {
                 ApplySteamScan(root, entries);
                 ApplyXboxScan(xbox, xboxMs);
                 ApplyBattleNetScan(battleNet);
+                ApplyStoreScan(GogRunner.Id, "GOG", GogGames.AsStoreEntries(gog));
+                ApplyStoreScan(EpicRunner.Id, "Epic", EpicGames.AsStoreEntries(epic));
             });
         });
+    }
+
+    /// <summary>Felles for butikker som leses fra disk uten klient (GOG, Epic): synk, lagre og hent bilder ved endring.</summary>
+    private void ApplyStoreScan(string runnerId, string label, IReadOnlyList<StoreEntry> entries)
+    {
+        var result = _library.SyncStore(runnerId, entries);
+        _log.Write(runnerId, $"Fant {entries.Count} {label}-spill ({string.Join(", ", entries.Select(e => e.Title))}); {result.Added.Count} nye, {result.MarkedMissing} borte");
+        if (!result.Changed)
+        {
+            return;
+        }
+
+        SaveLibrary();
+        BuildGameTiles();
+        _ = FetchMissingArtAsync();
     }
 
     private void ApplyBattleNetScan(IReadOnlyList<BattleNetGame> games)

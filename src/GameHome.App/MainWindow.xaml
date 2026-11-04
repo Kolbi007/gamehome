@@ -508,6 +508,8 @@
                     <TextBlock Text="M2 i spill som blokkerer hurtigtaster" FontSize="{StaticResource GhSizeCaption}" Foreground="{StaticResource GhTextSecondaryBrush}" />
                     <StackPanel Orientation="Horizontal" Spacing="10">
                         <Button x:Name="FlagHook" Tag="hook" Click="FocusFlag_Click" Height="48" Padding="16,0" FontSize="{StaticResource GhSizeSmall}" />
+                        <Button x:Name="StoreAutostartTile" Content="Butikkklienter og oppstart" Click="StoreAutostartTile_Click" Height="48" Padding="16,0" FontSize="{StaticResource GhSizeSmall}" />
+                        <Button x:Name="SteamCloseTile" Click="SteamCloseTile_Click" Height="48" Padding="16,0" FontSize="{StaticResource GhSizeSmall}" />
                     </StackPanel>
                     <!-- Resultatet av «Test tilkobling» vises her, ikke i et eget panel. -->
                     <TextBlock x:Name="DebugResultText" FontSize="{StaticResource GhSizeBody}" Foreground="{StaticResource GhTextPrimaryBrush}" TextWrapping="Wrap"
