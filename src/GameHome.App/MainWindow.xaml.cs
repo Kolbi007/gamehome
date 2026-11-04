@@ -150,7 +150,7 @@ public sealed partial class MainWindow : Window
         RegisterHomeHotkey();
         _hotkeys.Failed += (_, message) => _log.Write("krasj", $"Fanget i kall fra Windows: {message}");
 
-        Gamepad.GamepadAdded += (_, _) => _log.Write("kontroller", "Kontroller tilkoblet");
+        Gamepad.GamepadAdded += (_, _) => _log.Write("kontroller", string.Create(CultureInfo.InvariantCulture, $"Kontroller tilkoblet ({Gamepad.Gamepads.Count} i alt)"));
         Gamepad.GamepadRemoved += (_, _) => _log.Write("kontroller", "Kontroller frakoblet");
 
         _libraryPath = Path.Combine(ApplicationData.Current.LocalFolder.Path, "library.json");
@@ -3802,7 +3802,7 @@ public sealed partial class MainWindow : Window
                         }
                         else
                         {
-                            _log.Write("bilder", $"Fant ikke bilder for «{title}» på Steam, i Vibepollo eller på SteamGridDB");
+                            _log.Write("bilder", $"Fant ikke bilder for «{title}» på Steam eller i Vibepollo{(SteamGridDb is null ? " (SteamGridDB har ingen nøkkel ennå)" : " eller på SteamGridDB")}");
                             AddNotice("art:" + game.Id, game.Id, $"Fant ikke bilder for «{title}». Riktig navn gjør at Steam finner spillet.");
                         }
                     }
@@ -4687,6 +4687,27 @@ public sealed partial class MainWindow : Window
         _log.Write("fokus", $"Fikk fokus ({args.WindowActivationState})");
     }
 
+    private static GamepadReading Combined(IReadOnlyList<Gamepad> gamepads)
+    {
+        var combined = gamepads[0].GetCurrentReading();
+        for (var i = 1; i < gamepads.Count; i++)
+        {
+            var other = gamepads[i].GetCurrentReading();
+            combined.Buttons |= other.Buttons;
+            if ((other.LeftThumbstickX * other.LeftThumbstickX) + (other.LeftThumbstickY * other.LeftThumbstickY)
+                > (combined.LeftThumbstickX * combined.LeftThumbstickX) + (combined.LeftThumbstickY * combined.LeftThumbstickY))
+            {
+                combined.LeftThumbstickX = other.LeftThumbstickX;
+                combined.LeftThumbstickY = other.LeftThumbstickY;
+            }
+
+            combined.LeftTrigger = Math.Max(combined.LeftTrigger, other.LeftTrigger);
+            combined.RightTrigger = Math.Max(combined.RightTrigger, other.RightTrigger);
+        }
+
+        return combined;
+    }
+
     private void PollGamepad()
     {
         var gamepads = Gamepad.Gamepads;
@@ -4695,7 +4716,9 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        var reading = gamepads[0].GetCurrentReading();
+        // Alle kontrollere slås sammen: med Handheld Companion finnes både den fysiske (skjult av HidHide, sender ingenting
+        // til GameHome) og den virtuelle, og rekkefølgen er ikke fast (målt 2026-11-05: Home reagerte ikke på kontrolleren).
+        var reading = Combined(gamepads);
         var pressed = reading.Buttons & ~_previousButtons;
         _previousButtons = reading.Buttons;
 
