@@ -144,8 +144,6 @@ public sealed partial class MainWindow : Window
         SoundToggleText.Text = MenuSounds.Enabled ? "Menylyder: på" : "Menylyder: av";
         UpdateClock();
         LoadFocusFlags();
-        ShowLegionSpaceSetting();
-        _ = CloseLegionSpaceIfWantedAsync("GameHome startet");
         BuildGameTiles();
 
         // Pakkeversjonen er den som installeres og oppgraderes (0.1.N.0); assembly-versjonen er alltid 1.0.0.0.
@@ -2004,46 +2002,34 @@ public sealed partial class MainWindow : Window
 
     private void WifiReconnectTile_Click(object sender, RoutedEventArgs e) => _ = ReconnectWifiAsync();
 
-    // ---- Legion Space (2026-11-03): tar forgrunnen fra Moonlight og spill mens den kjører; lukkes automatisk eller med knapp ----
+    // ---- Legion Space: tar forgrunnen fra Moonlight og spill mens den kjører (også i bakgrunnen) ----
+    // GameHome lukker den aldri selv: tvangslukking 2026-11-04 etterlot kontrollerne uten data til Legion Space startet igjen.
 
-    private const string LegionSpaceSetting = "legionspace.autoclose";
+    private const string LegionSpaceNotice = "legionspace";
 
-    private static bool AutoCloseLegionSpace => ApplicationData.Current.LocalSettings.Values[LegionSpaceSetting] is not false;
+    private const string LegionSpaceAdvice =
+        "Avslutt den fra oppgavelinjen: trykk ^ nederst til høyre, hold på Legion Space-ikonet og velg Avslutt. Å lukke vinduet er ikke nok.";
 
-    /// <summary>Lukker Legion Space i bakgrunnen (raskt; en prosessliste og en Kill per prosess). Gir antallet som ble lukket.</summary>
-    private async Task<int> CloseLegionSpaceAsync(string when)
+    /// <summary>Viser eller fjerner varselet om Legion Space. Gir true hvis den kjører.</summary>
+    private bool CheckLegionSpace(string when)
     {
-        var closed = await Task.Run(() => LegionSpaceCloser.Close(message => _log.Write("legion", message)));
-        if (closed > 0)
+        var running = LegionSpace.IsRunning();
+        if (running)
         {
-            _log.Write("legion", $"Legion Space lukket ({closed} prosesser) ({when})");
+            if (!_notices.Exists(n => n.Key == LegionSpaceNotice))
+            {
+                _log.Write("legion", $"Legion Space kjører i bakgrunnen ({when})");
+            }
+
+            AddNotice(LegionSpaceNotice, null, "Legion Space kjører i bakgrunnen og kan ta forgrunnen fra spill og strøm. " + LegionSpaceAdvice);
+        }
+        else if (_notices.RemoveAll(n => n.Key == LegionSpaceNotice) > 0)
+        {
+            _log.Write("legion", $"Legion Space er avsluttet ({when})");
+            UpdateNoticeButton();
         }
 
-        return closed;
-    }
-
-    private Task CloseLegionSpaceIfWantedAsync(string when) => AutoCloseLegionSpace ? CloseLegionSpaceAsync(when) : Task.CompletedTask;
-
-    private void ShowLegionSpaceSetting() =>
-        LegionSpaceAutoTile.Content = $"Lukk Legion Space automatisk: {(AutoCloseLegionSpace ? "på" : "av")}";
-
-    private async void LegionSpaceCloseTile_Click(object sender, RoutedEventArgs e)
-    {
-        var closed = await CloseLegionSpaceAsync("knapp i Feilsøking");
-        DebugResultText.Visibility = Visibility.Visible;
-        DebugResultText.Text = closed > 0 ? "Legion Space er lukket." : "Legion Space kjørte ikke.";
-    }
-
-    private void LegionSpaceAutoTile_Click(object sender, RoutedEventArgs e)
-    {
-        var value = !AutoCloseLegionSpace;
-        ApplicationData.Current.LocalSettings.Values[LegionSpaceSetting] = value;
-        ShowLegionSpaceSetting();
-        _log.Write("legion", $"Lukk Legion Space automatisk: {(value ? "på" : "av")} (valgt av brukeren)");
-        if (value)
-        {
-            _ = CloseLegionSpaceAsync("slått på");
-        }
+        return running;
     }
 
     // ---- Fokusbrytere (2026-11-02): av som standard; slås på én om gangen for å finne fokusfeilen ----
@@ -2132,6 +2118,8 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private bool _launching;
 
+    private bool _startDespiteLegionSpace;
+
     private async Task LaunchAsync(Game game, PlayAction? chosen = null)
     {
         // Ett trykk, én start: ekstra trykk mens noe starter eller avsluttes, ignoreres (0.1.87.0 startet Mega Man tre ganger).
@@ -2141,10 +2129,23 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        // Legion Space i bakgrunnen tar forgrunnen fra spillet og strømmen; be brukeren avslutte den (GameHome gjør det aldri selv).
+        if (!_startDespiteLegionSpace && CheckLegionSpace("spillstart"))
+        {
+            ShowMessage("Legion Space kjører", "Legion Space kan ta forgrunnen og kontrolleren fra spillet. " + LegionSpaceAdvice + " Velg så spillet igjen.",
+                "Start likevel", () =>
+                {
+                    _startDespiteLegionSpace = true;
+                    _ = LaunchAsync(game, chosen);
+                },
+                "Avbryt", () => FocusHome(game.Id));
+            return;
+        }
+
+        _startDespiteLegionSpace = false;
         _launching = true;
         try
         {
-            await CloseLegionSpaceIfWantedAsync("spillstart");
             await LaunchCoreAsync(game, chosen);
         }
         catch (Exception ex)
@@ -4430,6 +4431,7 @@ public sealed partial class MainWindow : Window
         // Spill som fortsatt mangler bilder (for eksempel etter en nettverksfeil), prøves igjen når Home blir aktiv.
         _ = RefreshHostStatusAsync();
         RememberWifiNetwork();
+        CheckLegionSpace("Home aktiv");
         if (_firstSteamSync is not null)
         {
             _ = FetchMissingArtAsync();

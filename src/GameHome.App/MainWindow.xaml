@@ -502,8 +502,6 @@
                     <Button x:Name="TestHostTile" Content="Test tilkobling" Click="TestHostTile_Click" Height="52" Padding="20,0" FontSize="{StaticResource GhSizeCaption}" />
                     <Button x:Name="HidTile" Content="Lytt på Legion-knapp" Click="HidTile_Click" Height="52" Padding="20,0" FontSize="{StaticResource GhSizeCaption}" />
                     <Button x:Name="WifiReconnectTile" Content="Koble til Wi-Fi på nytt" Click="WifiReconnectTile_Click" Height="52" Padding="20,0" FontSize="{StaticResource GhSizeCaption}" />
-                    <Button x:Name="LegionSpaceCloseTile" Content="Lukk Legion Space" Click="LegionSpaceCloseTile_Click" Height="52" Padding="20,0" FontSize="{StaticResource GhSizeCaption}" />
-                    <Button x:Name="LegionSpaceAutoTile" Click="LegionSpaceAutoTile_Click" Height="52" Padding="20,0" FontSize="{StaticResource GhSizeCaption}" />
                     <Button x:Name="DebugCloseButton" Content="Lukk" Click="DebugCloseButton_Click" Height="52" Padding="20,0" FontSize="{StaticResource GhSizeCaption}" />
                 </StackPanel>
                 <StackPanel Grid.Row="3" Spacing="10">
