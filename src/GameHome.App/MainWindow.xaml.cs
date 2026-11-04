@@ -49,6 +49,19 @@ public sealed partial class MainWindow : Window
         (3, HotkeyModifiers.Control | HotkeyModifiers.Shift, 0x7B, "Ctrl+Shift+F12"),
     ];
 
+    // Alltid registrert (ikke bare under spill): Legion-knappen til venstre via Handheld Companion. Uten spill hentes Home fram,
+    // under spill åpnes menyen som med M2.
+    private static readonly (int Id, HotkeyModifiers Modifiers, uint Key, string Name) HomeHotkey =
+        (4, HotkeyModifiers.Control | HotkeyModifiers.Alt | HotkeyModifiers.Shift, 0x7A, "Ctrl+Alt+Shift+F11 (Home)");
+
+    private void RegisterHomeHotkey()
+    {
+        if (!_hotkeys.Register(HomeHotkey.Id, HomeHotkey.Modifiers, HomeHotkey.Key))
+        {
+            _log.Write("hurtigtast", $"{HomeHotkey.Name} kunne ikke registreres (brukt av et annet program?)");
+        }
+    }
+
     private readonly FileLog _log;
     private readonly string _libraryPath;
     private readonly GameLibrary _library;
@@ -63,6 +76,7 @@ public sealed partial class MainWindow : Window
         [GameLibrary.SteamRunnerId] = new SteamRunner(),
         [GameLibrary.MoonlightRunnerId] = new MoonlightRunner(),
         [XboxRunner.Id] = new XboxRunner(),
+        [BattleNetRunner.Id] = new BattleNetRunner(),
     };
     private readonly List<string> _events = [];
     private readonly DispatcherQueueTimer _gamepadTimer;
@@ -131,6 +145,7 @@ public sealed partial class MainWindow : Window
 
         _hotkeys = new HotkeyListener(WinRT.Interop.WindowNative.GetWindowHandle(this));
         _hotkeys.Pressed += OnSessionHotkey;
+        RegisterHomeHotkey();
         _hotkeys.Failed += (_, message) => _log.Write("krasj", $"Fanget i kall fra Windows: {message}");
 
         Gamepad.GamepadAdded += (_, _) => _log.Write("kontroller", "Kontroller tilkoblet");
@@ -2320,6 +2335,7 @@ public sealed partial class MainWindow : Window
         }
 
         _hotkeys.UnregisterAll();
+        RegisterHomeHotkey();
         HideLoading("økten avsluttet");
         var game = _sessionGame;
         var title = game is null ? "spillet" : GameLibrary.DisplayTitle(game);
@@ -2620,13 +2636,29 @@ public sealed partial class MainWindow : Window
             var watch = Stopwatch.StartNew();
             var xbox = XboxGames.Scan(message => _log.Write("xbox", message));
             var xboxMs = watch.ElapsedMilliseconds;
+            var battleNet = BattleNetGames.Scan();
 
             DispatcherQueue.TryEnqueue(() =>
             {
                 ApplySteamScan(root, entries);
                 ApplyXboxScan(xbox, xboxMs);
+                ApplyBattleNetScan(battleNet);
             });
         });
+    }
+
+    private void ApplyBattleNetScan(IReadOnlyList<BattleNetGame> games)
+    {
+        var result = _library.SyncStore(BattleNetRunner.Id, BattleNetGames.AsStoreEntries(games));
+        _log.Write("battlenet", $"Fant {games.Count} Battle.net-spill ({string.Join(", ", games.Select(g => g.Title))}); {result.Added.Count} nye, {result.MarkedMissing} borte");
+        if (!result.Changed)
+        {
+            return;
+        }
+
+        SaveLibrary();
+        BuildGameTiles();
+        _ = FetchMissingArtAsync();
     }
 
     private void ApplyXboxScan(IReadOnlyList<XboxGame> games, long elapsedMs)
@@ -3105,7 +3137,16 @@ public sealed partial class MainWindow : Window
 
     private void OnSessionHotkey(object? sender, int id)
     {
-        var name = SessionHotkeys.FirstOrDefault(h => h.Id == id).Name ?? id.ToString(CultureInfo.InvariantCulture);
+        var name = id == HomeHotkey.Id ? HomeHotkey.Name : SessionHotkeys.FirstOrDefault(h => h.Id == id).Name ?? id.ToString(CultureInfo.InvariantCulture);
+        if (id == HomeHotkey.Id && !SessionActive)
+        {
+            Activate();
+            var home = Foreground.Bring(WinRT.Interop.WindowNative.GetWindowHandle(this));
+            _log.Write("hurtigtast", $"Mottatt: {name}; {(home ? "Home hentet fram" : "Windows avslo forgrunnen")}");
+            FocusHome(_focusGameId);
+            return;
+        }
+
         _log.Write("hurtigtast", $"Mottatt: {name}");
         HideLoading("M2");
         Activate();
