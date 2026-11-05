@@ -2679,7 +2679,7 @@ public sealed partial class MainWindow : Window
 
         try
         {
-            ApplyGameDisplay(game);
+            await ApplyGameDisplayAsync(game);
             SaveBatteryForGame(game);
             _session = (IForegroundSession)await runner.LaunchAsync(action, Profile.Default, CancellationToken.None);
             _sessionRunnerId = action.RunnerId;
