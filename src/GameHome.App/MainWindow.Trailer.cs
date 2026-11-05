@@ -97,7 +97,15 @@ public sealed partial class MainWindow
             return;
         }
 
-        var player = new MediaPlayer { IsMuted = true, IsLoopingEnabled = true, AutoPlay = true };
+        // Spilles én gang: en trailer som går i loop, bruker strøm og blir støy.
+        var player = new MediaPlayer { IsMuted = true, IsLoopingEnabled = false, AutoPlay = true };
+        player.MediaEnded += (_, _) => DispatcherQueue.TryEnqueue(() =>
+        {
+            if (ReferenceEquals(HeroVideo.MediaPlayer, player))
+            {
+                StopTrailer();
+            }
+        });
         player.MediaOpened += (_, _) => DispatcherQueue.TryEnqueue(() =>
         {
             if (ReferenceEquals(HeroVideo.MediaPlayer, player))

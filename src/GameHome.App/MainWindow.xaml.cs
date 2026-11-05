@@ -2731,8 +2731,9 @@ public sealed partial class MainWindow : Window
         // M2 er alltid registrert (MenuHotkeyId); de andre bare under spill.
         var registered = SessionHotkeys.Where(h => h.Id == MenuHotkeyId || _hotkeys.Register(h.Id, h.Modifiers, h.Key)).Select(h => h.Name).ToList();
         var hook = M2Fallback && _hotkeys.StartHook();
+        var eco = Efficiency.Set(true); // GameHome i effektivitetsmodus mens spillet kjører.
         _log.Write("økt", $"Startet «{title}» ({action.RunnerId} {action.Target}, {session.Status}). Hurtigtaster: {string.Join(", ", registered)}"
-            + (hook ? " (+ tastaturkrok som reserve)" : ""));
+            + (hook ? " (+ tastaturkrok som reserve)" : "") + (eco ? "; GameHome i effektivitetsmodus" : ""));
         RefreshTileTexts();
         LastInput.Text = $"{title} starter. M2 åpner menyen.";
         Pulse(0.3, 90);
@@ -2748,6 +2749,7 @@ public sealed partial class MainWindow : Window
         _hotkeys.UnregisterAll();
         RegisterHomeHotkey();
         RestoreDisplayAfterGame();
+        Efficiency.Set(false);
         HideLoading("økten avsluttet");
         var game = _sessionGame;
         var title = game is null ? "spillet" : GameLibrary.DisplayTitle(game);
@@ -5144,6 +5146,10 @@ public sealed partial class MainWindow : Window
             _metricsTimer.Stop();
             StopAttractTimer();
             StopTrailer();
+            if (!SessionActive)
+            {
+                MemoryTrim.Trim(); // Home ligger bak noe annet: gi minnet tilbake (bilder lastes inn igjen ved behov).
+            }
 
             // Uten spill eller filvelger fortsetter kontrollerlesingen sakte: noe annet (et varsel, en systemmeny) kan
             // ta fokus mens Home står fremme, og da skal første trykk hente Home tilbake, ikke kreve berøring.
@@ -5286,6 +5292,7 @@ public sealed partial class MainWindow : Window
         // Alle kontrollere slås sammen: med Handheld Companion finnes både den fysiske (skjult av HidHide, sender ingenting
         // til GameHome) og den virtuelle, og rekkefølgen er ikke fast (målt 2026-11-05: Home reagerte ikke på kontrolleren).
         var reading = Combined(gamepads);
+        AdaptPollRate();
         var pressed = reading.Buttons & ~_previousButtons;
         _previousButtons = reading.Buttons;
 

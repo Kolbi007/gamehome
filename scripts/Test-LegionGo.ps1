@@ -173,6 +173,7 @@ try {
     if (-not $started) { throw 'Spillet startet ikke' }
     $gameProcess = Get-Process -Id ([GhTest]::ForegroundPid())
     Note "Spillets prosess: $($gameProcess.ProcessName) ($($gameProcess.Id))"
+$ghDuring = Get-Process GameHome; Note "GameHome under spill: $([int]($ghDuring.WorkingSet64 / 1MB)) MB minne"
     Start-Sleep 5
 
     # ---- M2 (meny under spill) ----
@@ -308,6 +309,15 @@ public static class KbdState { public static bool Visible() { var p = (IKbdPane)
 "@
     Start-Sleep 1
     Check (-not [KbdState]::Visible()) 'Skjermtastaturet er skjult etter søk og nøkkelfelt'
+
+    # ---- Ytelse: GameHome skal være lett når Home bare står på ----
+    Start-Sleep 12 # Kontrolleren leses sjeldnere etter 10 s uten input.
+    $gh = Get-Process GameHome
+    $cpuStart = $gh.CPU; Start-Sleep 5; $gh.Refresh()
+    $cpu = [math]::Round(($gh.CPU - $cpuStart) / 5 * 100, 1)
+    $ram = [int]($gh.WorkingSet64 / 1MB)
+    Check ($cpu -lt 10) "GameHome bruker $cpu % CPU i Home uten input (grense 10 %)"
+    Check ($ram -lt 450) "GameHome bruker $ram MB minne i Home (grense 450 MB)"
 }
 catch {
     Fail "Testen stoppet: $($_.Exception.Message)"

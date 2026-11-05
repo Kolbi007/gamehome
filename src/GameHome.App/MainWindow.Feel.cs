@@ -123,6 +123,28 @@ public sealed partial class MainWindow
         return timer;
     }
 
+
+    // ---- Lesing av kontrolleren ----
+
+    /// <summary>
+    /// 60 avlesninger i sekundet når noen bruker Home, 30 etter 10 s uten input og 20 etter ett minutt. Første trykk
+    /// gir 60 igjen (forsinkelsen er da høyst 50 ms, ikke merkbart). Sparer CPU og batteri når Home bare står på.
+    /// </summary>
+    private void AdaptPollRate()
+    {
+        if (!_windowActive)
+        {
+            return; // Inaktivt vindu har sin egen, lave takt (250 ms).
+        }
+
+        var idle = DateTime.UtcNow - _lastUserInput;
+        var wanted = idle > TimeSpan.FromMinutes(1) ? 50 : idle > TimeSpan.FromSeconds(10) ? 33 : 16;
+        if ((int)_gamepadTimer.Interval.TotalMilliseconds != wanted)
+        {
+            _gamepadTimer.Interval = TimeSpan.FromMilliseconds(wanted);
+        }
+    }
+
     // ---- Visningsmodus ----
 
     private static readonly TimeSpan AttractAfter = TimeSpan.FromSeconds(45);
