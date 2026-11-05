@@ -128,8 +128,16 @@ try {
     }
 
     # ---- Start spillet ----
-    $tile = FindByName $Game
+    # Flisen kan ligge utenfor skjermen lenger ut i raden: finn den blant alle, gi den fokus (WinUI ruller den fram).
+    $w = GameHomeWindow
+    $tileCond = New-Object System.Windows.Automation.AndCondition(
+        (New-Object System.Windows.Automation.PropertyCondition($AE::NameProperty, $Game)),
+        (New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button)))
+    $tile = $w.FindAll([System.Windows.Automation.TreeScope]::Descendants, $tileCond) |
+        Where-Object { $_.Current.AutomationId -like 'game:*' } | Select-Object -First 1
     if (-not $tile) { throw "Fant ikke flisen «$Game» i Home" }
+    $tile.SetFocus()
+    Start-Sleep 1
     $before = @(Get-Process | ForEach-Object Id)
     Press $tile
     Start-Sleep 1
