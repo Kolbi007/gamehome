@@ -184,6 +184,59 @@ public sealed class SteamStoreClient(HttpClient http)
         }
     }
 
+    /// <summary>Første trailer fra butikksiden som video-URL (helst liten MP4), eller null.</summary>
+    public async Task<string?> GetTrailerAsync(int appId, CancellationToken ct = default)
+    {
+        await Gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var wait = TimeSpan.FromSeconds(1) - (DateTime.UtcNow - _lastCall);
+            if (wait > TimeSpan.Zero)
+            {
+                await Task.Delay(wait, ct).ConfigureAwait(false);
+            }
+
+            _lastCall = DateTime.UtcNow;
+            var id = appId.ToString(CultureInfo.InvariantCulture);
+            var json = await http.GetStringAsync(new Uri($"https://store.steampowered.com/api/appdetails?filters=movies&appids={id}"), ct).ConfigureAwait(false);
+            return ParseTrailer(json, appId);
+        }
+        finally
+        {
+            Gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Velger video fra <c>movies[0]</c>: MP4 480p, MP4 i full størrelse, WebM 480p eller HLS (nyere trailere), i den
+    /// rekkefølgen. Lavest oppløsning først: den vises dempet bak Home og skal koste lite.
+    /// </summary>
+    public static string? ParseTrailer(string json, int appId)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            if (!document.RootElement.TryGetProperty(appId.ToString(CultureInfo.InvariantCulture), out var entry)
+                || !entry.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object
+                || !data.TryGetProperty("movies", out var movies) || movies.ValueKind != JsonValueKind.Array
+                || movies.GetArrayLength() == 0)
+            {
+                return null;
+            }
+
+            var movie = movies[0];
+            static string? Pick(JsonElement movie, string format, string size) =>
+                movie.TryGetProperty(format, out var f) && f.ValueKind == JsonValueKind.Object && f.TryGetProperty(size, out var u)
+                    && u.GetString() is { Length: > 0 } url && url.StartsWith("https://", StringComparison.Ordinal) ? url : null;
+            return Pick(movie, "mp4", "480") ?? Pick(movie, "mp4", "max") ?? Pick(movie, "webm", "480")
+                ?? (movie.TryGetProperty("hls_h264", out var hls) && hls.GetString() is { Length: > 0 } h && h.StartsWith("https://", StringComparison.Ordinal) ? h : null);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     public static IReadOnlyList<(string Preview, string Full)> ParseScreenshots(string json, int appId)
     {
         try
