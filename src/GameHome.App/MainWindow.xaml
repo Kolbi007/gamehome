@@ -168,7 +168,7 @@
                            FontWeight="SemiBold" Foreground="{StaticResource GhTextPrimaryBrush}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
                 <!-- Søk: filtrerer mens du skriver. View-knappen (⧉) åpner det; skjermtastaturet vises også med kontroller. -->
                 <TextBox x:Name="LibrarySearchBox" Grid.Column="1" Width="260" Height="48" VerticalContentAlignment="Center" FontSize="{StaticResource GhSizeCaption}"
-                         PlaceholderText="Søk i biblioteket" TextChanged="LibrarySearchBox_TextChanged" KeyDown="LibrarySearchBox_KeyDown" CornerRadius="24" Padding="18,12,18,0" />
+                         IsTabStop="False" PlaceholderText="Søk (⧉)" TextChanged="LibrarySearchBox_TextChanged" KeyDown="LibrarySearchBox_KeyDown" CornerRadius="24" Padding="18,12,18,0" />
                 <Button x:Name="LibrarySortButton" Grid.Column="2" Click="LibrarySortButton_Click" Height="48" Padding="18,0" CornerRadius="24"
                         FontSize="{StaticResource GhSizeCaption}" ToolTipService.ToolTip="Sortering (X)" />
                 <Button x:Name="LibraryCloseButton" Grid.Column="3" Content="Tilbake" Click="LibraryCloseButton_Click" Height="48" Padding="18,0"

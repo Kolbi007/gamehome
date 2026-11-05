@@ -297,6 +297,17 @@ try {
         Press (Find 'LibraryCloseButton')
         Check (Wait-Until { -not (Find 'LibraryCloseButton') -and (Find 'LibraryTile') } 5) 'Biblioteket lukkes, Home er tilbake'
     } else { Fail 'Fant ikke Bibliotek-knappen' }
+
+    # ---- Skjermtastaturet skal ikke bli liggende (det dekket Home, 2026-11-05) ----
+    Add-Type @"
+using System; using System.Runtime.InteropServices;
+[StructLayout(LayoutKind.Sequential)] public struct KbdRect { public int L, T, R, B; }
+[ComImport, Guid("5752238B-24F0-495A-82F1-2FD593056796"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IKbdPane { void Advise(IntPtr a, IntPtr b, out uint c); void AdviseWithHWND(IntPtr a, IntPtr b, out uint c); void Unadvise(uint c); void Location(out KbdRect r); }
+public static class KbdState { public static bool Visible() { var p = (IKbdPane)Activator.CreateInstance(Type.GetTypeFromCLSID(new Guid("D5120AA3-46BA-44C5-822D-CA8092C1FC72"))); KbdRect r; p.Location(out r); return r.B - r.T > 0; } }
+"@
+    Start-Sleep 1
+    Check (-not [KbdState]::Visible()) 'Skjermtastaturet er skjult etter søk og nøkkelfelt'
 }
 catch {
     Fail "Testen stoppet: $($_.Exception.Message)"

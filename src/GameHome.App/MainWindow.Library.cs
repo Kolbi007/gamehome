@@ -100,6 +100,8 @@ public sealed partial class MainWindow
     {
         LibraryPanel.Visibility = Visibility.Collapsed;
         LibraryGrid.Children.Clear(); // Bildene trengs ikke når biblioteket er lukket.
+        TouchKeyboard.Hide();
+        LibrarySearchBox.IsTabStop = false;
         SetHomeEnabled(true);
         if (focusHome)
         {
@@ -264,6 +266,8 @@ public sealed partial class MainWindow
         if (e.Key == global::Windows.System.VirtualKey.Enter)
         {
             e.Handled = true;
+            TouchKeyboard.Hide();
+            LibrarySearchBox.IsTabStop = false;
             FocusLibrary(null);
         }
     }
@@ -271,6 +275,7 @@ public sealed partial class MainWindow
     /// <summary>View-knappen (⧉): søkefeltet får fokus og skjermtastaturet vises, også når kontrolleren brukes.</summary>
     private void OpenLibrarySearch()
     {
+        LibrarySearchBox.IsTabStop = true; // Søkefeltet får fokus bare via View-knappen, ellers dukker tastaturet opp.
         LibrarySearchBox.Focus(FocusState.Programmatic);
         ShowTouchKeyboard();
 
