@@ -80,6 +80,7 @@ public sealed partial class MainWindow : Window
         [GogRunner.Id] = new GogRunner(),
         [EpicRunner.Id] = new EpicRunner(),
         [ChiakiRunner.Id] = new ChiakiRunner(),
+        [RetroArchRunner.Id] = new RetroArchRunner(),
     };
     private readonly List<string> _events = [];
     private readonly DispatcherQueueTimer _gamepadTimer;
@@ -2884,6 +2885,7 @@ public sealed partial class MainWindow : Window
             var gog = GogGames.Scan(message => _log.Write("gog", message));
             var epic = EpicGames.Scan(message => _log.Write("epic", message));
             var playStation = Chiaki.RegisteredConsoles();
+            var retro = RetroArch.Scan();
 
             DispatcherQueue.TryEnqueue(() =>
             {
@@ -2893,6 +2895,7 @@ public sealed partial class MainWindow : Window
                 ApplyStoreScan(GogRunner.Id, "GOG", GogGames.AsStoreEntries(gog));
                 ApplyStoreScan(EpicRunner.Id, "Epic", EpicGames.AsStoreEntries(epic));
                 ApplyStoreScan(ChiakiRunner.Id, "PlayStation", Chiaki.AsStoreEntries(playStation));
+                ApplyStoreScan(RetroArchRunner.Id, "retro", RetroArch.AsStoreEntries(retro));
             });
         });
     }
