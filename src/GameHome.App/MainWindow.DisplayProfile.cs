@@ -55,6 +55,44 @@ public sealed partial class MainWindow
         }
     }
 
+
+    /// <summary>Valget i spillets ☰-meny: viser den huskede skjermen og lar brukeren glemme den.</summary>
+    private void ShowDisplayOption(Game game)
+    {
+        if (SavedDisplay(game) is { } mode)
+        {
+            OptionDisplay.Content = string.Create(CultureInfo.InvariantCulture,
+                $"Glem skjerminnstilling ({mode.Width}×{mode.Height} {mode.Hz} Hz)");
+            OptionDisplay.Visibility = Microsoft.UI.Xaml.Visibility.Visible;
+        }
+        else
+        {
+            OptionDisplay.Visibility = Microsoft.UI.Xaml.Visibility.Collapsed;
+        }
+    }
+
+    private void OptionDisplay_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+    {
+        if (_optionsGame is not { } game)
+        {
+            return;
+        }
+
+        try
+        {
+            ApplicationData.Current.LocalSettings.Values.Remove(DisplayKey(game));
+        }
+        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or UnauthorizedAccessException)
+        {
+            _log.Write("ytelse", $"Kunne ikke glemme skjermen: {ex.Message}");
+            return;
+        }
+
+        OptionDisplay.Visibility = Microsoft.UI.Xaml.Visibility.Collapsed;
+        OptionsStatus.Text = "Skjerminnstillingen er glemt; spillet starter med skjermen slik den står.";
+        _log.Write("ytelse", $"Glemte skjerminnstilling for «{GameLibrary.DisplayTitle(game)}»");
+    }
+
     /// <summary>Før start: spillets lagrede skjerm settes, og den som var, huskes til spillet er ferdig.</summary>
     private void ApplyGameDisplay(Game game)
     {
