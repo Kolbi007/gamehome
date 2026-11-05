@@ -79,6 +79,7 @@ public sealed partial class MainWindow : Window
         [BattleNetRunner.Id] = new BattleNetRunner(),
         [GogRunner.Id] = new GogRunner(),
         [EpicRunner.Id] = new EpicRunner(),
+        [ChiakiRunner.Id] = new ChiakiRunner(),
     };
     private readonly List<string> _events = [];
     private readonly DispatcherQueueTimer _gamepadTimer;
@@ -87,6 +88,7 @@ public sealed partial class MainWindow : Window
     private readonly List<HidReportListener> _hidListeners = [];
 
     private IForegroundSession? _session;
+    private string? _sessionRunnerId;
     private DateTime _lastSteamSync = DateTime.MinValue;
     private bool _steamSyncRunning;
     private DispatcherQueueTimer? _firstSteamSync;
@@ -2514,6 +2516,7 @@ public sealed partial class MainWindow : Window
         try
         {
             _session = (IForegroundSession)await runner.LaunchAsync(action, Profile.Default, CancellationToken.None);
+            _sessionRunnerId = action.RunnerId;
         }
         catch (LaunchException ex)
         {
@@ -2880,6 +2883,7 @@ public sealed partial class MainWindow : Window
             var battleNet = BattleNetGames.Scan();
             var gog = GogGames.Scan(message => _log.Write("gog", message));
             var epic = EpicGames.Scan(message => _log.Write("epic", message));
+            var playStation = Chiaki.RegisteredConsoles();
 
             DispatcherQueue.TryEnqueue(() =>
             {
@@ -2888,6 +2892,7 @@ public sealed partial class MainWindow : Window
                 ApplyBattleNetScan(battleNet);
                 ApplyStoreScan(GogRunner.Id, "GOG", GogGames.AsStoreEntries(gog));
                 ApplyStoreScan(EpicRunner.Id, "Epic", EpicGames.AsStoreEntries(epic));
+                ApplyStoreScan(ChiakiRunner.Id, "PlayStation", Chiaki.AsStoreEntries(playStation));
             });
         });
     }
@@ -3289,7 +3294,8 @@ public sealed partial class MainWindow : Window
             $"Startet for {(DateTime.UtcNow - _sessionStarted).TotalMinutes:F0} min siden");
         var streaming = _session is StreamSession;
         ResumeButton.Content = streaming ? "Tilbake til streamen" : "Tilbake til spillet";
-        EndSessionButton.Content = streaming ? $"Koble fra (spillet fortsetter på {HostLabel})" : "Avslutt spillet";
+        EndSessionButton.Content = streaming ? $"Koble fra (spillet fortsetter på {HostLabel})"
+            : _sessionRunnerId == ChiakiRunner.Id ? "Koble fra (spillet fortsetter på konsollen)" : "Avslutt spillet";
         EndRemoteButton.Content = $"Avslutt spillet på {HostLabel}";
         EndRemoteButton.Visibility = streaming ? Visibility.Visible : Visibility.Collapsed;
         StreamDebugPanel.Visibility = streaming ? Visibility.Visible : Visibility.Collapsed;
