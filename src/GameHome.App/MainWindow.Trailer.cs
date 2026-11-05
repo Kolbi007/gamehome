@@ -185,26 +185,29 @@ public sealed partial class MainWindow
             return;
         }
 
+        // Tydelig, ikke bare antydet (produkteier så ingen forskjell med 16/56 px, 2026-11-05): logo og tekst krymper og
+        // glir ned mot venstre hjørne, flisraden glir nesten ut nederst, verktøyknappene forsvinner, og sløret letter.
         _roomForTrailer = room;
         var duration = room ? 900 : 350;
-        var shift = room ? 56.0 : 0;
-        SlideTo(HeroInfo, room ? -16 : 0, shift, duration);
-        SlideTo(GameTilesScroll, 0, shift, duration);
-        SlideTo(ToolTiles, 0, shift, duration);
+        MoveTo(HeroInfo, room ? -24 : 0, room ? 150 : 0, room ? 0.7 : 1, duration, originX: 0, originY: 1);
+        MoveTo(GameTilesScroll, 0, room ? 170 : 0, 1, duration);
+        MoveTo(ToolTiles, 0, room ? 120 : 0, 1, duration);
+        FadeTo(GameTilesScroll, room ? 0.55 : 1, duration);
         FadeTo(ToolTiles, room ? 0 : 1, duration);
-        FadeTo(ScrimLeft, room ? 0.55 : 1, duration);
-        FadeTo(ScrimBottom, room ? 0.85 : 1, duration);
+        FadeTo(ScrimLeft, room ? 0.3 : 1, duration);
+        FadeTo(ScrimBottom, room ? 0.55 : 1, duration);
     }
 
-    private static void SlideTo(UIElement element, double x, double y, int milliseconds)
+    private static void MoveTo(UIElement element, double x, double y, double scale, int milliseconds, double originX = 0.5, double originY = 0.5)
     {
-        if (element.RenderTransform is not TranslateTransform)
+        if (element.RenderTransform is not CompositeTransform)
         {
-            element.RenderTransform = new TranslateTransform();
+            element.RenderTransform = new CompositeTransform();
+            element.RenderTransformOrigin = new global::Windows.Foundation.Point(originX, originY);
         }
 
         var story = new Storyboard();
-        foreach (var (property, value) in new[] { ("X", x), ("Y", y) })
+        foreach (var (property, value) in new[] { ("TranslateX", x), ("TranslateY", y), ("ScaleX", scale), ("ScaleY", scale) })
         {
             var animation = new DoubleAnimation
             {
@@ -213,7 +216,7 @@ public sealed partial class MainWindow
                 EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut },
             };
             Storyboard.SetTarget(animation, element);
-            Storyboard.SetTargetProperty(animation, $"(UIElement.RenderTransform).(TranslateTransform.{property})");
+            Storyboard.SetTargetProperty(animation, $"(UIElement.RenderTransform).(CompositeTransform.{property})");
             story.Children.Add(animation);
         }
 
