@@ -106,6 +106,12 @@
 
             <!-- Verktøy: få og stille. Teknisk ligger under Feilsøking. -->
             <StackPanel x:Name="ToolTiles" Grid.Row="3" Orientation="Horizontal" Spacing="12">
+                <Button x:Name="LibraryTile" Click="LibraryTile_Click" Height="48" Padding="18,0" FontSize="{StaticResource GhSizeCaption}" CornerRadius="24">
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE8F1;" FontSize="14" />
+                        <TextBlock x:Name="LibraryTileText" Text="Bibliotek" />
+                    </StackPanel>
+                </Button>
                 <Button x:Name="AddGameTile" Click="AddGameTile_Click" Height="48" Padding="18,0" FontSize="{StaticResource GhSizeCaption}" CornerRadius="24">
                     <StackPanel Orientation="Horizontal" Spacing="10">
                         <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE710;" FontSize="14" />
@@ -125,6 +131,40 @@
                     </StackPanel>
                 </Button>
             </StackPanel>
+        </Grid>
+
+        <!--
+          Bibliotek: alle spillene i et rutenett, med faner per kilde og sortering. Home viser bare «Fortsett» (sist spilt og
+          festede). Ligger rett over Home og under alle andre paneler, så «Om spillet» og valg kan åpnes herfra.
+        -->
+        <Grid x:Name="LibraryPanel" Background="{StaticResource GhBaseBrush}" Visibility="Collapsed" Padding="{StaticResource GhPageMargin}" RowSpacing="14">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <Grid ColumnSpacing="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="LibraryHeading" Text="Bibliotek" FontFamily="{StaticResource GhFontDisplay}" FontSize="{StaticResource GhSizeTitle}"
+                           FontWeight="SemiBold" Foreground="{StaticResource GhTextPrimaryBrush}" VerticalAlignment="Center" />
+                <Button x:Name="LibrarySortButton" Grid.Column="1" Click="LibrarySortButton_Click" Height="48" Padding="18,0" CornerRadius="24"
+                        FontSize="{StaticResource GhSizeCaption}" ToolTipService.ToolTip="Sortering (X)" />
+                <Button x:Name="LibraryCloseButton" Grid.Column="2" Content="Tilbake" Click="LibraryCloseButton_Click" Height="48" Padding="18,0"
+                        CornerRadius="24" FontSize="{StaticResource GhSizeCaption}" />
+            </Grid>
+            <ScrollViewer Grid.Row="1" HorizontalScrollMode="Enabled" HorizontalScrollBarVisibility="Hidden" VerticalScrollMode="Disabled">
+                <StackPanel x:Name="LibraryTabs" Orientation="Horizontal" Spacing="8" />
+            </ScrollViewer>
+            <ScrollViewer x:Name="LibraryScroll" Grid.Row="2" VerticalScrollBarVisibility="Hidden" Padding="8" Margin="-8,0">
+                <VariableSizedWrapGrid x:Name="LibraryGrid" Orientation="Horizontal" ItemWidth="252" ItemHeight="150" />
+            </ScrollViewer>
+            <TextBlock Grid.Row="3" Text="A Spill · Y Om spillet · ☰ Valg og fest i Home · X Sortering · LB/RB Bytt fane · B Tilbake"
+                       FontSize="{StaticResource GhSizeSmall}" Foreground="{StaticResource GhTextTertiaryBrush}" />
         </Grid>
 
         <!--
@@ -400,6 +440,7 @@
                         <TextBlock x:Name="OptionPowerProfileText" FontSize="{StaticResource GhSizeSmall}" Foreground="{StaticResource GhTextTertiaryBrush}" TextWrapping="Wrap" />
                     </StackPanel>
                 </Button>
+                <Button x:Name="OptionPin" Style="{StaticResource GhPanelButton}" Click="OptionPin_Click" />
                 <Button x:Name="OptionRemove" Style="{StaticResource GhPanelButton}" Content="Fjern fra GameHome" Click="OptionRemove_Click" />
                 <Button x:Name="OptionsCloseButton" Style="{StaticResource GhPanelButton}" Content="Lukk" Click="OptionsCloseButton_Click" Margin="0,12,0,0" />
                 <TextBlock x:Name="OptionsStatus" FontSize="{StaticResource GhSizeSmall}" Foreground="{StaticResource GhTextSecondaryBrush}" TextWrapping="Wrap" />

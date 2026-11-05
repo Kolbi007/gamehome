@@ -113,7 +113,7 @@ try {
     }
 
     # Start fra Home: lukk paneler som står åpne fra før (søk/bibliotek, melding).
-    foreach ($id in 'FindCloseButton', 'MessageSecondary') {
+    foreach ($id in 'FindCloseButton', 'LibraryCloseButton', 'MessageSecondary') {
         if ($b = Find $id) { Note "Lukker åpent panel ($id)"; Press $b; Start-Sleep 1 }
     }
 
@@ -212,6 +212,46 @@ try {
         Check $found "«Installer fra Steam» henter biblioteket ($($line.Line -replace '^.*Steam-biblioteket: ', ''))"
         if ($b = Find 'FindCloseButton') { Press $b }
     } else { Fail '«Installer fra Steam» vises ikke (mangler Steam Web API-nøkkel eller Steam-ID?)' }
+    Start-Sleep 1
+
+    # ---- Home («Fortsett») og Biblioteket ----
+    # Paneler uten egen rolle vises ikke i UI Automation; flisene skilles i stedet på om de er aktive. Mens biblioteket
+    # er åpent, er Home-flisene slått av og bibliotekets fliser på.
+    function AllButtons {
+        $w = GameHomeWindow
+        @($w.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+            (New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button))))
+    }
+    function ActiveGameTiles { @(AllButtons | Where-Object { $_.Current.AutomationId -like 'game:*' -and $_.Current.IsEnabled }) }
+    function TabNames { @(AllButtons | Where-Object { $_.Current.IsEnabled -and $_.Current.AutomationId -notlike 'game:*' -and $_.Current.Name -match '^.+ \(\d+\)$' -and $_.Current.Name -notlike 'Bibliotek*' } | ForEach-Object { $_.Current.Name }) }
+    $homeCount = (ActiveGameTiles).Count
+    Check ($homeCount -ge 1 -and $homeCount -le 10) "Home viser «Fortsett» med $homeCount spill (høyst 10)"
+    if ($b = Find 'LibraryTile') {
+        Press $b
+        Check (Wait-Until { Find 'LibraryCloseButton' } 5) 'Biblioteket åpner'
+        Start-Sleep 1
+        $tabs = TabNames
+        Note "Faner: $($tabs -join ', ')"
+        $all = (ActiveGameTiles).Count
+        $allTab = $tabs | Where-Object { $_ -match '^Alle \((\d+)\)$' } | Select-Object -First 1
+        Check ($allTab -and [int]($allTab -replace '\D', '') -eq $all -and $all -ge $homeCount) "«Alle» viser alle spillene ($all)"
+        if ($retroTab = $tabs | Where-Object { $_ -like 'Retro (*' } | Select-Object -First 1) {
+            Press (FindByName $retroTab)
+            Start-Sleep 1
+            $retro = (ActiveGameTiles).Count
+            Check ($retro -eq [int]($retroTab -replace '\D', '')) "Fanen «$retroTab» viser $retro spill"
+        }
+        $sortBefore = (Find 'LibrarySortButton').Current.Name
+        Press (Find 'LibrarySortButton')
+        Start-Sleep 1
+        $sortAfter = (Find 'LibrarySortButton').Current.Name
+        Check ($sortAfter -ne $sortBefore) "Sortering byttes («$sortBefore» → «$sortAfter»)"
+        # Tilbake slik brukeren hadde det: sorteringen går rundt (fire valg), og «Alle» velges igjen.
+        foreach ($i in 1..3) { Press (Find 'LibrarySortButton'); Start-Sleep -Milliseconds 400 }
+        if ($allTab -and ($b = FindByName ($tabs | Where-Object { $_ -like 'Alle (*' } | Select-Object -First 1))) { Press $b; Start-Sleep 1 }
+        Press (Find 'LibraryCloseButton')
+        Check (Wait-Until { -not (Find 'LibraryCloseButton') -and (Find 'LibraryTile') } 5) 'Biblioteket lukkes, Home er tilbake'
+    } else { Fail 'Fant ikke Bibliotek-knappen' }
 }
 catch {
     Fail "Testen stoppet: $($_.Exception.Message)"

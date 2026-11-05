@@ -203,6 +203,8 @@ public sealed partial class MainWindow : Window
         {
             _log.Write("bibliotek", $"Kunne ikke lagre spilletid: {ex.Message}");
         }
+
+        BuildGameTiles(); // «Fortsett» følger sist spilt.
     }
 
     private void SaveDetails()
@@ -321,15 +323,66 @@ public sealed partial class MainWindow : Window
         return _rememberedTile;
     }
 
+    /// <summary>Så mange spill viser Home i «Fortsett». Resten ligger i Biblioteket.</summary>
+    private const int HomeRowLimit = 10;
+
+    private const string PinnedSetting = "home.pinned";
+
+    /// <summary>Spill brukeren har festet i Home, i rekkefølgen de ble festet.</summary>
+    private static List<string> LoadPinned()
+    {
+        try
+        {
+            return ApplicationData.Current.LocalSettings.Values[PinnedSetting] is string list
+                ? [.. list.Split('|', StringSplitOptions.RemoveEmptyEntries)]
+                : [];
+        }
+        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or UnauthorizedAccessException)
+        {
+            return [];
+        }
+    }
+
+    private void SavePinned(List<string> pinned)
+    {
+        try
+        {
+            ApplicationData.Current.LocalSettings.Values[PinnedSetting] = string.Join('|', pinned);
+        }
+        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or UnauthorizedAccessException)
+        {
+            _log.Write("home", $"Kunne ikke lagre festede spill: {ex.Message}");
+        }
+    }
+
+    private DateTime LastPlayed(Game game) =>
+        _playStats.TryGetValue(game.Id, out var s) && s.Minutes >= 1 ? s.LastPlayedUtc : DateTime.MinValue;
+
+    private double MinutesPlayed(Game game) => _playStats.TryGetValue(game.Id, out var s) ? s.Minutes : 0;
+
+    /// <summary>
+    /// «Fortsett» i Home: festede spill først, så sist spilte, så nylig lagt til (nyeste først), høyst
+    /// <see cref="HomeRowLimit"/>. Det første spillet er det du mest sannsynlig vil starte.
+    /// </summary>
+    private List<Game> HomeGames()
+    {
+        var pinned = LoadPinned();
+        var all = _library.VisibleGames.Select((g, index) => (Game: g, Index: index)).ToList();
+        return
+        [
+            .. all.Where(x => pinned.Contains(x.Game.Id))
+                .OrderBy(x => pinned.IndexOf(x.Game.Id))
+                .Concat(all.Where(x => !pinned.Contains(x.Game.Id))
+                    .OrderByDescending(x => LastPlayed(x.Game))
+                    .ThenByDescending(x => x.Index))
+                .Select(x => x.Game)
+                .Take(HomeRowLimit),
+        ];
+    }
+
     private void BuildGameTiles()
     {
-        // Sist spilte først; spill som aldri er spilt, beholder rekkefølgen de ble lagt til i.
-        var visible = _library.VisibleGames
-            .Select((g, index) => (Game: g, Index: index))
-            .OrderByDescending(x => _playStats.TryGetValue(x.Game.Id, out var s) && s.Minutes >= 1 ? s.LastPlayedUtc : DateTime.MinValue)
-            .ThenBy(x => x.Index)
-            .Select(x => x.Game)
-            .ToList();
+        var visible = HomeGames();
         var ids = visible.Select(g => g.Id).ToHashSet(StringComparer.Ordinal);
 
         for (var i = GameTiles.Children.Count - 1; i >= 0; i--)
@@ -340,17 +393,34 @@ public sealed partial class MainWindow : Window
             }
         }
 
+        // XamlRoot finnes ikke før vinduet er vist (første oppbygging skjer i konstruktøren; 0.1.134.0 krasjet ved oppstart).
+        var focused = Root.XamlRoot is { } xamlRoot ? FocusManager.GetFocusedElement(xamlRoot) : null;
         for (var i = 0; i < visible.Count; i++)
         {
             var existing = TileFor(visible[i].Id);
             if (existing is null)
             {
-                GameTiles.Children.Insert(i, CreateTile(visible[i]));
+                GameTiles.Children.Insert(Math.Min(i, GameTiles.Children.Count), CreateTile(visible[i]));
+                continue;
             }
-            else
+
+            SetTileContent(existing, visible[i]);
+
+            // Riktig rekkefølge (sist spilt først). Flisen som har fokus, flyttes ikke: å fjerne den mens den har fokus
+            // krasjet appen tidligere (0.1.27.0).
+            var at = GameTiles.Children.IndexOf(existing);
+            if (at != i && !ReferenceEquals(existing, focused))
             {
-                SetTileContent(existing, visible[i]);
+                GameTiles.Children.RemoveAt(at);
+                GameTiles.Children.Insert(Math.Min(i, GameTiles.Children.Count), existing);
             }
+        }
+
+        var hidden = _library.VisibleGames.Count - visible.Count;
+        LibraryTileText.Text = hidden > 0 ? $"Bibliotek ({_library.VisibleGames.Count})" : "Bibliotek";
+        if (LibraryPanel.Visibility == Visibility.Visible)
+        {
+            BuildLibrary();
         }
     }
 
@@ -399,7 +469,12 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        UpdateHero(game);
+        var inLibrary = LibraryPanel.Visibility == Visibility.Visible;
+        if (!inLibrary)
+        {
+            UpdateHero(game);
+        }
+
         if (TileImageFor(game) is not { } image)
         {
             tile.BorderThickness = new Thickness(0);
@@ -407,6 +482,11 @@ public sealed partial class MainWindow : Window
         }
 
         _ = ApplyFocusColorsAsync(tile, gameId, image);
+        if (inLibrary)
+        {
+            return; // Bakgrunnen bak Home synes ikke mens biblioteket er åpent.
+        }
+
         var hero = ArtFor(game).Hero is { } heroFile && File.Exists(heroFile) ? heroFile : null;
         var backdrop = hero ?? image;
         if (!string.Equals(_ambientPath, backdrop, StringComparison.OrdinalIgnoreCase))
@@ -838,6 +918,12 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void FocusHome(string? gameId)
     {
+        if (LibraryPanel.Visibility == Visibility.Visible)
+        {
+            FocusLibrary(gameId);
+            return;
+        }
+
         var target = TileFor(gameId) ?? GameTiles.Children.OfType<Button>().FirstOrDefault() ?? AddGameTile;
         if (target.IsLoaded)
         {
@@ -1736,7 +1822,10 @@ public sealed partial class MainWindow : Window
     private Game? _detailsGame;
     private bool _pickerOpen;
 
-    private bool AnyOverlayOpen =>
+    private bool AnyOverlayOpen => PanelOverLibraryOpen || LibraryPanel.Visibility == Visibility.Visible;
+
+    /// <summary>Et panel er åpent over Home og biblioteket (melding, «Om spillet», valg …).</summary>
+    private bool PanelOverLibraryOpen =>
         MessagePanel.Visibility == Visibility.Visible || SessionPanel.Visibility == Visibility.Visible
         || HostPanel.Visibility == Visibility.Visible || PowerPanel.Visibility == Visibility.Visible
         || LoadingPanel.Visibility == Visibility.Visible || DetailsPanel.Visibility == Visibility.Visible
@@ -1970,6 +2059,7 @@ public sealed partial class MainWindow : Window
         OptionDefaultMode.Visibility = hasBoth ? Visibility.Visible : Visibility.Collapsed;
         OptionDefaultMode.Content = DefaultModeText(game);
         OptionPowerProfileText.Text = HandheldCompanionStatus(game);
+        OptionPin.Content = PinText(game);
         ShowSource(game);
         OptionsPanel.Visibility = Visibility.Visible;
         FadeIn(OptionsPanel);
@@ -4619,9 +4709,19 @@ public sealed partial class MainWindow : Window
 
     private void SetHomeEnabled(bool enabled)
     {
+        // Er biblioteket åpent, ligger Home bak det og skal ikke kunne få fokus; biblioteket følger <paramref name="enabled"/>.
+        var library = LibraryPanel.Visibility == Visibility.Visible;
         foreach (var child in GameTiles.Children.OfType<Button>()
             .Concat(ToolTiles.Children.OfType<Button>())
             .Append(PowerMenuButton))
+        {
+            child.IsEnabled = enabled && !library;
+        }
+
+        foreach (var child in LibraryGrid.Children.OfType<Button>()
+            .Concat(LibraryTabs.Children.OfType<Button>())
+            .Append(LibrarySortButton)
+            .Append(LibraryCloseButton))
         {
             child.IsEnabled = enabled;
         }
@@ -5025,8 +5125,30 @@ public sealed partial class MainWindow : Window
         }
 
         // Y på en spillflis: om spillet. ☰ (Start/Menu): valg for spillet.
-        var tileGame = focusedButton is { Tag: string id } && GameTiles.Children.Contains(focusedButton) ? _library.Find(id) : null;
-        if (tileGame is not null && !AnyOverlayOpen)
+        var libraryOnTop = LibraryPanel.Visibility == Visibility.Visible && !PanelOverLibraryOpen;
+        var onTile = focusedButton is not null
+            && (libraryOnTop ? LibraryGrid.Children.Contains(focusedButton) : !AnyOverlayOpen && GameTiles.Children.Contains(focusedButton));
+        var tileGame = onTile && focusedButton is { Tag: string id } ? _library.Find(id) : null;
+
+        // Biblioteket: LB/RB bytter fane, X bytter sortering.
+        if (libraryOnTop)
+        {
+            if (pressed.HasFlag(GamepadButtons.LeftShoulder) || pressed.HasFlag(GamepadButtons.RightShoulder))
+            {
+                MenuSounds.Move();
+                MoveLibraryTab(pressed.HasFlag(GamepadButtons.LeftShoulder) ? -1 : 1);
+                return;
+            }
+
+            if (pressed.HasFlag(GamepadButtons.X))
+            {
+                MenuSounds.Move();
+                NextLibrarySort();
+                return;
+            }
+        }
+
+        if (tileGame is not null)
         {
             if (pressed.HasFlag(GamepadButtons.Y))
             {
@@ -5079,6 +5201,10 @@ public sealed partial class MainWindow : Window
             else if (DetailsPanel.Visibility == Visibility.Visible)
             {
                 CloseDetails();
+            }
+            else if (LibraryPanel.Visibility == Visibility.Visible)
+            {
+                CloseLibrary();
             }
             else if (DebugPanel.Visibility == Visibility.Visible)
             {
