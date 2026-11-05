@@ -128,6 +128,17 @@ public sealed partial class MainWindow : Window
         _log.Write("start", "XAML lastet");
         ExtendsContentIntoTitleBar = true;
 
+        // Fullskjerm uten oppgavelinje og vindusknapper. Uten Windows' fullskjermmodus (Gaming Home) sto GameHome som et
+        // vanlig vindu med oppgavelinjen synlig (skjermbilder 2026-11-05).
+        try
+        {
+            AppWindow.SetPresenter(Microsoft.UI.Windowing.AppWindowPresenterKind.FullScreen);
+        }
+        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidOperationException)
+        {
+            _log.Write("start", $"Fikk ikke fullskjerm: {ex.Message}");
+        }
+
         _log.Written += OnLogWritten;
 
         Root.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(OnKeyDown), handledEventsToo: true);
@@ -3399,6 +3410,8 @@ public sealed partial class MainWindow : Window
             SessionDetail.Text = $"Strømmer fra {HostLabel}";
         }
 
+        ShowSessionArt();
+        BatteryText.Text = BatteryLine();
         FillPerformance();
         PerformanceStatus.Visibility = Visibility.Collapsed;
         SessionPanel.Visibility = Visibility.Visible;
@@ -3407,9 +3420,44 @@ public sealed partial class MainWindow : Window
         _log.Write("økt", $"«Kjører nå» vist via {via}");
     }
 
+    /// <summary>Spillets bakgrunnsbilde og logo i menyen; uten logo vises tittelen.</summary>
+    private void ShowSessionArt()
+    {
+        SessionHero.Source = null;
+        SessionLogo.Source = null;
+        SessionLogo.Visibility = Visibility.Collapsed;
+        SessionTitle.Visibility = Visibility.Visible;
+        if (_sessionGame is not { } game)
+        {
+            return;
+        }
+
+        var art = ArtFor(game);
+        if (art.Hero is { } hero && File.Exists(hero))
+        {
+            _ = LoadTileImageAsync(SessionHero, hero, 1280);
+        }
+
+        if (art.Logo is { } logo && File.Exists(logo))
+        {
+            SessionLogo.Visibility = Visibility.Visible;
+            SessionTitle.Visibility = Visibility.Collapsed;
+            _ = LoadTileImageAsync(SessionLogo, logo, 840);
+        }
+    }
+
+    private static string BatteryLine()
+    {
+        var percent = global::Windows.System.Power.PowerManager.RemainingChargePercent;
+        var charging = global::Windows.System.Power.PowerManager.PowerSupplyStatus != global::Windows.System.Power.PowerSupplyStatus.NotPresent;
+        return string.Create(CultureInfo.InvariantCulture, $"Batteri {percent} %{(charging ? " · lader" : "")}");
+    }
+
     private void HideSessionPanel()
     {
         SessionPanel.Visibility = Visibility.Collapsed;
+        SessionHero.Source = null; // Bildene trengs ikke når menyen er lukket.
+        SessionLogo.Source = null;
         SetHomeEnabled(true);
         FocusHome(_focusGameId);
     }
@@ -3649,6 +3697,27 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        // Å koble fra en strøm er ufarlig; å lukke et spill her kan miste ulagret fremgang og bekreftes først, som på
+        // Steam Deck og Switch. «Avbryt» har fokus i bekreftelsen.
+        if (session is not StreamSession && _sessionRunnerId != ChiakiRunner.Id)
+        {
+            var title = _sessionGame is null ? "spillet" : GameLibrary.DisplayTitle(_sessionGame);
+            SessionPanel.Visibility = Visibility.Collapsed;
+            ShowMessage($"Avslutte {title}?", "Spillet lukkes. Ulagret fremgang kan gå tapt.",
+                "Avslutt", () =>
+                {
+                    ShowSessionPanel("bekreftet avslutning");
+                    EndSession(session);
+                },
+                "Avbryt", () => ShowSessionPanel("avslutning avbrutt"));
+            return;
+        }
+
+        EndSession(session);
+    }
+
+    private void EndSession(IForegroundSession session)
+    {
         _ = session.RequestCloseAsync();
         _log.Write("økt", "«Avslutt spillet» valgt");
         SessionDetail.Text = "Venter på at spillet avslutter …";
@@ -5226,7 +5295,8 @@ public sealed partial class MainWindow : Window
             }
             else if (SessionPanel.Visibility == Visibility.Visible)
             {
-                HideSessionPanel();
+                // B går tilbake til spillet, som på Steam Deck og Switch. «Til Home» ligger som egen knapp.
+                ResumeButton_Click(ResumeButton, new RoutedEventArgs());
             }
         }
     }

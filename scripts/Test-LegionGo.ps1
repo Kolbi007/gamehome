@@ -200,6 +200,12 @@ try {
     [GhTest]::Chord(0x7B)
     if ((Wait-Until { Find 'EndSessionButton' } 5) -and ($b = Find 'EndSessionButton')) {
         Press $b
+        # Avslutning av et lokalt spill bekreftes; «Avbryt» har fokus, testen velger «Avslutt».
+        if (Wait-Until { Find 'MessagePrimary' } 3) {
+            $confirm = Find 'MessagePrimary'
+            Check ($confirm.Current.Name -eq 'Avslutt') "Avslutning bekreftes («$($confirm.Current.Name)»)"
+            Press $confirm
+        } else { Fail 'Ingen bekreftelse før avslutning' }
         Check (Wait-Until { $gameProcess.Refresh(); $gameProcess.HasExited } 30) '«Avslutt spillet» avslutter spillet'
         Check (Wait-Until { (GameHomeInFront) -and -not (Find 'ResumeButton') } 10) 'Home er framme etter at spillet er avsluttet'
     } else { Fail 'Fant ikke «Avslutt spillet»' }
