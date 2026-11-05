@@ -108,7 +108,29 @@ internal sealed class UiWatchdog
                 + (cpu > 100.0 / Environment.ProcessorCount / 2 ? "(henger i en løkke)" : "(venter på noe)")
                 + (ok ? $". Minnebilde: {Path.GetFileName(path)}" : ". Minnebildet kunne ikke lagres"));
         }
+        else if (_dumped && !_restarting && waited >= RestartAfter && !InGame)
+        {
+            // Ingen spill kjører: en omstart av GameHome er bedre enn en Home som ikke svarer. Under spill bare logges det;
+            // spillet går uansett, og M2 virker igjen når UI-tråden svarer.
+            _restarting = true;
+            _log.Write("heng", $"Ingen svar etter {waited.TotalSeconds:0} s og ingen spill kjører; GameHome startes på nytt");
+            try
+            {
+                var reason = Microsoft.Windows.AppLifecycle.AppInstance.Restart("--etter-heng");
+                _log.Write("heng", $"Omstart avslått av Windows: {reason}");
+            }
+            catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidOperationException)
+            {
+                _log.Write("heng", $"Omstart feilet: {ex.Message}");
+            }
+        }
     }
+
+    private static readonly TimeSpan RestartAfter = TimeSpan.FromSeconds(30);
+    private bool _restarting;
+
+    /// <summary>Settes av MainWindow mens et spill kjører; da startes GameHome aldri på nytt av vakthunden.</summary>
+    public static volatile bool InGame;
 
     private void Pong()
     {

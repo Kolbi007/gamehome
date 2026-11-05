@@ -2731,6 +2731,7 @@ public sealed partial class MainWindow : Window
         // M2 er alltid registrert (MenuHotkeyId); de andre bare under spill.
         var registered = SessionHotkeys.Where(h => h.Id == MenuHotkeyId || _hotkeys.Register(h.Id, h.Modifiers, h.Key)).Select(h => h.Name).ToList();
         var hook = M2Fallback && _hotkeys.StartHook();
+        UiWatchdog.InGame = true;
         var eco = Efficiency.Set(true); // GameHome i effektivitetsmodus mens spillet kjører.
         _log.Write("økt", $"Startet «{title}» ({action.RunnerId} {action.Target}, {session.Status}). Hurtigtaster: {string.Join(", ", registered)}"
             + (hook ? " (+ tastaturkrok som reserve)" : "") + (eco ? "; GameHome i effektivitetsmodus" : ""));
@@ -2750,6 +2751,7 @@ public sealed partial class MainWindow : Window
         RegisterHomeHotkey();
         RestoreDisplayAfterGame();
         Efficiency.Set(false);
+        UiWatchdog.InGame = false;
         HideLoading("økten avsluttet");
         var game = _sessionGame;
         var title = game is null ? "spillet" : GameLibrary.DisplayTitle(game);
