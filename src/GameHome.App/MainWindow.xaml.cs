@@ -3415,7 +3415,7 @@ public sealed partial class MainWindow : Window
         return button;
     }
 
-    private void PerformanceMode_Click(object sender, RoutedEventArgs e)
+    private async void PerformanceMode_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { Tag: DisplayMode target })
         {
@@ -3429,6 +3429,21 @@ public sealed partial class MainWindow : Window
         PerformanceStatus.Visibility = Visibility.Visible;
         FillPerformance();
         FocusPerformance(target);
+
+        // Noen spill tar forgrunnen når oppløsningen endres (Broforce, 0.1.114.0). Menyen hentes tilbake, slik
+        // hurtigtasten gjør.
+        if (error is null)
+        {
+            await Task.Delay(1500);
+            var window = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            if (SessionPanel.Visibility == Visibility.Visible && !Foreground.IsForeground(window))
+            {
+                Activate();
+                var back = Foreground.Bring(window);
+                _log.Write("fokus", back ? "Menyen hentet tilbake etter skjermendring" : "Windows avslo forgrunnen etter skjermendring");
+                FocusPerformance(target);
+            }
+        }
     }
 
     // Etter at knappene er laget på nytt, settes fokus på den valgte, så kontrolleren ikke mister plassen sin.
@@ -3447,11 +3462,11 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void QuickToolsButton_Click(object sender, RoutedEventArgs e)
+    private async void QuickToolsButton_Click(object sender, RoutedEventArgs e)
     {
         // Handheld Companion lytter på hurtigtasten i sin egen tastaturkrok; hvilket vindu som har forgrunnen, spiller
         // ingen rolle.
-        var sent = Keyboard.SendChord(QuickToolsChord);
+        var sent = await Keyboard.SendChordHeldAsync(TimeSpan.FromMilliseconds(60), QuickToolsChord);
         _log.Write("ytelse", sent ? "QuickTools: hurtigtast sendt til Handheld Companion" : "QuickTools: Windows avslo tastetrykket");
         PerformanceStatus.Text = sent
             ? "Åpner Handheld Companion. Skjer ingenting, trykk høyre Legion-knapp."

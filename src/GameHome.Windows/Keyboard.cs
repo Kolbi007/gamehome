@@ -37,6 +37,25 @@ public static class Keyboard
         return KeyboardNative.SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<KeyInput>()) == inputs.Length;
     }
 
+    /// <summary>
+    /// Som <see cref="SendChord"/>, men holder tastene nede en liten stund før de slippes. Handheld Companion kjenner
+    /// ikke igjen kombinasjonen når ned og opp kommer i samme øyeblikk (målt 2026-11-05: 0 ms virket ikke, 60 ms virket).
+    /// </summary>
+    public static async Task<bool> SendChordHeldAsync(TimeSpan hold, params ushort[] keys)
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        var down = keys.Select(k => Key(k, up: false)).ToArray();
+        var up = Enumerable.Reverse(keys).Select(k => Key(k, up: true)).ToArray();
+        var size = Marshal.SizeOf<KeyInput>();
+        if (KeyboardNative.SendInput((uint)down.Length, down, size) != down.Length)
+        {
+            return false;
+        }
+
+        await Task.Delay(hold).ConfigureAwait(false);
+        return KeyboardNative.SendInput((uint)up.Length, up, size) == up.Length;
+    }
+
     // Skannekoden fylles inn også: SDL (Moonlight) leser den fra meldingen for å finne riktig tast.
     private static KeyInput Key(ushort virtualKey, bool up) => new()
     {
