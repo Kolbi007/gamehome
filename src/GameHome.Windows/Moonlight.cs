@@ -352,8 +352,17 @@ public sealed class StreamSession : IForegroundSession
             return result;
         }
 
-        // Spillet på hosten er avsluttet. Moonlight blir stående med «connection terminated» (målt 2026-11-02), så den
-        // lokale klienten lukkes: først normalt, så med tvang etter 5 s. Det rammer bare Moonlight, ikke spillet.
+        await CloseClientAfterRemoteEndAsync().ConfigureAwait(false);
+        return result;
+    }
+
+    /// <summary>
+    /// Spillet på hosten er avsluttet (via Moonlight eller Vibepollos API). Moonlight blir stående med «connection
+    /// terminated» (målt 2026-11-02), så den lokale klienten lukkes: først normalt, så med tvang etter 5 s. Det rammer
+    /// bare Moonlight, ikke spillet.
+    /// </summary>
+    public async Task CloseClientAfterRemoteEndAsync()
+    {
         await _client.RequestCloseAsync().ConfigureAwait(false);
         var closed = await Task.WhenAny(_client.Completion, Task.Delay(TimeSpan.FromSeconds(5))).ConfigureAwait(false) == _client.Completion;
         if (!closed)
@@ -361,8 +370,6 @@ public sealed class StreamSession : IForegroundSession
             await _client.ForceTerminateAsync().ConfigureAwait(false);
             Note?.Invoke(this, "Moonlight lukket etter avsluttet fjernspill");
         }
-
-        return result;
     }
 
     public void Dispose() => _client.Dispose();

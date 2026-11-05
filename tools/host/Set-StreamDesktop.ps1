@@ -18,11 +18,15 @@
     Hide åpner også et dekkbilde: et rolig, mørkt fullskjermsbilde over skrivebordet og åpne vinduer. Spillet åpnes
     over det, og Restore lukker det. Bakgrunnsbildet (også lysbildefremvisning) røres ikke.
 
+    Under strømmen lytter en liten, skjult prosess (-Action Watch) på Ctrl+Shift+F10. GameHome sender den tasten
+    gjennom Moonlight fra «Feilsøking» i M2-menyen, og oppgavelinjen og ikonene vises eller skjules. Restore stopper
+    lytteren, og den avslutter seg selv hvis strømmen er over.
+
     Skriptet avslutter alltid med kode 0. Vibepollo avbryter spillstarten hvis en prep-kommando feiler, og et rent
     skrivebord er ikke viktigere enn at spillet starter.
 #>
 param(
-    [ValidateSet('Hide', 'Restore', 'Status', 'Cover')]
+    [ValidateSet('Hide', 'Restore', 'Status', 'Cover', 'Watch')]
     [string] $Action = 'Status',
 
     # Intern: Hide er startet i bakgrunnen og skal gjøre jobben nå.
@@ -34,6 +38,7 @@ $stateDir = Join-Path $env:LOCALAPPDATA 'GameHome'
 $stateFile = Join-Path $stateDir 'stream-desktop.json'
 $coverPidFile = Join-Path $stateDir 'stream-cover.pid'
 $hidePidFile = Join-Path $stateDir 'stream-hide.pid'
+$watchPidFile = Join-Path $stateDir 'stream-watch.pid'
 $logFile = Join-Path $stateDir 'stream-desktop.log'
 
 function Write-Log([string] $message) {
@@ -63,6 +68,24 @@ function Import-Cached([string] $name, [string] $source, [string[]] $references)
     Add-Type -Path $dll
 }
 
+# Lytteren for feilsøkingstasten kjører i en egen, skjult PowerShell-prosess så lenge strømmen varer.
+function Start-Watch {
+    if (Test-Path $watchPidFile) {
+        $old = Get-Process -Id ([int](Get-Content $watchPidFile -Raw)) -ErrorAction SilentlyContinue
+        if ($old -and $old.ProcessName -eq 'powershell') { return }
+    }
+    $w = Start-Process -FilePath "$PSHOME\powershell.exe" -WindowStyle Hidden -PassThru -ArgumentList @(
+        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", '-Action', 'Watch')
+    Set-Content -Path $watchPidFile -Value $w.Id
+}
+
+function Stop-Watch {
+    if (-not (Test-Path $watchPidFile)) { return }
+    $p = Get-Process -Id ([int](Get-Content $watchPidFile -Raw)) -ErrorAction SilentlyContinue
+    if ($p -and $p.ProcessName -eq 'powershell' -and $p.Id -ne $PID) { Stop-Process -Id $p.Id -Force }
+    Remove-Item -Path $watchPidFile -Force -ErrorAction SilentlyContinue
+}
+
 # Hide kjøres i bakgrunnen, så Vibepollo ikke venter på skriptet (målt 2,7 s) før spillet startes. Dekkbildet startes
 # først av alt, så det er oppe før streamen begynner og skjuler vinduer som ikke kan minimeres.
 if ($Action -eq 'Hide' -and -not $Now) {
@@ -74,6 +97,7 @@ if ($Action -eq 'Hide' -and -not $Now) {
         $p = Start-Process -FilePath "$PSHOME\powershell.exe" -WindowStyle Hidden -PassThru -ArgumentList @(
             '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", '-Action', 'Hide', '-Now')
         Set-Content -Path $hidePidFile -Value $p.Id
+        Start-Watch
     } catch {
         Write-Log "kunne ikke starte i bakgrunnen: $($_.Exception.Message)"
     }
@@ -416,6 +440,19 @@ public static class GameHomeDesktop
         }
     }
 
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr window);
+
+    /// <summary>
+    /// Gir oppgavelinjen forgrunnen, som Windows-tasten gjør. Ellers ligger den bak et spill i fullskjerm (målt
+    /// 2026-11-02 med Broforce). Prosessen som mottok hurtigtasten, har lov til å bytte forgrunn.
+    /// </summary>
+    public static bool BringTaskbarToFront()
+    {
+        var tray = FindWindow("Shell_TrayWnd", null);
+        return tray != IntPtr.Zero && SetForegroundWindow(tray);
+    }
+
     public static bool TaskbarVisible
     {
         get { var tray = FindWindow("Shell_TrayWnd", null); return tray != IntPtr.Zero && IsWindowVisible(tray); }
@@ -448,8 +485,79 @@ public static class GameHomeDesktop
             Write-Log "ikoner var $icons, autoskjul var $autoHide, minimerte vinduer: $firstHide, dekkbilde åpnet"
             Remove-Item -Path $hidePidFile -Force -ErrorAction SilentlyContinue
         }
+        'Watch' {
+            # Ctrl+Shift+F10 (kommer fra Legion Go gjennom streamen) viser eller skjuler oppgavelinjen og ikonene.
+            Add-Type -AssemblyName System.Windows.Forms
+            $watchSource = @'
+using System;
+using System.Runtime.InteropServices;
+using System.Windows.Forms;
+
+public class GameHomeHotkey : NativeWindow, IDisposable
+{
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool RegisterHotKey(IntPtr window, int id, uint modifiers, uint key);
+
+    [DllImport("user32.dll")]
+    private static extern bool UnregisterHotKey(IntPtr window, int id);
+
+    private const int WM_HOTKEY = 0x0312;
+    private const uint MOD_CONTROL = 0x2, MOD_SHIFT = 0x4, MOD_NOREPEAT = 0x4000;
+    private const uint VK_F10 = 0x79;
+
+    public event EventHandler Pressed;
+    public bool Registered { get; private set; }
+
+    public GameHomeHotkey()
+    {
+        CreateHandle(new CreateParams());
+        Registered = RegisterHotKey(Handle, 1, MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT, VK_F10);
+    }
+
+    protected override void WndProc(ref Message m)
+    {
+        if (m.Msg == WM_HOTKEY && Pressed != null) Pressed(this, EventArgs.Empty);
+        base.WndProc(ref m);
+    }
+
+    public void Dispose()
+    {
+        UnregisterHotKey(Handle, 1);
+        DestroyHandle();
+    }
+}
+'@
+            Import-Cached 'watch' $watchSource @('System.Windows.Forms')
+            $hotkey = New-Object GameHomeHotkey
+            if (-not $hotkey.Registered) {
+                Write-Log 'kunne ikke registrere Ctrl+Shift+F10 (brukes av et annet program)'
+                break
+            }
+            $hotkey.add_Pressed({
+                $show = -not [GameHomeDesktop]::TaskbarVisible
+                [GameHomeDesktop]::SetTaskbarVisible($show)
+                if ([GameHomeDesktop]::IconsVisible -ne $show) { [void][GameHomeDesktop]::ToggleIcons() }
+                if ($show) { [void][GameHomeDesktop]::BringTaskbarToFront() }
+                Write-Log $(if ($show) { 'feilsøking: oppgavelinje og ikoner vist' } else { 'feilsøking: oppgavelinje og ikoner skjult' })
+            })
+
+            # Avslutt av seg selv når strømmen er over (Restore fjerner tilstandsfilen), selv om Restore ikke stoppet oss.
+            $check = New-Object System.Windows.Forms.Timer
+            $check.Interval = 15000
+            $missing = 0
+            $check.add_Tick({
+                if (Test-Path $stateFile) { $script:missing = 0 } else { $script:missing++ }
+                if ($script:missing -ge 2) { [System.Windows.Forms.Application]::Exit() }
+            })
+            $check.Start()
+            Write-Log 'lytter på Ctrl+Shift+F10'
+            [System.Windows.Forms.Application]::Run()
+            $hotkey.Dispose()
+            Write-Log 'lytter stoppet'
+        }
         'Restore' {
             Stop-Cover
+            Stop-Watch
 
             # Oppgavelinjen vises alltid igjen, også uten lagret tilstand (sikkerhetsnett ved pålogging).
             [GameHomeDesktop]::SetTaskbarVisible($true)

@@ -9,7 +9,8 @@ using GameHome.Core.Network;
 namespace GameHome.Windows;
 
 /// <summary>Resultatet av et forsøk på å få hosten til å svare.</summary>
-public sealed record WakeResult(bool Awake, bool WasAsleep, int PacketsSent, TimeSpan Elapsed);
+/// <param name="NoLocalNetwork">Legion Go når ikke engang ruteren; problemet er Wi-Fi her, ikke at hosten sover.</param>
+public sealed record WakeResult(bool Awake, bool WasAsleep, int PacketsSent, TimeSpan Elapsed, bool NoLocalNetwork = false);
 
 /// <summary>Status underveis i vekkingen, for live visning: pakker sendt, forsøk på å nå hosten og tid brukt.</summary>
 public sealed record WakeProgress(int PacketsSent, int Probes, TimeSpan Elapsed);
@@ -59,6 +60,61 @@ public static class HostWaker
         }
     }
 
+    /// <summary>Om Legion Go har nettverk: et aktivt kort med standard ruter, og ruteren svarer på ping innen 1 s.</summary>
+    public static async Task<bool> LocalNetworkOkAsync()
+    {
+        var gateways = System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
+            .Where(n => n.OperationalStatus == System.Net.NetworkInformation.OperationalStatus.Up
+                && n.NetworkInterfaceType != System.Net.NetworkInformation.NetworkInterfaceType.Loopback)
+            .SelectMany(n => n.GetIPProperties().GatewayAddresses)
+            .Select(g => g.Address)
+            .Where(a => a.AddressFamily == AddressFamily.InterNetwork && !a.Equals(IPAddress.Any))
+            .Distinct()
+            .ToList();
+        foreach (var gateway in gateways)
+        {
+            try
+            {
+                using var ping = new System.Net.NetworkInformation.Ping();
+                var reply = await ping.SendPingAsync(gateway, 1000).ConfigureAwait(false);
+                if (reply.Status == System.Net.NetworkInformation.IPStatus.Success)
+                {
+                    return true;
+                }
+            }
+            catch (System.Net.NetworkInformation.PingException)
+            {
+            }
+
+            // Noen rutere svarer ikke på ping; prøv også nettsiden og DNS på ruteren.
+            if (await TcpReachableAsync(gateway, 80).ConfigureAwait(false) || await TcpReachableAsync(gateway, 53).ConfigureAwait(false))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static async Task<bool> TcpReachableAsync(IPAddress ip, int port)
+    {
+        var socket = new Socket(ip.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+        try
+        {
+            var connect = socket.ConnectAsync(new IPEndPoint(ip, port));
+            return await Task.WhenAny(connect, Task.Delay(TimeSpan.FromSeconds(1))).ConfigureAwait(false) == connect
+                && socket.Connected;
+        }
+        catch (Exception ex) when (ex is SocketException or ObjectDisposedException)
+        {
+            return false;
+        }
+        finally
+        {
+            socket.Dispose();
+        }
+    }
+
     /// <summary>
     /// Svarer hosten ikke, sendes magiske pakker (på nytt hvert 10. sekund) til den svarer eller tiden er ute.
     /// <paramref name="onWaking"/> kalles én gang når vekking starter, så Home kan vise «Vekker …».
@@ -71,6 +127,13 @@ public static class HostWaker
         if (host.Address is null || await IsAwakeAsync(host.Address, ct).ConfigureAwait(false))
         {
             return new WakeResult(Awake: host.Address is not null, WasAsleep: false, 0, watch.Elapsed);
+        }
+
+        // Svarer ikke engang ruteren, er det Legion Gos eget nettverk som er nede (målt 2026-11-02: Wi-Fi «No Internet»).
+        // Da hjelper det ikke å vekke hosten i 90 s.
+        if (!await LocalNetworkOkAsync().ConfigureAwait(false))
+        {
+            return new WakeResult(false, false, 0, watch.Elapsed, NoLocalNetwork: true);
         }
 
         if (host.Mac is null)

@@ -6,8 +6,13 @@ using System.Text.RegularExpressions;
 namespace GameHome.Sources.Moonlight;
 
 /// <summary>En app i hostens liste, slik Moonlight rapporterer den.</summary>
-public sealed record HostApp(string Name, int Id, bool Hidden)
+public sealed record HostApp(string Name, int Id, bool Hidden, string? BoxArtUrl = null)
 {
+    /// <summary>Lokal fil for omslaget hvis Moonlight har det i bufferen (<c>file:///</c>), ellers null.</summary>
+    public string? BoxArtFile =>
+        BoxArtUrl is { } url && url.StartsWith("file:", StringComparison.OrdinalIgnoreCase)
+        && Uri.TryCreate(url, UriKind.Absolute, out var uri) ? uri.LocalPath : null;
+
     /// <summary>
     /// Om appen er et spill. Vibepollos innebygde verktøy (skrivebord, Steam Big Picture, fjernstyring) er ikke spill;
     /// Playnite-synkede spill er installerte spill (Vibepollo fjerner avinstallerte, se docs/architecture.md).
@@ -43,13 +48,14 @@ public static partial class MoonlightAppList
                 apps.Add(new HostApp(
                     match.Groups["name"].Value,
                     int.Parse(match.Groups["id"].Value, System.Globalization.CultureInfo.InvariantCulture),
-                    match.Groups["hidden"].Value == "true"));
+                    match.Groups["hidden"].Value == "true",
+                    match.Groups["url"].Value));
             }
         }
 
         return apps;
     }
 
-    [GeneratedRegex("^\"(?<name>.*)\",(?<id>-?\\d+),(?:true|false),(?:true|false),(?<hidden>true|false),(?:true|false),\".*\"$")]
+    [GeneratedRegex("^\"(?<name>.*)\",(?<id>-?\\d+),(?:true|false),(?:true|false),(?<hidden>true|false),(?:true|false),\"(?<url>.*)\"$")]
     private static partial Regex Row();
 }

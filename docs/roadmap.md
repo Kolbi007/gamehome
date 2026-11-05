@@ -14,10 +14,30 @@ Hver testrunde tar 15–45 minutter på Legion Go. Resultater skrives i `docs/te
 | 0A: FSE | Valgbar som Gaming Home. Overlever omstart, oppgradering og at utviklermodus slås av. Hjem i Game Bar åpner «Kjører nå». | 1–2 | Slå på utviklermodus ved installasjon. Velge GameHome under «Choose home app». | **Bestått** (3 runder) |
 | 1: lokalt spill | Steam-spill og manuelt spill: start, kjører-signal, avslutning, retur til samme flis, feil gir valg, Home fra cache | 2–3 | Ha et Steam-spill installert | **Ferdig** |
 | **Milepæl 1** | **Lokal barebones** | **≈ 6–8 totalt** | | |
-| 2: stream | 007 First Light via Moonlight og Vibepollo uten appvelger, Playnite eller skrivebord. Koble fra, koble til igjen, avslutt, vekking. | 3–4 | Moonlight på Legion Go (gjort). Én Vibepollo-innstilling: synk alle installerte Playnite-spill. | Forundersøkelse ferdig |
+| 2: stream | 007 First Light via Moonlight og Vibepollo uten appvelger, Playnite eller skrivebord. Koble fra, koble til igjen, avslutt, vekking. | 3–4 | Moonlight på Legion Go (gjort). Én Vibepollo-innstilling: synk alle installerte Playnite-spill (gjort). | **Ferdig**: alt unntatt vekking (ikke støttet av gaming-PC-en); «annen app kjører» testet 2026-11-02 |
 | **Barebones med stream** | **Suksessdefinisjonen** | **≈ 10–12 totalt** | | |
+| **Neste: butikker uten tunge klienter** | GOG, Epic og Xbox fra disk som Steam; klient bare ved start; valgfri «lukk klienten etter spillet»; sjekk av autostart; senere Steam-bibliotek (eide spill) og installasjon | 2–3 | Steam Web API-nøkkel (senere) | **Neste fase** (plan under) |
 | 3: retro | Ett system og én emulator | 1–2 | Lovlig testinnhold | Senere |
-| 4: flere kilder og metadata | Epic, Xbox, GOG, IGDB, HowLongToBeat, Metacritic | Løpende | IGDB-nøkkel | Senere |
+| 4: flere kilder og metadata | IGDB (også spilletid), SteamGridDB (flere bildevalg), Metacritic via Steam (gjort) | Løpende | IGDB- og SteamGridDB-nøkkel | Senere |
+
+## Plan for neste fase: butikker uten tunge klienter (ønske fra produkteier 2026-11-02)
+
+Mål: GameHome vet hva som er installert uten at noen butikkklient kjører, og en klient kjører bare når et spill fra den
+startes. Ressursbruk på Legion Go holdes lav (minne, batteri). Alt under er hypoteser til det er testet.
+
+1. **Finn installerte spill fra disk** for GOG (register og `goggame-*.info` fra GOG-installasjonen), Epic
+   (manifestfiler i ProgramData) og Xbox/Game Pass (Windows' pakkeliste), som Steam-skanningen i dag. Ingen klient må kjøre.
+2. **Start klienten bare ved behov** (`ClientOnDemand`, finnes for Steam). GOG-spill uten DRM startes direkte fra
+   programfilen. Xbox-spill startes via Windows (Gaming Services er en lett systemtjeneste).
+3. **Valgfritt per butikk: lukk klienten etter spillet**, av som standard. Vent til skylagring er ferdig (eller noen
+   minutter), be klienten lukke seg pent, aldri tvangslukk. Steam har en offisiell lukkekommando.
+4. **Sjekk av autostart** under Feilsøking: hvilke butikkklienter som starter med Windows og bruker minne. Brukeren slår
+   dem av selv; GameHome endrer det ikke.
+5. **Tunge DRM-klienter** (Ubisoft Connect, EA app, Battle.net) holdes helst på gaming-PC-en; spillene strømmes.
+   Støtte for dem på Legion Go når produkteier har slike spill der.
+6. **Senere:** Steam-bibliotek (eide spill, også ikke installerte) med Steam Web API (nøkkel fra produkteier, lagres i
+   Windows' sikre lager), og «Installer» med Steams offisielle `steam://install/<appid>`. Epic uten Epic-klienten via
+   Legendary (åpen kildekode, GPL) bare etter eget valg fra produkteier.
 
 ## Plan for fase 2: stream
 
@@ -141,6 +161,19 @@ vinduer). Skriptet skjuler den nå helt under streamen og viser den alltid igjen
 `POST /api/apps/close` i stedet for `Moonlight.exe quit`, så Moonlight ikke viser «Quitting». Tokenet kan også vise om
 spillet fortsatt kjører på PC-en etter «Koble fra». Krever at produkteier lager et token med smal tilgang.
 
+**Bygget 2026-11-02 (PR #18):** GameHome bruker Vibepollo-API-et når nøkkelen finnes: omslag for spill fra PC-en som
+ikke finnes på Steam, «Avslutt spillet» uten Moonlights «Quitting»-vindu (Moonlight som reserve), «▶ På Gaming Laptop»
+på flisen når et spill kjører der uten strøm, og spørsmål før et annet spill på PC-en lukkes. Nøkkelen ligger i Windows'
+Credential Locker på Legion Go, sertifikatet festes ved første tilkobling. **Gjenstår:** testnøkkelen ble limt inn i en
+chat og må byttes (lag ny i Vibepollo, slett den gamle, legg den nye inn på Legion Go).
+
+**Feilsøking i M2-menyen (ønske fra produkteier 2026-11-02, bygget):** bare under strøm. «Ytelse» sender Moonlights
+snarvei Ctrl+Alt+Shift+S (statistikkoverlegg). «Oppgavelinje» sender Ctrl+Shift+F10 gjennom streamen; på gaming-PC-en
+lytter `Set-StreamDesktop.ps1 -Action Watch` (startet av Hide, stoppet av Restore) og viser eller skjuler oppgavelinjen
+og ikonene. «Status» viser Vibepollos `api/session/status` (app, tilkoblinger, om videokodingen feilet). Vibepollos
+egne «server commands» kan ikke brukes: de utløses bare fra klienter som støtter det i streamprotokollen, ikke fra
+web-API-et.
+
 Når: etter runde 3 (vekking), fordi vekking og låseskjerm henger sammen. Neste steg er å lese Vibepollos kildekode for
 punkt 2 før noe bygges.
 
@@ -214,3 +247,27 @@ hjørne, ikke midt på skjermen: i Home og i «Kjører nå» (M2).
   virker for start, avslutning og retur til flisen. Et oppstartskrasj ved nye fliser er funnet og rettet.
 - 2026-11-02, fase 1 ferdig: lasteskjerm med Steam-logo, «Tilbake til spillet» også for spill som minimerer seg, og
   GameHome husker flisen etter omstart. **Milepæl 1 (lokal barebones) er nådd.**
+- 2026-11-02, fase 2: undermenyen «Spill fra Gaming Laptop» med installerte Playnite-spill, stream av 007 First Light,
+  «Koble fra», «Avslutt spillet på Gaming Laptop», rent skrivebord med dekkbilde på gaming-PC-en, lasteskjerm over
+  Moonlight og Steam, og fliser med bilder. Wake-on-LAN er bygget, men gaming-PC-en støtter det ikke (Modern Standby).
+  **Barebones med stream er i praksis nådd**, med M2 som hurtigknapp i stedet for venstre Legion-knapp.
+
+## Bygget 2026-11-05: butikker, metadata og Steam-biblioteket (venter på nøkler)
+
+- **Butikker uten tunge klienter:** GOG (registeret og `goggame-*.info`, startes direkte), Epic (manifestene, startes
+  via Epic-URI-en), Xbox (pakkelisten) og Battle.net (World of Warcraft-utgavene, startes via Battle.net) leses fra
+  disk uten at klientene kjører. Under Feilsøking: «Butikkklienter og oppstart» (bare lesing) og «Lukk Steam etter
+  spillet» (av som standard; `steam -shutdown` ett minutt etter spillet, aldri med makt).
+- **Fase 4:** SteamGridDB (bilder for spill utenfor Steam, egen fane i «Velg bilder») og IGDB (info for spill utenfor
+  Steam, spilletid for alle). Av til nøklene finnes.
+- **Steam-biblioteket:** «Installer fra Steam» i Home viser eide spill som ikke er installert og starter Steams egen
+  `steam://install/<appid>`. Vises først når nøkkelen finnes.
+- **Handheld Companion** erstatter Legion Space (ADR 0006).
+
+**Nøkler (når vi nærmer oss live):** legg filene i `C:\Users\chris\.gamehome-secrets\`, så kopieres de til appens
+LocalState på Legion Go og flyttes av GameHome inn i Windows' sikre lager (filene slettes). Filnavn:
+`steamgriddb.txt`, `igdb-client-id.txt`, `igdb-client-secret.txt`, `steam-webapi-key.txt`, `steam-id.txt` (64-bit
+Steam-ID eller profilnavn). Vibepollo-nøkkelen skal også byttes.
+
+**Ikke verifisert før nøklene finnes:** IGDBs Steam-kobling (`external_game_sources` = 1), feltene `width`/`height` i
+SteamGridDB (fra den offisielle Node-klienten), og svarformatet til Steam Web API (fra wiki-speilet av Valves dokumentasjon).

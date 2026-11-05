@@ -11,5 +11,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\GameHome.Core\GameHome.Core.csproj" />
+    <!-- Plattformnøytrale parsere for GOG- og Epic-filer. -->
+    <ProjectReference Include="..\GameHome.Sources\GameHome.Sources.csproj" />
   </ItemGroup>
 </Project>

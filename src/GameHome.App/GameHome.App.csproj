@@ -39,6 +39,17 @@
     Native AOT-variant (-p:GameHomeAot=true): forhåndskompilert maskinkode, ubrukt kode fjernes.
     Måles mot vanlig .NET i fase 0B før den blir standard. Krever C++-byggeverktøy (MSVC) på byggemaskinen.
   -->
+  <!--
+    Minne: Home ligger i bakgrunnen mens spill kjører. Ingen egen tråd for bakgrunns-GC, og arbeidsstasjons-GC, så
+    GameHome holder ikke på mer minne enn den trenger.
+  -->
+  <PropertyGroup>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+    <!-- CsWinRT genererer AOT-sikker kode for .NET-lister som kan krysse WinRT-grensen (CsWinRT1030). -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ServerGarbageCollector>false</ServerGarbageCollector>
+  </PropertyGroup>
+
   <PropertyGroup Condition="'$(GameHomeAot)' == 'true'">
     <PublishAot>true</PublishAot>
     <PublishReadyToRun>false</PublishReadyToRun>
@@ -70,6 +81,7 @@
   <ItemGroup>
     <ProjectReference Include="..\GameHome.Core\GameHome.Core.csproj" />
     <ProjectReference Include="..\GameHome.Data\GameHome.Data.csproj" />
+    <ProjectReference Include="..\GameHome.Metadata\GameHome.Metadata.csproj" />
     <ProjectReference Include="..\GameHome.Sources\GameHome.Sources.csproj" />
     <ProjectReference Include="..\GameHome.Windows\GameHome.Windows.csproj" />
     <ProjectReference Include="..\GameHome.Windows.Fse\GameHome.Windows.Fse.csproj" />

@@ -555,6 +555,35 @@ ingen globale eller app-egne prep-kommandoer.
   (`GET /api/session/status`). Krever API-token, men ingen endring på skrivebordet. Ser grovere ut enn en rolig
   bakgrunn, men har ingen risiko for å etterlate skjulte ikoner.
 
+### Omslag for spill fra gaming-PC-en (undersøkt 2026-11-02)
+
+**Hvor omslagene kommer fra:** både Moonlight og Vibepollos API henter **samme bilde**, appens `image-path` i
+Vibepollo. For Playnite-spill setter Vibepollo `image-path` til Playnite-omslaget konvertert til PNG
+(`src/platform/windows/playnite_sync_policy.cpp:359-362`, filer i `config\covers\playnite_<id>.png`). Mangler det,
+sender Moonlight-protokollen et standardbilde (`src/nvhttp.cpp:6810-6855`, `DEFAULT_APP_IMAGE_PATH`).
+
+**Målt på gaming-PC-en:** 22 av 33 Playnite-spill har omslag i Vibepollo. De 11 uten er Steam-spill Playnite ikke har
+hentet metadata for (blant annet 007 First Light, Mega Man 11, Broforce), pluss to oppføringer som ikke er spill.
+Ubisoft-, EA- og andre spill har omslag.
+
+**Moonlight-bufferen** (moonlight-qt `1ced9dd9`): `BoxArtManager` lagrer i
+`%LOCALAPPDATA%\Moonlight Game Streaming Project\Moonlight\cache\boxart\<pc-uuid>\<appid>.png`
+(`app/path.cpp:125`, `app/backend/boxartmanager.cpp:22-37`). Nedlasting skjer i Moonlights egen trådpool, med ett nytt
+forsøk ved feil (`boxartmanager.cpp:57-65,107-128`), og `list` starter den for apper uten buffer
+(`app/cli/listapps.cpp:140`). Målt: 0 filer, også etter en `list` som fikk gå i 75 s. Mulige årsaker [ubekreftet]:
+`list` blir hengende (samme som tidligere), eller trådene stoppes før lagring. Ikke undersøkt videre, fordi Moonlights
+vei uansett gir de samme bildene som API-et, og bare hvis Moonlight-appen selv har vist listen.
+
+**Vibepollo-API** `GET /api/apps/<uuid>/cover` (`src/confighttp.cpp:2234-2257`) gir samme omslag direkte, uten
+Moonlight, men krever API-nøkkel.
+
+**Anbefaling:**
+
+1. Steam-spill: Steams butikkbilder (i bruk fra 0.1.77.0). Gir også bakgrunn og logo, som Vibepollo ikke har.
+2. Andre spill fra gaming-PC-en (Ubisoft, EA, Epic, Battle.net, Xbox): Vibepollos omslag via API-nøkkelen.
+3. Spill uten omslag noe sted: tittel på flisen. Produkteier kan la Playnite hente metadata («Download metadata») så
+   Vibepollo får omslag ved neste synk.
+
 ## Lasteskjerm: lærdom fra Stremio og Nuvio (2026-11-02)
 
 Lest fra åpen kildekode; bare teknikkene tas med, ingen kode kopieres: Stremio web `fd9a6250` (GPL-2.0) og Nuvio

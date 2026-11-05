@@ -49,6 +49,15 @@ public static class Foreground
         NativeMethods.SetWindowPos(windowHandle, 1, 0, 0, 0, 0,
             NativeMethods.SwpNoMove | NativeMethods.SwpNoSize | NativeMethods.SwpNoActivate);
 
+    /// <summary>
+    /// Minimerer et vindu (som Alt+Tab). Når forgrunnsvinduet minimeres, aktiverer Windows neste vindu; brukes når et spill
+    /// ikke slipper forgrunnen for M2. <see cref="BringGame"/> gjenoppretter det.
+    /// </summary>
+    public static void Minimize(nint windowHandle) => NativeMethods.ShowWindow(windowHandle, 6); // SW_MINIMIZE
+
+    /// <summary>Om vinduet er minimert.</summary>
+    public static bool IsMinimized(nint windowHandle) => NativeMethods.IsIconic(windowHandle);
+
     /// <summary>Om vinduet er forgrunnsvinduet.</summary>
     public static bool IsForeground(nint windowHandle) => NativeMethods.GetForegroundWindow() == windowHandle;
 
@@ -66,6 +75,22 @@ public static class Foreground
         }
 
         return false;
+    }
+
+    /// <summary>Første synlige toppnivåvindu av klassen som prosessen eier (for eksempel Moonlights streamvindu), eller 0.</summary>
+    public static nint FindVisibleWindow(int processId, string className)
+    {
+        nint window = 0;
+        while ((window = NativeMethods.FindWindowExW(0, window, className, null)) != 0)
+        {
+            if (NativeMethods.GetWindowThreadProcessId(window, out var owner) != 0 && owner == processId
+                && NativeMethods.IsWindowVisible(window))
+            {
+                return window;
+            }
+        }
+
+        return 0;
     }
 
     /// <summary>Navnet på prosessen som eier forgrunnsvinduet, for loggen. Null hvis det ikke kan leses.</summary>
@@ -130,6 +155,25 @@ internal static unsafe partial class NativeMethods
     [LibraryImport("user32.dll")]
     internal static partial uint GetWindowThreadProcessId(nint windowHandle, out uint processId);
 
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct Rect
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
+    [LibraryImport("user32.dll")]
+    internal static partial nint GetWindow(nint window, uint command);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool GetWindowRect(nint window, out Rect rect);
+
+    [LibraryImport("user32.dll")]
+    internal static partial int GetWindowLongW(nint window, int index);
+
     [LibraryImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool RegisterHotKey(nint windowHandle, int id, uint modifiers, uint virtualKey);
@@ -148,6 +192,33 @@ internal static unsafe partial class NativeMethods
 
     [LibraryImport("comctl32.dll")]
     internal static partial nint DefSubclassProc(nint windowHandle, uint message, nint wParam, nint lParam);
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    internal static partial nint SetWindowsHookExW(int hookId, delegate* unmanaged<int, nint, nint, nint> proc, nint module, uint threadId);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool UnhookWindowsHookEx(nint hook);
+
+    [LibraryImport("user32.dll")]
+    internal static partial nint CallNextHookEx(nint hook, int code, nint wParam, nint lParam);
+
+    [LibraryImport("user32.dll")]
+    internal static partial short GetAsyncKeyState(int virtualKey);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool PostMessageW(nint window, uint message, nint wParam, nint lParam);
+
+    [LibraryImport("kernel32.dll", StringMarshalling = StringMarshalling.Utf16)]
+    internal static partial nint GetModuleHandleW(string? moduleName);
+
+    [LibraryImport("user32.dll")]
+    internal static partial nuint SetTimer(nint window, nuint id, uint milliseconds, nint callback);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool KillTimer(nint window, nuint id);
 
     [LibraryImport("cfgmgr32.dll")]
     internal static partial uint CM_Get_Device_Interface_List_SizeW(out uint length, ref Guid interfaceClass, nint deviceId, uint flags);
