@@ -39,7 +39,8 @@ public sealed partial class MainWindow
         PerformanceStatus.Visibility = Visibility.Collapsed;
         SessionPanel.Visibility = Visibility.Visible;
         SetHomeEnabled(false);
-        MenuAccountsButton.Focus(FocusState.Keyboard);
+        (MenuUpdateButton.Visibility == Visibility.Visible ? MenuUpdateButton : MenuAccountsButton).Focus(FocusState.Keyboard);
+        _ = CheckForUpdateAsync(manual: false, fromMenu: true);
         _log.Write("meny", $"GameHome-menyen vist via {via}");
     }
 
