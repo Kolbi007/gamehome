@@ -2087,6 +2087,7 @@ public sealed partial class MainWindow : Window
         OptionDefaultMode.Content = DefaultModeText(game);
         OptionPowerProfileText.Text = HandheldCompanionStatus(game);
         OptionPin.Content = PinText(game);
+        ShowDisplayOption(game);
         ShowSource(game);
         OptionsPanel.Visibility = Visibility.Visible;
         FadeIn(OptionsPanel);
