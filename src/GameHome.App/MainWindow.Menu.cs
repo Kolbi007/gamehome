@@ -125,8 +125,7 @@ public sealed partial class MainWindow
     {
         AccountsPanel.Visibility = Visibility.Collapsed;
         AccountRows.Children.Clear();
-        (MenuUpdateButton.Visibility == Visibility.Visible ? MenuUpdateButton : MenuAccountsButton).Focus(FocusState.Keyboard);
-        _ = CheckForUpdateAsync(manual: false);
+        MenuAccountsButton.Focus(FocusState.Keyboard);
     }
 
     /// <summary>Prøver alle spill uten bilder (og hull i bildene) på nytt, også de som er prøvd før i denne kjøringen.</summary>
