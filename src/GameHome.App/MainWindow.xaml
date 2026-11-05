@@ -97,8 +97,7 @@
                 </Grid>
                 <TextBlock x:Name="HeroFacts" FontFamily="{StaticResource GhFontText}" FontSize="{StaticResource GhSizeBody}"
                            Foreground="{StaticResource GhTextSecondaryBrush}" TextTrimming="CharacterEllipsis" />
-                <TextBlock x:Name="HeroHint" FontFamily="{StaticResource GhFontText}" FontSize="{StaticResource GhSizeCaption}"
-                           Foreground="{StaticResource GhTextTertiaryBrush}" Text="A  Spill      Y  Om spillet      ☰  Valg" />
+                <StackPanel x:Name="HeroHints" Orientation="Horizontal" Spacing="22" />
             </StackPanel>
 
             <!-- Spillflisene lages i koden (ikke ItemsSource; se ADR 0005 om AOT). Plass rundt så flisen i fokus kan forstørres. -->
@@ -178,8 +177,7 @@
             <ScrollViewer x:Name="LibraryScroll" Grid.Row="2" VerticalScrollBarVisibility="Hidden" Padding="8" Margin="-8,0">
                 <VariableSizedWrapGrid x:Name="LibraryGrid" Orientation="Horizontal" ItemWidth="252" ItemHeight="150" />
             </ScrollViewer>
-            <TextBlock Grid.Row="3" Text="A Spill · Y Om spillet · ☰ Valg og fest i Home · X Sortering · ⧉ Søk · LB/RB Fane · LT/RT Bla · B Tilbake"
-                       FontSize="{StaticResource GhSizeSmall}" Foreground="{StaticResource GhTextTertiaryBrush}" />
+            <StackPanel x:Name="LibraryHints" Grid.Row="3" Orientation="Horizontal" Spacing="22" />
         </Grid>
 
         <!--
@@ -295,7 +293,7 @@
                         <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE7E8;" FontSize="20" />
                     </Button>
                 </Grid>
-                <TextBlock Text="A Velg · B Tilbake til spillet · ◀ Ytelse" FontSize="14" Foreground="{StaticResource GhTextTertiaryBrush}" />
+                <StackPanel x:Name="SessionHints" Orientation="Horizontal" Spacing="18" />
             </StackPanel>
 
             <!-- Uten spill i gang: GameHome-valg i stedet for spillet. -->
@@ -339,7 +337,7 @@
                         <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE7E8;" FontSize="20" />
                     </Button>
                 </Grid>
-                <TextBlock Text="A Velg · B Tilbake · ◀ Ytelse" FontSize="14" Foreground="{StaticResource GhTextTertiaryBrush}" />
+                <StackPanel x:Name="HomeMenuHints" Orientation="Horizontal" Spacing="18" />
             </StackPanel>
 
             <!-- Ytelse: sidepanel til venstre. Skjerm styres av GameHome; TDP og resten i Handheld Companion (ADR 0007). -->

@@ -152,6 +152,7 @@ public sealed partial class MainWindow : Window
 
         Root.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(OnKeyDown), handledEventsToo: true);
         Root.Loaded += (_, _) => PlayIntro();
+        SetStaticHints();
         Root.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(OnPointerPressed), handledEventsToo: true);
         Activated += OnWindowActivated;
         Closed += (_, _) => StopEverything();
@@ -660,9 +661,8 @@ public sealed partial class MainWindow : Window
 
         HeroTitle.Text = logo is null ? GameLibrary.DisplayTitle(game) : "";
         HeroFacts.Text = HeroFactsFor(game);
-        HeroHint.Text = (SessionActive && _sessionGame?.Id == game.Id) || IsRunningOnHost(game)
-            ? "A  Fortsett      Y  Om spillet      ☰  Valg"
-            : "A  Spill      Y  Om spillet      ☰  Valg";
+        var continues = (SessionActive && _sessionGame?.Id == game.Id) || IsRunningOnHost(game);
+        SetHints(HeroHints, ("A", continues ? "Fortsett" : "Spill"), ("Y", "Om spillet"), ("☰", "Valg"));
         if (changed)
         {
             HeroFadeIn.Begin();
@@ -2710,6 +2710,7 @@ public sealed partial class MainWindow : Window
             + (hook ? " (+ tastaturkrok som reserve)" : ""));
         RefreshTileTexts();
         LastInput.Text = $"{title} starter. M2 åpner menyen.";
+        Pulse(0.3, 90);
     }
 
     private void OnSessionEnded(IForegroundSession session, SessionEnd end)
@@ -5114,6 +5115,7 @@ public sealed partial class MainWindow : Window
         if (args.WindowActivationState == WindowActivationState.Deactivated)
         {
             _metricsTimer.Stop();
+            StopAttractTimer();
 
             // Uten spill eller filvelger fortsetter kontrollerlesingen sakte: noe annet (et varsel, en systemmeny) kan
             // ta fokus mens Home står fremme, og da skal første trykk hente Home tilbake, ikke kreve berøring.
@@ -5207,6 +5209,10 @@ public sealed partial class MainWindow : Window
         }
         _gamepadTimer.Interval = TimeSpan.FromMilliseconds(16);
         _gamepadTimer.Start();
+        if (!SessionActive)
+        {
+            StartAttractTimer();
+        }
         _log.Write("fokus", $"Fikk fokus ({args.WindowActivationState})");
         if (SessionPanel.Visibility != Visibility.Visible && Root.XamlRoot is { } activeRoot
             && FocusManager.GetFocusedElement(activeRoot) is not Button { Tag: string })
@@ -5286,6 +5292,10 @@ public sealed partial class MainWindow : Window
         }
 
         _lastSource = "kontroller";
+        if (NoteUserInput())
+        {
+            return; // Første trykk vekker Home fra visningsmodus og brukes ikke til noe annet.
+        }
         var names = Enum.GetValues<GamepadButtons>()
             .Where(b => b != GamepadButtons.None && pressed.HasFlag(b))
             .Select(b => b.ToString())
@@ -5319,6 +5329,7 @@ public sealed partial class MainWindow : Window
         if (pressed.HasFlag(GamepadButtons.A) && focusedButton is not null)
         {
             MenuSounds.Select();
+            Pulse();
             if (!_xamlGamepadKeysSeen)
             {
                 new ButtonAutomationPeer(focusedButton).Invoke();
@@ -5496,19 +5507,23 @@ public sealed partial class MainWindow : Window
         }
 
         _lastSource = isGamepadKey ? "kontroller (XAML)" : "tastatur";
+        NoteUserInput();
         if (e.Key == VirtualKey.Escape)
         {
             GoBack();
         }
     }
 
-    private void OnPointerPressed(object sender, PointerRoutedEventArgs e) =>
+    private void OnPointerPressed(object sender, PointerRoutedEventArgs e)
+    {
         _lastSource = e.Pointer.PointerDeviceType switch
         {
             PointerDeviceType.Touch => "berøring",
             PointerDeviceType.Pen => "penn",
             _ => "mus",
         };
+        NoteUserInput();
+    }
 
     private void LogChoice(Button tile) => _log.Write("valg", $"{tile.Content} valgt via {_lastSource}");
 
