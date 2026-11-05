@@ -107,6 +107,11 @@ try {
     Check (@($hotkeys).Count -eq 3) "HC har GameHome-hurtigtastene ($(@($hotkeys) -join ', '))"
     Note "Skjerm før test: $originalMode"
 
+    # Låst skjerm: hurtigtaster og forgrunn virker ikke, og testen ville startet et spill ingen ser.
+    if (Get-Process LogonUI -ErrorAction SilentlyContinue) {
+        throw 'Legion Go er låst. Lås den opp og kjør testen igjen.'
+    }
+
     # ---- Home-hurtigtasten uten spill ----
     if (-not (Find 'ResumeButton')) {
         [GhTest]::ShowWindow($gh.MainWindowHandle, 6) | Out-Null # SW_MINIMIZE
