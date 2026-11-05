@@ -4376,6 +4376,26 @@ public sealed partial class MainWindow : Window
                 Grid.SetColumn(fix, 1);
                 grid.Children.Add(fix);
             }
+            else if (notice.Key is "hc" or "update")
+            {
+                // Varsler som gjelder hele GameHome: knappen gjør det varselet ber om.
+                var action = new Button { Content = notice.Key == "hc" ? "Start" : "Oppdater", Height = 52, Padding = new Thickness(18, 0, 18, 0), VerticalAlignment = VerticalAlignment.Center };
+                var key = notice.Key;
+                action.Click += (_, _) =>
+                {
+                    CloseNotices(focusHome: false);
+                    if (key == "hc")
+                    {
+                        StartHandheldCompanion();
+                    }
+                    else
+                    {
+                        ShowMenu("varsel");
+                    }
+                };
+                Grid.SetColumn(action, 1);
+                grid.Children.Add(action);
+            }
 
             NoticeList.Children.Add(new Border
             {
@@ -5161,6 +5181,11 @@ public sealed partial class MainWindow : Window
             && FocusManager.GetFocusedElement(activeRoot) is not Button { Tag: string })
         {
             RefreshHero(force: false); // Ingen flis har fokus (for eksempel etter låst skjerm): hovedfeltet skal ikke stå tomt.
+        }
+
+        if (!SessionActive)
+        {
+            CheckHandheldCompanion();
         }
     }
 

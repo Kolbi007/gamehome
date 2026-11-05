@@ -312,6 +312,12 @@
                         <TextBlock x:Name="MenuUpdateHint" FontSize="13" />
                     </StackPanel>
                 </Button>
+                <Button x:Name="MenuStartHcButton" Click="MenuStartHcButton_Click" HorizontalAlignment="Stretch" Height="64" Visibility="Collapsed">
+                    <StackPanel Spacing="2">
+                        <TextBlock Text="Start Handheld Companion" FontSize="19" />
+                        <TextBlock Text="Kjører ikke: M2, Legion-knappene og TDP virker ikke" FontSize="13" Foreground="#FCC23D" />
+                    </StackPanel>
+                </Button>
                 <Button x:Name="MenuArtButton" Content="Hent manglende bilder og info" Click="MenuArtButton_Click" HorizontalAlignment="Stretch" Height="56" FontSize="18" />
                 <Button x:Name="MenuAddGameButton" Content="Legg til spill" Click="MenuAddGameButton_Click" HorizontalAlignment="Stretch" Height="56" FontSize="18" />
                 <Button x:Name="MenuDebugButton" Content="Feilsøking" Click="MenuDebugButton_Click" HorizontalAlignment="Stretch" Height="56" FontSize="18" />

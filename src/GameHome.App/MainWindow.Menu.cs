@@ -32,6 +32,7 @@ public sealed partial class MainWindow
         SessionLogo.Source = null;
         HomeMenuStatus.Visibility = Visibility.Collapsed;
         HomeMenuDetail.Text = $"{_library.VisibleGames.Count} spill · ingen spill kjører";
+        CheckHandheldCompanion();
         var missing = AccountStatuses().Count(a => !a.Ok);
         MenuAccountsHint.Text = missing == 0 ? "Alt er koblet til" : $"{missing} mangler eller er av";
         BatteryText.Text = BatteryLine();
@@ -44,6 +45,66 @@ public sealed partial class MainWindow
         _log.Write("meny", $"GameHome-menyen vist via {via}");
     }
 
+
+    private const string HandheldCompanionExe = @"C:\Program Files\Handheld Companion\HandheldCompanion.exe";
+
+    private static bool HandheldCompanionRunning()
+    {
+        var processes = Process.GetProcessesByName("HandheldCompanion");
+        foreach (var p in processes)
+        {
+            p.Dispose();
+        }
+
+        return processes.Length > 0;
+    }
+
+    /// <summary>
+    /// Handheld Companion kan krasje (målt 2026-11-05: minnefeil i HC under skjermbytte). Da virker verken M2 eller
+    /// Legion-knappene, så Home varsler og GameHome-menyen får en knapp som starter den igjen.
+    /// </summary>
+    private void CheckHandheldCompanion()
+    {
+        if (!File.Exists(HandheldCompanionExe))
+        {
+            return;
+        }
+
+        var running = HandheldCompanionRunning();
+        MenuStartHcButton.Visibility = running ? Visibility.Collapsed : Visibility.Visible;
+        if (running)
+        {
+            if (_notices.RemoveAll(n => n.Key == "hc") > 0)
+            {
+                UpdateNoticeButton();
+            }
+        }
+        else if (!_notices.Any(n => n.Key == "hc"))
+        {
+            AddNotice("hc", null, "Handheld Companion kjører ikke, så M2, Legion-knappene og TDP virker ikke.");
+            _log.Write("meny", "Handheld Companion kjører ikke");
+        }
+    }
+
+    private void MenuStartHcButton_Click(object sender, RoutedEventArgs e) => StartHandheldCompanion();
+
+    private void StartHandheldCompanion()
+    {
+        try
+        {
+            // HC krever administrator; Windows spør om lov.
+            using var _ = Process.Start(new ProcessStartInfo(HandheldCompanionExe) { UseShellExecute = true });
+            HomeMenuStatus.Text = "Starter Handheld Companion. Trykk «Ja» hvis Windows spør.";
+            _log.Write("meny", "Handheld Companion startet fra menyen");
+        }
+        catch (System.ComponentModel.Win32Exception ex)
+        {
+            HomeMenuStatus.Text = $"Handheld Companion startet ikke: {ex.Message}";
+        }
+
+        HomeMenuStatus.Visibility = Visibility.Visible;
+    }
+
     private sealed record AccountStatus(string Name, bool Ok, string Detail);
 
     /// <summary>Status for alt GameHome henter fra eller styrer. Leses lokalt; ingen nettverkskall.</summary>
@@ -52,12 +113,7 @@ public sealed partial class MainWindow
         var hosts = MoonlightClient.FindHosts();
         var consoles = Chiaki.RegisteredConsoles();
         var retro = RetroArch.FindExe() is null ? 0 : Sources.Retro.RetroLibrary.Systems.Count(s => RetroArch.CorePath(s) is not null);
-        var handheldCompanion = Process.GetProcessesByName("HandheldCompanion");
-        var hcRunning = handheldCompanion.Length > 0;
-        foreach (var p in handheldCompanion)
-        {
-            p.Dispose();
-        }
+        var hcRunning = HandheldCompanionRunning();
 
         return
         [
