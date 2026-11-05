@@ -522,7 +522,12 @@ public sealed partial class MainWindow : Window
             }
             else
             {
-                tile.StartBringIntoView();
+                // Litt luft rundt: flisen med fokus forstørres og ble ellers kuttet i kanten.
+                tile.StartBringIntoView(new BringIntoViewOptions
+                {
+                    TargetRect = new global::Windows.Foundation.Rect(-32, 0, tile.ActualWidth + 64, tile.ActualHeight),
+                    AnimationDesired = true,
+                });
             }
         }
 
