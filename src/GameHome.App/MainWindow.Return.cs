@@ -5,6 +5,7 @@ using GameHome.Core.Library;
 using GameHome.Core.Model;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using GameHome.Windows;
 
 namespace GameHome.App;
 
@@ -104,6 +105,22 @@ public sealed partial class MainWindow
         {
             _log.Write("overgang", $"Vinduet kunne ikke tilpasses skjermen: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Windows sender ikke alltid aktiveringsbeskjeden når GameHome legges øverst (2026-11-05: etter omstart fra en
+    /// bakgrunnsoppgave og Home-tasten kom aldri «Fikk fokus»; klokken stod, og trailere ble aldri spilt). Ligger vinduet
+    /// øverst uten å være aktivt, behandles det som aktivt.
+    /// </summary>
+    private void EnsureActiveIfForeground(string why)
+    {
+        if (_windowActive || _pickerOpen || !Foreground.IsForeground(WinRT.Interop.WindowNative.GetWindowHandle(this)))
+        {
+            return;
+        }
+
+        _log.Write("fokus", $"Vinduet ligger øverst, men Windows meldte ikke aktivering ({why}); behandles som aktivt");
+        OnActivationChanged(WindowActivationState.CodeActivated);
     }
 
     private bool WindowFitsDisplay()

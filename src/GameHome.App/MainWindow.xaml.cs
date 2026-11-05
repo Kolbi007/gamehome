@@ -3445,6 +3445,7 @@ public sealed partial class MainWindow : Window
             Activate();
             var home = Foreground.Bring(WinRT.Interop.WindowNative.GetWindowHandle(this));
             _log.Write("hurtigtast", $"Mottatt: {name}; {(home ? "Home hentet fram" : "Windows avslo forgrunnen")}");
+            EnsureActiveIfForeground("Home-tasten");
             FocusHome(_focusGameId);
             return;
         }
@@ -5148,9 +5149,11 @@ public sealed partial class MainWindow : Window
 
     // ---- Fokus, input og målinger ----
 
-    private void OnWindowActivated(object sender, WindowActivatedEventArgs args)
+    private void OnWindowActivated(object sender, WindowActivatedEventArgs args) => OnActivationChanged(args.WindowActivationState);
+
+    private void OnActivationChanged(WindowActivationState state)
     {
-        if (args.WindowActivationState == WindowActivationState.Deactivated)
+        if (state == WindowActivationState.Deactivated)
         {
             _metricsTimer.Stop();
             StopAttractTimer();
@@ -5256,7 +5259,7 @@ public sealed partial class MainWindow : Window
         {
             StartAttractTimer();
         }
-        _log.Write("fokus", $"Fikk fokus ({args.WindowActivationState})");
+        _log.Write("fokus", $"Fikk fokus ({state})");
         if (SessionPanel.Visibility != Visibility.Visible && Root.XamlRoot is { } activeRoot
             && FocusManager.GetFocusedElement(activeRoot) is not Button { Tag: string })
         {
@@ -5292,6 +5295,11 @@ public sealed partial class MainWindow : Window
 
     private void PollGamepad()
     {
+        if (!_windowActive)
+        {
+            EnsureActiveIfForeground("kontrollerløkken");
+        }
+
         var gamepads = Gamepad.Gamepads;
         if (gamepads.Count == 0)
         {
