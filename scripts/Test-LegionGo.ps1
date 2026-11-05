@@ -112,6 +112,11 @@ try {
         throw 'Legion Go er låst. Lås den opp og kjør testen igjen.'
     }
 
+    # Start fra Home: lukk paneler som står åpne fra før (søk/bibliotek, melding).
+    foreach ($id in 'FindCloseButton', 'MessageSecondary') {
+        if ($b = Find $id) { Note "Lukker åpent panel ($id)"; Press $b; Start-Sleep 1 }
+    }
+
     # ---- Home-hurtigtasten uten spill ----
     if (-not (Find 'ResumeButton')) {
         [GhTest]::ShowWindow($gh.MainWindowHandle, 6) | Out-Null # SW_MINIMIZE
@@ -187,6 +192,18 @@ try {
         Check (Wait-Until { $gameProcess.Refresh(); $gameProcess.HasExited } 30) '«Avslutt spillet» avslutter spillet'
         Check (Wait-Until { (GameHomeInFront) -and -not (Find 'ResumeButton') } 10) 'Home er framme etter at spillet er avsluttet'
     } else { Fail 'Fant ikke «Avslutt spillet»' }
+
+    # ---- Bilder og Steam-biblioteket (krever nøklene i Windows' sikre lager) ----
+    # Loggen leses i sin helhet: nøkler og biblioteket hentes én gang per kjøring av GameHome, ikke per test.
+    $allLog = { Get-Content $logFile -Encoding UTF8 }
+    Check ([bool](& $allLog | Select-String 'SteamGridDB-nøkkel funnet')) 'SteamGridDB-nøkkelen er i bruk'
+    if (Find 'SteamLibraryTile') {
+        Press (Find 'SteamLibraryTile')
+        $found = Wait-Until { & $allLog | Select-String 'Steam-biblioteket: \d+ spill' } 20
+        $line = & $allLog | Select-String 'Steam-biblioteket: \d+ spill' | Select-Object -Last 1
+        Check $found "«Installer fra Steam» henter biblioteket ($($line.Line -replace '^.*Steam-biblioteket: ', ''))"
+        if ($b = Find 'FindCloseButton') { Press $b }
+    } else { Fail '«Installer fra Steam» vises ikke (mangler Steam Web API-nøkkel eller Steam-ID?)' }
 }
 catch {
     Fail "Testen stoppet: $($_.Exception.Message)"
