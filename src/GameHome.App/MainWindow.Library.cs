@@ -36,7 +36,6 @@ public sealed partial class MainWindow
         new("battlenet", "Battle.net", a => a.Any(x => x.RunnerId == BattleNetRunner.Id)),
         new("gog", "GOG", a => a.Any(x => x.RunnerId == GogRunner.Id)),
         new("epic", "Epic", a => a.Any(x => x.RunnerId == EpicRunner.Id)),
-        new("manual", "Lagt til selv", a => a.Any(x => x.RunnerId == GameLibrary.ExecutableRunnerId)),
     ];
 
     private string _libraryTab = "all";

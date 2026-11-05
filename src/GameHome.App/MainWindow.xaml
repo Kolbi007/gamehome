@@ -50,6 +50,7 @@
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <TextBlock Text="GAMEHOME" FontFamily="{StaticResource GhFontText}" FontSize="{StaticResource GhSizeSmall}" FontWeight="SemiBold"
                            CharacterSpacing="220" Foreground="{StaticResource GhTextTertiaryBrush}" VerticalAlignment="Center" />
@@ -67,9 +68,11 @@
                         <TextBlock x:Name="NoticeCount" FontSize="{StaticResource GhSizeCaption}" Foreground="{StaticResource GhTextPrimaryBrush}" VerticalAlignment="Center" />
                     </StackPanel>
                 </Button>
-                <TextBlock x:Name="ClockText" Grid.Column="3" FontFamily="{StaticResource GhFontText}" FontSize="{StaticResource GhSizeBody}"
+                <TextBlock x:Name="BatteryTopText" Grid.Column="3" FontFamily="{StaticResource GhFontText}" FontSize="{StaticResource GhSizeCaption}"
+                           Foreground="{StaticResource GhTextTertiaryBrush}" VerticalAlignment="Center" HorizontalAlignment="Right" />
+                <TextBlock x:Name="ClockText" Grid.Column="4" FontFamily="{StaticResource GhFontText}" FontSize="{StaticResource GhSizeBody}"
                            Foreground="{StaticResource GhTextSecondaryBrush}" VerticalAlignment="Center" />
-                <Button x:Name="PowerMenuButton" Grid.Column="4" Click="PowerMenuButton_Click" Width="48" Height="48"
+                <Button x:Name="PowerMenuButton" Grid.Column="5" Click="PowerMenuButton_Click" Width="48" Height="48"
                         Background="Transparent" BorderThickness="0" CornerRadius="24"
                         AutomationProperties.Name="Strøm og innstillinger" ToolTipService.ToolTip="Strøm og innstillinger">
                     <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE7E8;" FontSize="18" Foreground="{StaticResource GhTextSecondaryBrush}" />
@@ -318,6 +321,7 @@
                         <TextBlock Text="Kjører ikke: M2, Legion-knappene og TDP virker ikke" FontSize="13" Foreground="#FCC23D" />
                     </StackPanel>
                 </Button>
+                <Button x:Name="MenuNoticesButton" Click="MenuNoticesButton_Click" HorizontalAlignment="Stretch" Height="56" FontSize="18" Visibility="Collapsed" />
                 <Button x:Name="MenuArtButton" Content="Hent manglende bilder og info" Click="MenuArtButton_Click" HorizontalAlignment="Stretch" Height="56" FontSize="18" />
                 <Button x:Name="MenuAddGameButton" Content="Legg til spill" Click="MenuAddGameButton_Click" HorizontalAlignment="Stretch" Height="56" FontSize="18" />
                 <Button x:Name="MenuDebugButton" Content="Feilsøking" Click="MenuDebugButton_Click" HorizontalAlignment="Stretch" Height="56" FontSize="18" />

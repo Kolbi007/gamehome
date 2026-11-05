@@ -216,7 +216,11 @@ public sealed partial class MainWindow : Window
 
     private static string DetailsPath => Path.Combine(ApplicationData.Current.LocalFolder.Path, "details.json");
 
-    private void UpdateClock() => ClockText.Text = DateTime.Now.ToString("HH:mm", CultureInfo.InvariantCulture);
+    private void UpdateClock()
+    {
+        ClockText.Text = DateTime.Now.ToString("HH:mm", CultureInfo.InvariantCulture);
+        BatteryTopText.Text = BatteryShort();
+    }
 
     /// <summary>Legger økten til spillets spilletid (målt av GameHome, lagres bare lokalt).</summary>
     private void RecordPlayTime(Game game, double minutes)
@@ -393,13 +397,14 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private List<Game> HomeGames()
     {
+        // Et spill som kjører på PC-en (koblet fra uten å avslutte) står først: «Fortsett strømmen» er ett trykk unna.
         var pinned = LoadPinned();
         var all = _library.VisibleGames.Select((g, index) => (Game: g, Index: index)).ToList();
         return
         [
-            .. all.Where(x => pinned.Contains(x.Game.Id))
-                .OrderBy(x => pinned.IndexOf(x.Game.Id))
-                .Concat(all.Where(x => !pinned.Contains(x.Game.Id))
+            .. all.Where(x => IsRunningOnHost(x.Game))
+                .Concat(all.Where(x => !IsRunningOnHost(x.Game) && pinned.Contains(x.Game.Id)).OrderBy(x => pinned.IndexOf(x.Game.Id)))
+                .Concat(all.Where(x => !IsRunningOnHost(x.Game) && !pinned.Contains(x.Game.Id))
                     .OrderByDescending(x => LastPlayed(x.Game))
                     .ThenByDescending(x => x.Index))
                 .Select(x => x.Game)
@@ -683,6 +688,10 @@ public sealed partial class MainWindow : Window
         }
 
         parts.Add(ModesText(game));
+        if (_library.PlayActionsFor(game.Id).Any(a => a.RunnerId == RetroArchRunner.Id) && _playStats.ContainsKey(game.Id))
+        {
+            parts.Add("fortsetter der du slapp");
+        }
         if (_details.TryGetValue(game.Id, out var details))
         {
             if (details.Genres.Count > 0)
@@ -704,7 +713,15 @@ public sealed partial class MainWindow : Window
         var actions = _library.AvailableActionsFor(game.Id);
         var local = actions.Any(a => !a.IsRemote);
         var remote = actions.Any(a => a.IsRemote);
-        return local && remote ? $"Her og på {HostLabel}" : remote ? $"Fra {HostLabel}" : "På Legion Go";
+        if (local && remote)
+        {
+            // Valgt spillemåte vises, så det er tydelig hva A gjør.
+            return _library.Find(game.Id)?.Overrides.DefaultPlayActionId is { } id && actions.FirstOrDefault(a => a.Id == id) is { } preferred
+                ? preferred.IsRemote ? $"Strømmes fra {HostLabel}" : "Spilles her"
+                : $"Her og på {HostLabel}";
+        }
+
+        return remote ? $"Fra {HostLabel}" : "På Legion Go";
     }
 
     private static string PlayTimeText(double minutes) =>
@@ -2564,15 +2581,17 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        // Flere spillemåter: brukeren velger. B avbryter, så et feiltrykk aldri starter en stream.
+        // Flere spillemåter: brukeren velger første gang, og valget huskes (bytt i ☰ Valg). B avbryter, så et feiltrykk
+        // aldri starter en stream.
         var available = _library.AvailableActionsFor(game.Id);
-        if (chosen is null && available.Count > 1)
+        var preferred = game.Overrides.DefaultPlayActionId is { } preferredId ? available.FirstOrDefault(a => a.Id == preferredId) : null;
+        if (chosen is null && available.Count > 1 && preferred is null)
         {
             var local = available.First(a => !a.IsRemote);
             var remote = available.First(a => a.IsRemote);
-            ShowMessage($"Spill {title}", "Velg hvordan du vil spille.",
-                "Spill her", () => _ = LaunchAsync(game, local),
-                $"Stream fra {HostLabel}", () => _ = LaunchAsync(game, remote),
+            ShowMessage($"Spill {title}", "Velg hvordan du vil spille. Valget huskes; du kan bytte under ☰ Valg.",
+                "Spill her", () => { RememberPlayMode(game, local); _ = LaunchAsync(game, local); },
+                $"Stream fra {HostLabel}", () => { RememberPlayMode(game, remote); _ = LaunchAsync(game, remote); },
                 onCancel: () => FocusHome(game.Id));
             return;
         }
@@ -2636,6 +2655,7 @@ public sealed partial class MainWindow : Window
         try
         {
             ApplyGameDisplay(game);
+            SaveBatteryForGame(game);
             _session = (IForegroundSession)await runner.LaunchAsync(action, Profile.Default, CancellationToken.None);
             _sessionRunnerId = action.RunnerId;
         }
@@ -4342,7 +4362,10 @@ public sealed partial class MainWindow : Window
 
     private void UpdateNoticeButton()
     {
-        NoticeButton.Visibility = _notices.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        // Home viser bare varsler som stopper spillingen (HC, nettverk); resten ligger i M2-menyen.
+        NoticeButton.Visibility = _notices.Any(n => n.Key is "hc" or "network") ? Visibility.Visible : Visibility.Collapsed;
+        MenuNoticesButton.Visibility = _notices.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        MenuNoticesButton.Content = $"Varsler ({_notices.Count})";
         NoticeCount.Text = _notices.Count.ToString(CultureInfo.InvariantCulture);
     }
 
@@ -4739,6 +4762,7 @@ public sealed partial class MainWindow : Window
                 _hostRunningApp = running;
                 _log.Write("vibepollo", running is null ? "Ingenting kjører på PC-en" : $"«{running}» kjører på PC-en");
                 RefreshTileTexts();
+                BuildGameTiles(); // Spillet som kjører på PC-en, står først i Home.
             }
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException or JsonException)
