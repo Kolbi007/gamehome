@@ -124,6 +124,14 @@
                         <TextBlock Text="Installer fra Steam" />
                     </StackPanel>
                 </Button>
+                <!-- Steam-nedlasting som pågår (startet fra GameHome eller Steam): navn og prosent. -->
+                <Border x:Name="DownloadPill" Visibility="Collapsed" Height="48" Padding="18,0" CornerRadius="24" Background="{StaticResource GhSurfaceBrush}">
+                    <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                        <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE896;" FontSize="14" />
+                        <TextBlock x:Name="DownloadText" FontSize="{StaticResource GhSizeCaption}" VerticalAlignment="Center" />
+                        <ProgressBar x:Name="DownloadProgress" Width="90" Maximum="100" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Border>
                 <Button x:Name="DebugTile" Click="DebugTile_Click" Visibility="Collapsed" Height="48" Padding="18,0" FontSize="{StaticResource GhSizeCaption}" CornerRadius="24">
                     <StackPanel Orientation="Horizontal" Spacing="10">
                         <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xEBE8;" FontSize="14" />

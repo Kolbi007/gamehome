@@ -1412,7 +1412,8 @@ public sealed partial class MainWindow : Window
                 {
                     using var _ = Process.Start(new ProcessStartInfo($"steam://install/{owned.AppId.ToString(CultureInfo.InvariantCulture)}") { UseShellExecute = true });
                     _log.Write("steam", $"Installasjon av «{name}» (appid {owned.AppId}) startet i Steam");
-                    FindStatus.Text = $"Steam viser installasjonen av «{name}». Når den er ferdig, dukker spillet opp i Home.";
+                    FindStatus.Text = $"Bekreft i Steam-vinduet. Fremdriften vises i Home, og spillet dukker opp når det er ferdig.";
+                    StartDownloadTimer();
                 }
                 catch (System.ComponentModel.Win32Exception ex)
                 {
@@ -2982,6 +2983,7 @@ public sealed partial class MainWindow : Window
     private void SyncSteamInBackground()
     {
         _ = CheckForUpdateAsync(manual: false);
+        CheckDownloads();
         SyncStoresInBackground();
     }
 
