@@ -44,7 +44,8 @@ public sealed partial class MainWindow
 
     private static string Architecture => RuntimeInformation.ProcessArchitecture == System.Runtime.InteropServices.Architecture.Arm64 ? "arm64" : "x64";
 
-    private async Task CheckForUpdateAsync(bool manual)
+    /// <summary>Bakgrunnssjekk høyst hver 6. time; når menyen åpnes, høyst hvert 10. minutt; <paramref name="manual"/> alltid.</summary>
+    private async Task CheckForUpdateAsync(bool manual, bool fromMenu = false)
     {
         if (SessionActive || _updateChecking)
         {
@@ -53,7 +54,7 @@ public sealed partial class MainWindow
 
         var settings = ApplicationData.Current.LocalSettings.Values;
         if (!manual && settings[LastUpdateCheckSetting] is long last
-            && DateTime.UtcNow - DateTime.FromBinary(last) < UpdateCheckInterval)
+            && DateTime.UtcNow - DateTime.FromBinary(last) < (fromMenu ? TimeSpan.FromMinutes(10) : UpdateCheckInterval))
         {
             return;
         }

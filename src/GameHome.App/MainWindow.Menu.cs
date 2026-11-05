@@ -40,7 +40,7 @@ public sealed partial class MainWindow
         SessionPanel.Visibility = Visibility.Visible;
         SetHomeEnabled(false);
         (MenuUpdateButton.Visibility == Visibility.Visible ? MenuUpdateButton : MenuAccountsButton).Focus(FocusState.Keyboard);
-        _ = CheckForUpdateAsync(manual: false);
+        _ = CheckForUpdateAsync(manual: false, fromMenu: true);
         _log.Write("meny", $"GameHome-menyen vist via {via}");
     }
 
