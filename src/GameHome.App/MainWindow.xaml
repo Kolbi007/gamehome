@@ -387,13 +387,13 @@
             </StackPanel>
         </Grid>
 
-        <!-- Legg inn en nøkkel: skjermtastaturet vises; nøkkelen går rett til Windows' sikre lager og vises aldri igjen. -->
+        <!-- Legg inn en nøkkel: øverst, så skjermtastaturet (nedre halvdel) ikke dekker feltene; nøkkelen går rett til Windows' sikre lager. -->
         <Grid x:Name="KeyEntryPanel" Background="{StaticResource GhScrimBrush}" Visibility="Collapsed">
-            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Width="680" Spacing="12">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,48,0,0" Width="680" Spacing="10">
                 <TextBlock x:Name="KeyEntryTitle" FontFamily="{StaticResource GhFontDisplay}" FontSize="{StaticResource GhSizeTitle}" FontWeight="SemiBold"
                            Foreground="{StaticResource GhTextPrimaryBrush}" />
                 <TextBlock x:Name="KeyEntryHelp" FontSize="16" Foreground="#C8CDD3" TextWrapping="Wrap" />
-                <TextBlock x:Name="KeyEntryLabel1" FontSize="15" Foreground="#A0A7B0" Margin="0,8,0,0" />
+                <TextBlock x:Name="KeyEntryLabel1" FontSize="15" Foreground="#A0A7B0" Margin="0,4,0,0" />
                 <PasswordBox x:Name="KeyEntryBox1" Height="48" FontSize="17" PasswordRevealMode="Peek" />
                 <TextBlock x:Name="KeyEntryLabel2" FontSize="15" Foreground="#A0A7B0" />
                 <PasswordBox x:Name="KeyEntryBox2" Height="48" FontSize="17" PasswordRevealMode="Peek" />
