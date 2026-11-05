@@ -2978,6 +2978,12 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void SyncSteamInBackground()
     {
+        _ = CheckForUpdateAsync(manual: false);
+        SyncStoresInBackground();
+    }
+
+    private void SyncStoresInBackground()
+    {
         if (SessionActive || _steamSyncRunning || DateTime.UtcNow - _lastSteamSync < SteamSyncInterval)
         {
             return;

@@ -1,23 +1,37 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Tagg vX.Y.Z på main gir en GitHub-release med signert MSIX for x64 og ARM64.
+# Hver sammenslåing til main gir en GitHub-release v0.2.<nummer> med signert MSIX for x64 og ARM64; GameHome finner
+# den selv og tilbyr oppdatering (ADR 0010). En tagg vX.Y.Z gir en release med den versjonen.
 name: Release
 
 on:
   push:
+    branches: [main]
     tags: ["v*.*.*"]
 
 permissions:
   contents: read
 
 jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+    steps:
+      - id: v
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then tag="$GITHUB_REF_NAME"; else tag="v0.2.${GITHUB_RUN_NUMBER}"; fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Versjon: $tag"
+
   build:
+    needs: version
     uses: ./.github/workflows/ci.yml
     with:
-      version: ${{ github.ref_name }}
+      version: ${{ needs.version.outputs.tag }}
     secrets: inherit
 
   release:
-    needs: build
+    needs: [version, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -29,16 +43,18 @@ jobs:
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
         run: |
           shopt -s globstar nullglob
           # Bare standardvariantene (Native AOT, ADR 0005); JIT-artefaktet er for sammenligning.
           msix=(dist/gamehome-msix-x64/**/*.msix dist/gamehome-msix-arm64/**/*.msix)
           if [ ${#msix[@]} -eq 0 ]; then echo "Fant ingen MSIX" >&2; exit 1; fi
-          gh release create "$GITHUB_REF_NAME" \
+          gh release create "$TAG" \
             "${msix[@]}" \
             dist/gamehome-msix-x64/certs/GameHome-Dev.cer \
             dist/gamehome-msix-x64/scripts/Install-DevBuild.ps1 \
             --repo "$GITHUB_REPOSITORY" \
-            --title "GameHome $GITHUB_REF_NAME" \
+            --target "$GITHUB_SHA" \
+            --title "GameHome $TAG" \
             --prerelease \
-            --notes "Testbygg for Legion Go. Første gang: kjør Install-DevBuild.ps1 som administrator med stien til .msix-filen. Se README."
+            --notes "Bygg fra main. GameHome på Legion Go finner det selv (M2 → Oppdater). Første installasjon: kjør Install-DevBuild.ps1 som administrator med stien til .msix-filen. Se README."

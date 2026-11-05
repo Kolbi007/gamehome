@@ -39,7 +39,8 @@ public sealed partial class MainWindow
         PerformanceStatus.Visibility = Visibility.Collapsed;
         SessionPanel.Visibility = Visibility.Visible;
         SetHomeEnabled(false);
-        MenuAccountsButton.Focus(FocusState.Keyboard);
+        (MenuUpdateButton.Visibility == Visibility.Visible ? MenuUpdateButton : MenuAccountsButton).Focus(FocusState.Keyboard);
+        _ = CheckForUpdateAsync(manual: false);
         _log.Write("meny", $"GameHome-menyen vist via {via}");
     }
 
@@ -124,7 +125,8 @@ public sealed partial class MainWindow
     {
         AccountsPanel.Visibility = Visibility.Collapsed;
         AccountRows.Children.Clear();
-        MenuAccountsButton.Focus(FocusState.Keyboard);
+        (MenuUpdateButton.Visibility == Visibility.Visible ? MenuUpdateButton : MenuAccountsButton).Focus(FocusState.Keyboard);
+        _ = CheckForUpdateAsync(manual: false);
     }
 
     /// <summary>Prøver alle spill uten bilder (og hull i bildene) på nytt, også de som er prøvd før i denne kjøringen.</summary>
