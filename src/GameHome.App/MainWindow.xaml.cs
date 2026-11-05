@@ -5287,6 +5287,20 @@ public sealed partial class MainWindow : Window
                 NextLibrarySort();
                 return;
             }
+
+            if (pressed.HasFlag(GamepadButtons.View))
+            {
+                MenuSounds.Select();
+                OpenLibrarySearch();
+                return;
+            }
+
+            if (leftTriggerPressed || rightTriggerPressed)
+            {
+                MenuSounds.Move();
+                PageLibrary(rightTriggerPressed ? 1 : -1);
+                return;
+            }
         }
 
         if (tileGame is not null)

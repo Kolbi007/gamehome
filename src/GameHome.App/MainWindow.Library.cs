@@ -40,6 +40,7 @@ public sealed partial class MainWindow
     ];
 
     private string _libraryTab = "all";
+    private string _libraryQuery = "";
     private LibrarySort _librarySort = LibrarySort.LastPlayed;
 
     private static string SortLabel(LibrarySort sort) => sort switch
@@ -69,6 +70,8 @@ public sealed partial class MainWindow
             // Standardvalgene brukes.
         }
 
+        _libraryQuery = "";
+        LibrarySearchBox.Text = "";
         LibraryPanel.Visibility = Visibility.Visible;
         SetHomeEnabled(true); // Home bak biblioteket blir utilgjengelig for fokus, biblioteket tilgjengelig.
         BuildLibrary();
@@ -129,14 +132,23 @@ public sealed partial class MainWindow
             _ => shown.OrderByDescending(g => LastPlayed(g.Game)).ThenBy(g => GameLibrary.DisplayTitle(g.Game), StringComparer.CurrentCultureIgnoreCase),
         };
 
+        if (_libraryQuery.Length > 0)
+        {
+            shown = shown.Where(g => GameLibrary.DisplayTitle(g.Game).Contains(_libraryQuery, StringComparison.CurrentCultureIgnoreCase));
+        }
+
+        var shownList = shown.ToList();
         LibraryGrid.Children.Clear();
-        foreach (var (game, _, _) in shown)
+        foreach (var (game, _, _) in shownList)
         {
             LibraryGrid.Children.Add(CreateLibraryTile(game));
         }
 
         LibrarySortButton.Content = $"Sortering: {SortLabel(_librarySort)}";
-        LibraryHeading.Text = $"Bibliotek · {(current.Key == "stream" ? $"Strøm fra {HostLabel}" : current.Label)}";
+        var tabName = current.Key == "stream" ? $"Strøm fra {HostLabel}" : current.Label;
+        LibraryHeading.Text = _libraryQuery.Length > 0
+            ? $"Bibliotek · «{_libraryQuery}» ({shownList.Count} treff)"
+            : $"Bibliotek · {tabName}";
     }
 
     private Button CreateLibraryTile(Game game)
@@ -218,6 +230,96 @@ public sealed partial class MainWindow
         {
             _log.Write("bibliotek", $"Kunne ikke lagre valget: {ex.Message}");
         }
+    }
+
+
+    // ---- Søk og bla ----
+
+    private void LibrarySearchBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        _libraryQuery = LibrarySearchBox.Text.Trim();
+        BuildLibrary();
+    }
+
+    private void LibrarySearchBox_KeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
+    {
+        // Enter (eller Ferdig på skjermtastaturet): til første treff.
+        if (e.Key == global::Windows.System.VirtualKey.Enter)
+        {
+            e.Handled = true;
+            FocusLibrary(null);
+        }
+    }
+
+    /// <summary>View-knappen (⧉): søkefeltet får fokus og skjermtastaturet vises, også når kontrolleren brukes.</summary>
+    private void OpenLibrarySearch()
+    {
+        LibrarySearchBox.Focus(FocusState.Programmatic);
+        try
+        {
+            var pane = global::Windows.UI.ViewManagement.InputPaneInterop.GetForWindow(WinRT.Interop.WindowNative.GetWindowHandle(this));
+            pane.TryShow();
+        }
+        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidOperationException)
+        {
+            _log.Write("bibliotek", $"Skjermtastaturet kunne ikke vises: {ex.Message}");
+        }
+
+        _log.Write("bibliotek", "Søk åpnet");
+    }
+
+    /// <summary>
+    /// LT/RT: bla. Sortert A–Å hoppes det til neste (eller forrige) forbokstav; ellers to rader om gangen.
+    /// </summary>
+    private void PageLibrary(int step)
+    {
+        var tiles = LibraryGrid.Children.OfType<Button>().ToList();
+        if (tiles.Count == 0)
+        {
+            return;
+        }
+
+        var focused = FocusManager.GetFocusedElement(Root.XamlRoot) as Button;
+        var at = focused is null ? 0 : Math.Max(0, tiles.IndexOf(focused));
+        int target;
+        if (_librarySort == LibrarySort.Title)
+        {
+            static char Letter(Button b) =>
+                Microsoft.UI.Xaml.Automation.AutomationProperties.GetName(b) is { Length: > 0 } name ? char.ToUpperInvariant(name[0]) : ' ';
+            var letter = Letter(tiles[at]);
+            if (step > 0)
+            {
+                target = tiles.FindIndex(at, b => Letter(b) != letter);
+                target = target < 0 ? tiles.Count - 1 : target;
+            }
+            else
+            {
+                // Til starten av denne bokstaven, eller av forrige hvis vi allerede står der.
+                var start = at;
+                while (start > 0 && Letter(tiles[start - 1]) == letter)
+                {
+                    start--;
+                }
+
+                target = start;
+                if (start == at && start > 0)
+                {
+                    var previous = Letter(tiles[start - 1]);
+                    target = start - 1;
+                    while (target > 0 && Letter(tiles[target - 1]) == previous)
+                    {
+                        target--;
+                    }
+                }
+            }
+        }
+        else
+        {
+            var columns = Math.Max(1, (int)(LibraryGrid.ActualWidth / LibraryGrid.ItemWidth));
+            target = Math.Clamp(at + (step * columns * 2), 0, tiles.Count - 1);
+        }
+
+        tiles[target].Focus(FocusState.Keyboard);
     }
 
     // ---- Fest i Home ----
