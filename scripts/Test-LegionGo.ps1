@@ -13,7 +13,11 @@
 [CmdletBinding()]
 param(
     [string] $Game = 'Broforce',
-    [string] $Report = (Join-Path $env:TEMP 'gamehome-test.txt')
+    [string] $Report = (Join-Path $env:TEMP 'gamehome-test.txt'),
+
+    # Bytter Hz og oppløsning under testen. Av som standard: raske skjermbytter ga frosset, utsmurt skjerm på Legion Go
+    # (2026-11-05) og kan ha fått Handheld Companion til å krasje.
+    [switch] $DisplayModes
 )
 
 $ErrorActionPreference = 'Stop'
@@ -170,6 +174,9 @@ try {
     [GhTest]::Chord(0x7B) # F12
     Check (Wait-Until { (GameHomeInFront) -and (Find 'ResumeButton') } 5) 'Ctrl+Alt+Shift+F12 åpner «Kjører nå» foran spillet'
 
+    if (-not $DisplayModes) {
+        Note 'Skjermbytter hoppes over (bruk -DisplayModes for å teste dem)'
+    } else {
     # ---- Hz ----
     $mode = [GhTest]::Mode(); $hz = [int]($mode -split '@')[1]
     $otherHz = if ($hz -eq 144) { '60 Hz' } else { '144 Hz' }
@@ -192,6 +199,7 @@ try {
         Check ((GameHomeInFront) -and (Find 'ResumeButton')) 'Menyen er fortsatt framme etter oppløsningsbytte'
     } else { Fail "Fant ikke knappen «$target»" }
 
+    }
     # ---- QuickTools (TDP) ----
     if ($hc -and ($b = Find 'QuickToolsButton')) {
         Press $b
