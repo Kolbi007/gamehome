@@ -37,6 +37,7 @@ public sealed partial class MainWindow
         HomeMenuStatus.Visibility = Visibility.Collapsed;
         HomeMenuDetail.Text = $"{_library.VisibleGames.Count} spill · ingen spill kjører";
         CheckHandheldCompanion();
+        MenuRestoreScreenButton.Visibility = Vibepollo is null ? Visibility.Collapsed : Visibility.Visible;
         var missing = AccountStatuses().Count(a => !a.Ok);
         MenuAccountsHint.Text = missing == 0 ? "Alt er koblet til" : $"{missing} mangler eller er av";
         BatteryText.Text = BatteryLine();
@@ -164,6 +165,52 @@ public sealed partial class MainWindow
         AccountsPanel.Visibility = Visibility.Visible;
         AccountsCloseButton.Focus(FocusState.Keyboard);
         _log.Write("meny", "Kontoer og kilder vist");
+    }
+
+
+    /// <summary>
+    /// Svart PC-skjerm etter strømming (Vibepollo slapp ikke den virtuelle skjermen, 2026-11-05): ber Vibepollo fjerne
+    /// virtuelle skjermer. Under strømming mister strømmen bildet, så da spørres det først.
+    /// </summary>
+    private void RestorePcScreen_Click(object sender, RoutedEventArgs e)
+    {
+        if (_session is StreamSession)
+        {
+            SessionPanel.Visibility = Visibility.Collapsed;
+            ShowMessage($"Gjenopprette skjermen på {HostLabel}?", "Strømmen mister bildet. Bruk dette hvis PC-skjermen er svart eller strømmen henger.",
+                "Gjenopprett", () => _ = RestorePcScreenAsync(), "Avbryt", () => ShowSessionPanel("avbrutt"));
+            return;
+        }
+
+        _ = RestorePcScreenAsync();
+    }
+
+    private async Task RestorePcScreenAsync()
+    {
+        if (Vibepollo is not { } api)
+        {
+            return;
+        }
+
+        void Show(string text)
+        {
+            HomeMenuStatus.Text = text;
+            HomeMenuStatus.Visibility = Visibility.Visible;
+            LastInput.Text = text;
+        }
+
+        Show($"Gjenoppretter skjermen på {HostLabel} …");
+        try
+        {
+            var ok = await api.TerminateVirtualDisplayAsync();
+            Show(ok ? $"Skjermen på {HostLabel} er gjenopprettet." : "Vibepollo-nøkkelen mangler tilgang til dette. Den må fornyes med tilgang til skjermgjenoppretting.");
+            _log.Write("vibepollo", ok ? "Virtuell skjerm fjernet; PC-skjermen gjenopprettet" : "Gjenoppretting av skjerm: nøkkelen mangler tilgang");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            Show($"{HostLabel} svarte ikke: {ex.Message}");
+            _log.Write("vibepollo", $"Gjenoppretting av skjerm feilet: {ex.Message}");
+        }
     }
 
     private void AccountsCloseButton_Click(object sender, RoutedEventArgs e) => CloseAccounts();
