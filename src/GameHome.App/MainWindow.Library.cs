@@ -254,15 +254,7 @@ public sealed partial class MainWindow
     private void OpenLibrarySearch()
     {
         LibrarySearchBox.Focus(FocusState.Programmatic);
-        try
-        {
-            var pane = global::Windows.UI.ViewManagement.InputPaneInterop.GetForWindow(WinRT.Interop.WindowNative.GetWindowHandle(this));
-            pane.TryShow();
-        }
-        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidOperationException)
-        {
-            _log.Write("bibliotek", $"Skjermtastaturet kunne ikke vises: {ex.Message}");
-        }
+        ShowTouchKeyboard();
 
         _log.Write("bibliotek", "Søk åpnet");
     }
