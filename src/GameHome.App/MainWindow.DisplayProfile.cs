@@ -94,25 +94,54 @@ public sealed partial class MainWindow
         _log.Write("ytelse", $"Glemte skjerminnstilling for «{GameLibrary.DisplayTitle(game)}»");
     }
 
-    /// <summary>Før start: spillets lagrede skjerm settes, og den som var, huskes til spillet er ferdig.</summary>
-    private void ApplyGameDisplay(Game game)
+    /// <summary>
+    /// Før start: spillets lagrede skjerm settes, og den som var, huskes til spillet er ferdig.
+    /// <para>
+    /// Lasteskjermen er svart mens skjermen byttes og vinduet får ny størrelse, og tones inn etterpå. Før ble skjermen byttet
+    /// før lasteskjermen rakk å tegnes, og et halvt sekund viste den en forstørret fjerdedel av Home (skjermbilder
+    /// 2026-11-05).
+    /// </para>
+    /// </summary>
+    private async Task ApplyGameDisplayAsync(Game game)
     {
         if (SavedDisplay(game) is not { } wanted || Display.Current() is not { } current || wanted == current)
         {
             return;
         }
 
+        var loading = LoadingPanel.Visibility == Visibility.Visible;
+        if (loading)
+        {
+            LoadingIntro.Stop();
+            LoadingHero.Opacity = 0;
+            LoadingCenter.Opacity = 0;
+            await Task.Delay(80); // La den svarte lasteskjermen bli tegnet før skjermen byttes.
+        }
+
+        var started = DateTime.UtcNow;
         var error = Display.Apply(wanted);
         var text = string.Create(CultureInfo.InvariantCulture, $"{wanted.Width}×{wanted.Height} {wanted.Hz} Hz");
         if (error is null)
         {
             _displayBeforeGame ??= current;
+            FitWindowToDisplay();
+            while (DateTime.UtcNow - started < RevealMaxWait && !WindowFitsDisplay())
+            {
+                await Task.Delay(50);
+            }
+
             RefreshHeroAfterDisplayChange();
-            _log.Write("ytelse", $"Skjerm for «{GameLibrary.DisplayTitle(game)}»: {text}");
+            _log.Write("ytelse", $"Skjerm for «{GameLibrary.DisplayTitle(game)}»: {text}"
+                + string.Create(CultureInfo.InvariantCulture, $" (vinduet tilpasset på {(DateTime.UtcNow - started).TotalMilliseconds:0} ms)"));
         }
         else
         {
             _log.Write("ytelse", $"Skjerm for «{GameLibrary.DisplayTitle(game)}» ({text}) kunne ikke settes: {error}");
+        }
+
+        if (loading && LoadingPanel.Visibility == Visibility.Visible)
+        {
+            LoadingIntro.Begin();
         }
     }
 
