@@ -42,6 +42,7 @@ public static class GhTest {
             if (p == pid && IsWindowVisible(h)) { var s = new StringBuilder(256); GetWindowText(h, s, 256); r.Add(s.ToString()); } return true; }, IntPtr.Zero);
         return string.Join("|", r);
     }
+    public static void Tap(byte key) { keybd_event(key, (byte)MapVirtualKey(key, 0), 0, IntPtr.Zero); Thread.Sleep(60); keybd_event(key, (byte)MapVirtualKey(key, 0), 2, IntPtr.Zero); }
     // Ctrl+Alt+Shift+<tast>, holdt 60 ms (som GameHome og HC trenger).
     public static void Chord(byte key) {
         byte[] k = { 0xA2, 0xA4, 0xA0, key };
@@ -115,7 +116,8 @@ try {
     # Start fra Home: lukk paneler som står åpne fra før (søk/bibliotek, melding).
     # Bare knapper som alltid betyr «lukk» trykkes. En åpen melding kan ha to valg som begge gjør noe (for eksempel
     # «Spill her» og «Stream fra PC-en», 2026-11-05); da stopper testen i stedet for å gjette.
-    if (Find 'MessagePrimary') { throw 'En melding er åpen i GameHome. Lukk den og kjør testen igjen.' }
+    if (Find 'MessagePrimary') { Note 'En melding var åpen; lukker med Escape (som B)'; [GhTest]::Chord(0x7A); Start-Sleep 1; [GhTest]::Tap(0x1B); Start-Sleep 1 }
+    if (Find 'MessagePrimary') { throw 'En melding er åpen i GameHome og lot seg ikke lukke. Lukk den og kjør testen igjen.' }
     foreach ($id in 'FindCloseButton', 'LibraryCloseButton', 'PowerCancelButton') {
         if ($b = Find $id) { Note "Lukker åpent panel ($id)"; Press $b; Start-Sleep 1 }
     }
@@ -129,6 +131,17 @@ try {
     } else {
         Note 'Et spill kjørte allerede; hopper over Home-testen'
     }
+
+    # ---- M2 uten spill: GameHome-menyen ----
+    [GhTest]::Chord(0x7B) # F12
+    Check (Wait-Until { Find 'MenuAccountsButton' } 5) 'M2 uten spill åpner GameHome-menyen'
+    if ($b = Find 'MenuAccountsButton') {
+        Press $b
+        Check (Wait-Until { Find 'AccountsCloseButton' } 3) '«Kontoer og kilder» åpner'
+        if ($b = Find 'AccountsCloseButton') { Press $b; Start-Sleep 1 }
+    }
+    [GhTest]::Chord(0x7B)
+    Check (Wait-Until { -not (Find 'MenuAccountsButton') } 5) 'M2 en gang til lukker menyen'
 
     # ---- Start spillet ----
     # Flisen kan ligge utenfor skjermen lenger ut i raden: finn den blant alle, gi den fokus (WinUI ruller den fram).
@@ -144,7 +157,8 @@ try {
     $before = @(Get-Process | ForEach-Object Id)
     Press $tile
     Start-Sleep 1
-    if ($primary = Find 'MessagePrimary') { Note "Melding: «$($primary.Current.Name)» trykkes"; Press $primary }
+    # Spill som kan startes både her og fra PC-en, spør først; «Spill her» er førstevalget.
+    if ((Wait-Until { Find 'MessagePrimary' } 3) -and ($primary = Find 'MessagePrimary')) { Note "Melding: «$($primary.Current.Name)» trykkes"; Press $primary }
     $started = Wait-Until { -not (GameHomeInFront) -and [GhTest]::ForegroundPid() -notin $before } 90
     Check $started "«$Game» startet og fikk forgrunnen"
     if (-not $started) { throw 'Spillet startet ikke' }

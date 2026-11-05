@@ -54,11 +54,20 @@ public sealed partial class MainWindow : Window
     private static readonly (int Id, HotkeyModifiers Modifiers, uint Key, string Name) HomeHotkey =
         (4, HotkeyModifiers.Control | HotkeyModifiers.Alt | HotkeyModifiers.Shift, 0x7A, "Ctrl+Alt+Shift+F11 (Home)");
 
+    /// <summary>M2 (Ctrl+Alt+Shift+F12): alltid registrert, åpner menyen med eller uten spill.</summary>
+    private const int MenuHotkeyId = 2;
+
     private void RegisterHomeHotkey()
     {
         if (!_hotkeys.Register(HomeHotkey.Id, HomeHotkey.Modifiers, HomeHotkey.Key))
         {
             _log.Write("hurtigtast", $"{HomeHotkey.Name} kunne ikke registreres (brukt av et annet program?)");
+        }
+
+        var menu = SessionHotkeys.First(h => h.Id == MenuHotkeyId);
+        if (!_hotkeys.Register(menu.Id, menu.Modifiers, menu.Key))
+        {
+            _log.Write("hurtigtast", $"{menu.Name} (M2) kunne ikke registreres (brukt av et annet program?)");
         }
     }
 
@@ -941,7 +950,7 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        var target = TileFor(gameId) ?? GameTiles.Children.OfType<Button>().FirstOrDefault() ?? AddGameTile;
+        var target = TileFor(gameId) ?? GameTiles.Children.OfType<Button>().FirstOrDefault() ?? LibraryTile;
         if (target.IsLoaded)
         {
             target.Focus(FocusState.Keyboard);
@@ -1848,7 +1857,7 @@ public sealed partial class MainWindow : Window
         || LoadingPanel.Visibility == Visibility.Visible || DetailsPanel.Visibility == Visibility.Visible
         || OptionsPanel.Visibility == Visibility.Visible || DebugPanel.Visibility == Visibility.Visible
         || FindPanel.Visibility == Visibility.Visible || NoticePanel.Visibility == Visibility.Visible
-        || ArtPanel.Visibility == Visibility.Visible;
+        || ArtPanel.Visibility == Visibility.Visible || AccountsPanel.Visibility == Visibility.Visible;
 
     private void ShowDetails(Game game)
     {
@@ -2669,7 +2678,8 @@ public sealed partial class MainWindow : Window
             StartSteamCover(steam);
         }
 
-        var registered = SessionHotkeys.Where(h => _hotkeys.Register(h.Id, h.Modifiers, h.Key)).Select(h => h.Name).ToList();
+        // M2 er alltid registrert (MenuHotkeyId); de andre bare under spill.
+        var registered = SessionHotkeys.Where(h => h.Id == MenuHotkeyId || _hotkeys.Register(h.Id, h.Modifiers, h.Key)).Select(h => h.Name).ToList();
         var hook = M2Fallback && _hotkeys.StartHook();
         _log.Write("økt", $"Startet «{title}» ({action.RunnerId} {action.Target}, {session.Status}). Hurtigtaster: {string.Join(", ", registered)}"
             + (hook ? " (+ tastaturkrok som reserve)" : ""));
@@ -3369,6 +3379,14 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        // M2 en gang til uten spill lukker GameHome-menyen igjen.
+        if (!SessionActive && SessionPanel.Visibility == Visibility.Visible)
+        {
+            _log.Write("hurtigtast", $"Mottatt: {name}; menyen lukket");
+            HideSessionPanel();
+            return;
+        }
+
         _log.Write("hurtigtast", $"Mottatt: {name}");
         HideLoading("M2");
         Activate();
@@ -3389,7 +3407,7 @@ public sealed partial class MainWindow : Window
             _log.Write("fokus", ok ? "Tok forgrunnen etter hurtigtast" : "Windows avslo forgrunnen etter hurtigtast");
         }
 
-        ShowSessionPanel($"hurtigtast {name}");
+        ShowMenu($"hurtigtast {name}");
     }
 
     private void ShowSessionPanel(string via)
@@ -3399,6 +3417,8 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        SessionGameCard.Visibility = Visibility.Visible;
+        HomeMenuCard.Visibility = Visibility.Collapsed;
         SessionTitle.Text = _sessionGame is null ? "Spill" : GameLibrary.DisplayTitle(_sessionGame);
         var minutes = (DateTime.UtcNow - _sessionStarted).TotalMinutes;
         SessionDetail.Text = minutes < 1 ? "Startet nå" : string.Create(CultureInfo.InvariantCulture,
@@ -5277,56 +5297,73 @@ public sealed partial class MainWindow : Window
         if (pressed.HasFlag(GamepadButtons.B))
         {
             MenuSounds.Back();
-            if (MessagePanel.Visibility == Visibility.Visible)
+            GoBack();
+        }
+    }
+
+    /// <summary>B på kontrolleren og Escape på tastaturet: lukk det øverste panelet, eller gå tilbake til spillet.</summary>
+    private void GoBack()
+    {
+        if (MessagePanel.Visibility == Visibility.Visible)
+        {
+            CloseMessage(_messageCancel);
+        }
+        else if (ArtPanel.Visibility == Visibility.Visible)
+        {
+            CloseArtPicker();
+        }
+        else if (FindPanel.Visibility == Visibility.Visible)
+        {
+            CloseFind();
+        }
+        else if (NoticePanel.Visibility == Visibility.Visible)
+        {
+            CloseNotices();
+        }
+        else if (OptionsPanel.Visibility == Visibility.Visible)
+        {
+            CloseOptions();
+        }
+        else if (DetailsPanel.Visibility == Visibility.Visible)
+        {
+            CloseDetails();
+        }
+        else if (AccountsPanel.Visibility == Visibility.Visible)
+        {
+            CloseAccounts();
+        }
+        else if (LibraryPanel.Visibility == Visibility.Visible)
+        {
+            CloseLibrary();
+        }
+        else if (DebugPanel.Visibility == Visibility.Visible)
+        {
+            CloseDebug();
+        }
+        else if (HostPanel.Visibility == Visibility.Visible)
+        {
+            CloseHostPanel();
+        }
+        else if (PowerPanel.Visibility == Visibility.Visible)
+        {
+            _log.Write("strøm", "Strømmenyen lukket med B");
+            ClosePowerMenu(restoreSession: true);
+        }
+        else if (LoadingPanel.Visibility == Visibility.Visible)
+        {
+            HideLoading("B");
+            FocusHome(_focusGameId);
+        }
+        else if (SessionPanel.Visibility == Visibility.Visible)
+        {
+            // B går tilbake til spillet, som på Steam Deck og Switch; uten spill lukkes GameHome-menyen.
+            if (SessionActive)
             {
-                CloseMessage(_messageCancel);
-            }
-            else if (ArtPanel.Visibility == Visibility.Visible)
-            {
-                CloseArtPicker();
-            }
-            else if (FindPanel.Visibility == Visibility.Visible)
-            {
-                CloseFind();
-            }
-            else if (NoticePanel.Visibility == Visibility.Visible)
-            {
-                CloseNotices();
-            }
-            else if (OptionsPanel.Visibility == Visibility.Visible)
-            {
-                CloseOptions();
-            }
-            else if (DetailsPanel.Visibility == Visibility.Visible)
-            {
-                CloseDetails();
-            }
-            else if (LibraryPanel.Visibility == Visibility.Visible)
-            {
-                CloseLibrary();
-            }
-            else if (DebugPanel.Visibility == Visibility.Visible)
-            {
-                CloseDebug();
-            }
-            else if (HostPanel.Visibility == Visibility.Visible)
-            {
-                CloseHostPanel();
-            }
-            else if (PowerPanel.Visibility == Visibility.Visible)
-            {
-                _log.Write("strøm", "Strømmenyen lukket med B");
-                ClosePowerMenu(restoreSession: true);
-            }
-            else if (LoadingPanel.Visibility == Visibility.Visible)
-            {
-                HideLoading("B");
-                FocusHome(_focusGameId);
-            }
-            else if (SessionPanel.Visibility == Visibility.Visible)
-            {
-                // B går tilbake til spillet, som på Steam Deck og Switch. «Til Home» ligger som egen knapp.
                 ResumeButton_Click(ResumeButton, new RoutedEventArgs());
+            }
+            else
+            {
+                HideSessionPanel();
             }
         }
     }
@@ -5362,6 +5399,10 @@ public sealed partial class MainWindow : Window
         }
 
         _lastSource = isGamepadKey ? "kontroller (XAML)" : "tastatur";
+        if (e.Key == VirtualKey.Escape)
+        {
+            GoBack();
+        }
     }
 
     private void OnPointerPressed(object sender, PointerRoutedEventArgs e) =>

@@ -100,9 +100,11 @@ public sealed partial class MainWindow
         foreach (var tab in tabs)
         {
             var count = games.Count(g => tab.Includes(g.Actions));
+            // Strømmede spill får navnet på PC-en, så det er tydelig at de kjører der og strømmes hit.
+            var label = tab.Key == "stream" ? $"Strøm fra {HostLabel}" : tab.Label;
             var button = new Button
             {
-                Content = $"{tab.Label} ({count})",
+                Content = $"{label} ({count})",
                 Tag = tab.Key,
                 Height = 44,
                 Padding = new Thickness(16, 0, 16, 0),
@@ -134,7 +136,7 @@ public sealed partial class MainWindow
         }
 
         LibrarySortButton.Content = $"Sortering: {SortLabel(_librarySort)}";
-        LibraryHeading.Text = $"Bibliotek · {current.Label}";
+        LibraryHeading.Text = $"Bibliotek · {(current.Key == "stream" ? $"Strøm fra {HostLabel}" : current.Label)}";
     }
 
     private Button CreateLibraryTile(Game game)
