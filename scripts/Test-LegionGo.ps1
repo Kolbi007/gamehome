@@ -113,7 +113,7 @@ try {
     }
 
     # Start fra Home: lukk paneler som står åpne fra før (søk/bibliotek, melding).
-    foreach ($id in 'FindCloseButton', 'MessageSecondary') {
+    foreach ($id in 'FindCloseButton', 'LibraryCloseButton', 'MessageSecondary') {
         if ($b = Find $id) { Note "Lukker åpent panel ($id)"; Press $b; Start-Sleep 1 }
     }
 
@@ -215,28 +215,30 @@ try {
     Start-Sleep 1
 
     # ---- Home («Fortsett») og Biblioteket ----
-    function GameTilesIn([string] $container) {
-        $c = Find $container
-        if (-not $c) { return @() }
-        @($c.FindAll([System.Windows.Automation.TreeScope]::Children,
-            (New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button))) |
-            Where-Object { $_.Current.AutomationId -like 'game:*' })
+    # Paneler uten egen rolle vises ikke i UI Automation; flisene skilles i stedet på om de er aktive. Mens biblioteket
+    # er åpent, er Home-flisene slått av og bibliotekets fliser på.
+    function AllButtons {
+        $w = GameHomeWindow
+        @($w.FindAll([System.Windows.Automation.TreeScope]::Descendants,
+            (New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button))))
     }
-    $homeCount = (GameTilesIn 'GameTiles').Count
+    function ActiveGameTiles { @(AllButtons | Where-Object { $_.Current.AutomationId -like 'game:*' -and $_.Current.IsEnabled }) }
+    function TabNames { @(AllButtons | Where-Object { $_.Current.IsEnabled -and $_.Current.AutomationId -notlike 'game:*' -and $_.Current.Name -match '^.+ \(\d+\)$' -and $_.Current.Name -notlike 'Bibliotek*' } | ForEach-Object { $_.Current.Name }) }
+    $homeCount = (ActiveGameTiles).Count
     Check ($homeCount -ge 1 -and $homeCount -le 10) "Home viser «Fortsett» med $homeCount spill (høyst 10)"
     if ($b = Find 'LibraryTile') {
         Press $b
         Check (Wait-Until { Find 'LibraryCloseButton' } 5) 'Biblioteket åpner'
-        $tabs = @((Find 'LibraryTabs').FindAll([System.Windows.Automation.TreeScope]::Children,
-            (New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button))) | ForEach-Object { $_.Current.Name })
+        Start-Sleep 1
+        $tabs = TabNames
         Note "Faner: $($tabs -join ', ')"
-        $all = (GameTilesIn 'LibraryGrid').Count
+        $all = (ActiveGameTiles).Count
         $allTab = $tabs | Where-Object { $_ -match '^Alle \((\d+)\)$' } | Select-Object -First 1
         Check ($allTab -and [int]($allTab -replace '\D', '') -eq $all -and $all -ge $homeCount) "«Alle» viser alle spillene ($all)"
         if ($retroTab = $tabs | Where-Object { $_ -like 'Retro (*' } | Select-Object -First 1) {
             Press (FindByName $retroTab)
             Start-Sleep 1
-            $retro = (GameTilesIn 'LibraryGrid').Count
+            $retro = (ActiveGameTiles).Count
             Check ($retro -eq [int]($retroTab -replace '\D', '')) "Fanen «$retroTab» viser $retro spill"
         }
         $sortBefore = (Find 'LibrarySortButton').Current.Name
