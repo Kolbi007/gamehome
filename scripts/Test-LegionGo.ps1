@@ -113,7 +113,10 @@ try {
     }
 
     # Start fra Home: lukk paneler som står åpne fra før (søk/bibliotek, melding).
-    foreach ($id in 'FindCloseButton', 'LibraryCloseButton', 'MessageSecondary') {
+    # Bare knapper som alltid betyr «lukk» trykkes. En åpen melding kan ha to valg som begge gjør noe (for eksempel
+    # «Spill her» og «Stream fra PC-en», 2026-11-05); da stopper testen i stedet for å gjette.
+    if (Find 'MessagePrimary') { throw 'En melding er åpen i GameHome. Lukk den og kjør testen igjen.' }
+    foreach ($id in 'FindCloseButton', 'LibraryCloseButton', 'PowerCancelButton') {
         if ($b = Find $id) { Note "Lukker åpent panel ($id)"; Press $b; Start-Sleep 1 }
     }
 
