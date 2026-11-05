@@ -14,9 +14,10 @@
         -->
         <Image x:Name="AmbientImage" Stretch="UniformToFill" HorizontalAlignment="Right" VerticalAlignment="Top" Opacity="0" IsHitTestVisible="False" />
         <Image x:Name="AmbientImageB" Stretch="UniformToFill" HorizontalAlignment="Right" VerticalAlignment="Top" Opacity="0" IsHitTestVisible="False" />
-        <!-- Stille trailer bak hovedfeltet (bare i lader), se MainWindow.Trailer.cs. -->
+        <!-- Stille trailer bak hovedfeltet (bare i lader), se MainWindow.Trailer.cs. Skjult for UI Automation: med video i treet
+             hang GameHome når testen (og skjermlesere) gikk gjennom vinduet, 2026-11-05. -->
         <MediaPlayerElement x:Name="HeroVideo" Stretch="UniformToFill" HorizontalAlignment="Right" VerticalAlignment="Top" Opacity="0"
-                            IsHitTestVisible="False" AreTransportControlsEnabled="False" />
+                            IsHitTestVisible="False" AreTransportControlsEnabled="False" AutomationProperties.AccessibilityView="Raw" />
         <Rectangle>
             <Rectangle.Fill>
                 <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
