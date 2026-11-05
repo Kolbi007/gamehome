@@ -108,12 +108,9 @@ public sealed partial class MainWindow
                 Padding = new Thickness(16, 0, 16, 0),
                 CornerRadius = new CornerRadius(22),
             };
-            if (tab.Key == _libraryTab && AccentStyle is { } style)
+            if (tab.Key == _libraryTab)
             {
-                button.Style = style;
-                button.Height = 44;
-                button.Padding = new Thickness(16, 0, 16, 0);
-                button.CornerRadius = new CornerRadius(22);
+                MarkSelected(button);
             }
 
             button.Click += (_, _) => SelectLibraryTab(tab.Key);
