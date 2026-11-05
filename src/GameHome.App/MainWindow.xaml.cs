@@ -170,6 +170,11 @@ public sealed partial class MainWindow : Window
 
         _hotkeys = new HotkeyListener(WinRT.Interop.WindowNative.GetWindowHandle(this));
         _hotkeys.Pressed += OnSessionHotkey;
+        _hotkeys.DisplayPowerChanged += OnDisplayPowerChanged;
+        if (!_hotkeys.WatchDisplayPower())
+        {
+            _log.Write("dvale", "Fikk ikke beskjed om skjerm av/på (dvale) fra Windows");
+        }
         RegisterHomeHotkey();
         _hotkeys.Failed += (_, message) => _log.Write("krasj", $"Fanget i kall fra Windows: {message}");
 
