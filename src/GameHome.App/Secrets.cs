@@ -23,6 +23,34 @@ internal static class Secrets
 
     private const string ResourcePrefix = "GameHome.";
 
+
+    /// <summary>Lagrer (eller erstatter) nøkkelen i Windows' sikre lager. <paramref name="log"/> får aldri selve nøkkelen.</summary>
+    public static bool Store(string name, string value, Action<string> log, string resource = "", string user = "key")
+    {
+        ArgumentNullException.ThrowIfNull(log);
+        var target = resource.Length > 0 ? resource : ResourcePrefix + name;
+        try
+        {
+            var vault = new PasswordVault();
+            try
+            {
+                vault.Remove(vault.Retrieve(target, user));
+            }
+            catch (System.Runtime.InteropServices.COMException)
+            {
+                // Fantes ikke fra før.
+            }
+
+            vault.Add(new PasswordCredential(target, user, value.Trim()));
+            log($"Nøkkelen «{name}» er lagret i Windows' sikre lager");
+            return true;
+        }
+        catch (System.Runtime.InteropServices.COMException ex)
+        {
+            log($"Kunne ikke lagre nøkkelen «{name}»: {ex.Message}");
+            return false;
+        }
+    }
     /// <summary>Henter nøkkelen, eller null hvis den ikke er lagt inn. <paramref name="log"/> får aldri selve nøkkelen.</summary>
     public static string? Load(string name, Action<string> log)
     {

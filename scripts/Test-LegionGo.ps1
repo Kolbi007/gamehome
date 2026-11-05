@@ -142,6 +142,11 @@ try {
     if ($b = Find 'MenuAccountsButton') {
         Press $b
         Check (Wait-Until { Find 'AccountsCloseButton' } 3) '«Kontoer og kilder» åpner'
+        if ($add = FindByName 'Legg inn') {
+            Press $add
+            Check (Wait-Until { Find 'KeyEntryCancel' } 3) 'Legg inn nøkkel åpner feltet (med skjermtastatur)'
+            if ($c = Find 'KeyEntryCancel') { Press $c; Start-Sleep 1 }
+        }
         if ($b = Find 'AccountsCloseButton') { Press $b; Start-Sleep 1 }
     }
     [GhTest]::Chord(0x7B)

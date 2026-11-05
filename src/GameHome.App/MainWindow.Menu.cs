@@ -110,7 +110,8 @@ public sealed partial class MainWindow
         HomeMenuStatus.Visibility = Visibility.Visible;
     }
 
-    private sealed record AccountStatus(string Name, bool Ok, string Detail);
+    /// <summary>En rad i «Kontoer og kilder». <paramref name="Key"/> sier hva knappen på raden gjør (se AccountAction).</summary>
+    private sealed record AccountStatus(string Name, bool Ok, string Detail, string Key = "");
 
     /// <summary>Status for alt GameHome henter fra eller styrer. Leses lokalt; ingen nettverkskall.</summary>
     private List<AccountStatus> AccountStatuses()
@@ -122,15 +123,15 @@ public sealed partial class MainWindow
 
         return
         [
-            new("Handheld Companion", hcRunning, hcRunning ? "Kjører: knapper, TDP og QuickTools" : "Kjører ikke: M2, Legion-knappene og TDP virker ikke"),
+            new("Handheld Companion", hcRunning, hcRunning ? "Kjører: knapper, TDP og QuickTools" : "Kjører ikke: M2, Legion-knappene og TDP virker ikke", "hc"),
             new("Gaming-PC (Moonlight)", MoonlightClient.FindExe() is not null && hosts.Count > 0,
-                MoonlightClient.FindExe() is null ? "Moonlight er ikke installert" : hosts.Count == 0 ? "Ikke paret med en PC" : $"Paret med {HostLabel}"),
-            new("Vibepollo", Vibepollo is not null, Vibepollo is null ? "Mangler nøkkel: ingen omslag, status eller avslutning på PC-en" : "Nøkkel finnes: omslag, status og avslutning"),
+                MoonlightClient.FindExe() is null ? "Moonlight er ikke installert" : hosts.Count == 0 ? "Ikke paret med en PC" : $"Paret med {HostLabel}", "moonlight"),
+            new("Vibepollo", Vibepollo is not null, Vibepollo is null ? "Mangler nøkkel: ingen omslag, status eller avslutning på PC-en" : "Nøkkel finnes: omslag, status og avslutning", "vibepollo"),
             new("PlayStation (chiaki-ng)", consoles.Count > 0,
-                Chiaki.FindExe() is null ? "chiaki-ng er ikke installert" : consoles.Count == 0 ? "Installert, men ingen konsoll koblet til ennå" : string.Join(", ", consoles.Select(c => c.Title))),
-            new("Steam-biblioteket", SteamWebApi is not null, SteamWebApi is null ? "Mangler Steam Web API-nøkkel eller Steam-ID" : "«Installer fra Steam» er på"),
-            new("SteamGridDB (bilder)", SteamGridDb is not null, SteamGridDb is null ? "Mangler nøkkel" : "Bilder for spill som ikke er på Steam"),
-            new("IGDB (info og spilletid)", Igdb is not null, Igdb is null ? "Mangler Twitch-nøkler" : "Info og spilletid"),
+                Chiaki.FindExe() is null ? "chiaki-ng er ikke installert" : consoles.Count == 0 ? "Installert, men ingen konsoll koblet til ennå" : string.Join(", ", consoles.Select(c => c.Title)), "chiaki"),
+            new("Steam-biblioteket", SteamWebApi is not null, SteamWebApi is null ? "Mangler Steam Web API-nøkkel eller Steam-ID" : "«Installer fra Steam» er på", "steam"),
+            new("SteamGridDB (bilder)", SteamGridDb is not null, SteamGridDb is null ? "Mangler nøkkel" : "Bilder for spill som ikke er på Steam", "steamgriddb"),
+            new("IGDB (info og spilletid)", Igdb is not null, Igdb is null ? "Mangler Twitch-nøkler" : "Info og spilletid", "igdb"),
             new("Retro (RetroArch)", retro > 0, RetroArch.FindExe() is null ? "RetroArch er ikke installert" : $"{retro} systemer klare"),
         ];
     }
@@ -159,6 +160,15 @@ public sealed partial class MainWindow
             Grid.SetColumn(text, 1);
             row.Children.Add(mark);
             row.Children.Add(text);
+            if (AccountActionLabel(account) is { } actionLabel)
+            {
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                var action = new Button { Content = actionLabel, Height = 44, Padding = new Thickness(16, 0, 16, 0), VerticalAlignment = VerticalAlignment.Center, Tag = account.Key };
+                action.Click += AccountAction_Click;
+                Grid.SetColumn(action, 2);
+                row.Children.Add(action);
+            }
+
             AccountRows.Children.Add(row);
         }
 
@@ -231,6 +241,8 @@ public sealed partial class MainWindow
     private void CloseAccounts()
     {
         AccountsPanel.Visibility = Visibility.Collapsed;
+        AccountsTitle.Text = "Kontoer og kilder";
+        AccountsIntro.Visibility = Visibility.Collapsed;
         AccountRows.Children.Clear();
         MenuAccountsButton.Focus(FocusState.Keyboard);
     }
