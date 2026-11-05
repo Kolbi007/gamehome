@@ -379,10 +379,34 @@
         <!-- Kontoer og kilder: status for alt GameHome henter fra eller styrer, og hva som mangler. -->
         <Grid x:Name="AccountsPanel" Background="{StaticResource GhScrimBrush}" Visibility="Collapsed">
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Width="720" Spacing="14">
-                <TextBlock Text="Kontoer og kilder" FontFamily="{StaticResource GhFontDisplay}" FontSize="{StaticResource GhSizeTitle}" FontWeight="SemiBold"
+                <TextBlock x:Name="AccountsTitle" Text="Kontoer og kilder" FontFamily="{StaticResource GhFontDisplay}" FontSize="{StaticResource GhSizeTitle}" FontWeight="SemiBold"
                            Foreground="{StaticResource GhTextPrimaryBrush}" />
+                <TextBlock x:Name="AccountsIntro" FontSize="16" Foreground="#C8CDD3" TextWrapping="Wrap" Visibility="Collapsed" />
                 <StackPanel x:Name="AccountRows" Spacing="6" />
                 <Button x:Name="AccountsCloseButton" Content="Lukk" Click="AccountsCloseButton_Click" HorizontalAlignment="Stretch" Height="56" FontSize="18" Margin="0,8,0,0" />
+            </StackPanel>
+        </Grid>
+
+        <!-- Legg inn en nøkkel: skjermtastaturet vises; nøkkelen går rett til Windows' sikre lager og vises aldri igjen. -->
+        <Grid x:Name="KeyEntryPanel" Background="{StaticResource GhScrimBrush}" Visibility="Collapsed">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Width="680" Spacing="12">
+                <TextBlock x:Name="KeyEntryTitle" FontFamily="{StaticResource GhFontDisplay}" FontSize="{StaticResource GhSizeTitle}" FontWeight="SemiBold"
+                           Foreground="{StaticResource GhTextPrimaryBrush}" />
+                <TextBlock x:Name="KeyEntryHelp" FontSize="16" Foreground="#C8CDD3" TextWrapping="Wrap" />
+                <TextBlock x:Name="KeyEntryLabel1" FontSize="15" Foreground="#A0A7B0" Margin="0,8,0,0" />
+                <PasswordBox x:Name="KeyEntryBox1" Height="48" FontSize="17" PasswordRevealMode="Peek" />
+                <TextBlock x:Name="KeyEntryLabel2" FontSize="15" Foreground="#A0A7B0" />
+                <PasswordBox x:Name="KeyEntryBox2" Height="48" FontSize="17" PasswordRevealMode="Peek" />
+                <Grid ColumnSpacing="12" Margin="0,8,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Button x:Name="KeyEntrySave" Content="Lagre" Click="KeyEntrySave_Click" HorizontalAlignment="Stretch" Height="56" FontSize="18"
+                            Style="{StaticResource AccentButtonStyle}" />
+                    <Button x:Name="KeyEntryCancel" Grid.Column="1" Content="Avbryt" Click="KeyEntryCancel_Click" HorizontalAlignment="Stretch" Height="56" FontSize="18" />
+                </Grid>
+                <TextBlock x:Name="KeyEntryStatus" FontSize="14" Foreground="#C8CDD3" TextWrapping="Wrap" />
             </StackPanel>
         </Grid>
 

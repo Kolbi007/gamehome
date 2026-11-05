@@ -151,7 +151,11 @@ public sealed partial class MainWindow : Window
         _log.Written += OnLogWritten;
 
         Root.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(OnKeyDown), handledEventsToo: true);
-        Root.Loaded += (_, _) => PlayIntro();
+        Root.Loaded += (_, _) =>
+        {
+            PlayIntro();
+            ShowSetupIfFirstRun();
+        };
         SetStaticHints();
         Root.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(OnPointerPressed), handledEventsToo: true);
         Activated += OnWindowActivated;
@@ -1876,7 +1880,8 @@ public sealed partial class MainWindow : Window
         || LoadingPanel.Visibility == Visibility.Visible || DetailsPanel.Visibility == Visibility.Visible
         || OptionsPanel.Visibility == Visibility.Visible || DebugPanel.Visibility == Visibility.Visible
         || FindPanel.Visibility == Visibility.Visible || NoticePanel.Visibility == Visibility.Visible
-        || ArtPanel.Visibility == Visibility.Visible || AccountsPanel.Visibility == Visibility.Visible;
+        || ArtPanel.Visibility == Visibility.Visible || AccountsPanel.Visibility == Visibility.Visible
+        || KeyEntryPanel.Visibility == Visibility.Visible;
 
     private void ShowDetails(Game game)
     {
