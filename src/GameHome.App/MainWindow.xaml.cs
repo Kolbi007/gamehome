@@ -681,6 +681,9 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void SetTileContent(Button tile, Game game)
     {
+        // Navn for skjermlesere og for testskriptet (scripts/Test-LegionGo.ps1), som finner flisen med UI Automation.
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(tile, GameLibrary.DisplayTitle(game));
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(tile, "game:" + game.Id);
         var image = TileImageFor(game);
         if (image is null)
         {
