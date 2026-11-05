@@ -2632,12 +2632,14 @@ public sealed partial class MainWindow : Window
 
         try
         {
+            ApplyGameDisplay(game);
             _session = (IForegroundSession)await runner.LaunchAsync(action, Profile.Default, CancellationToken.None);
             _sessionRunnerId = action.RunnerId;
         }
         catch (LaunchException ex)
         {
             HideLoading("start feilet");
+            RestoreDisplayAfterGame();
             _log.Write("økt", $"Kunne ikke starte «{title}»: {ex.Failure}: {ex.Message}");
             if (ex.Failure == LaunchFailure.FileMissing)
             {
@@ -2696,6 +2698,7 @@ public sealed partial class MainWindow : Window
 
         _hotkeys.UnregisterAll();
         RegisterHomeHotkey();
+        RestoreDisplayAfterGame();
         HideLoading("økten avsluttet");
         var game = _sessionGame;
         var title = game is null ? "spillet" : GameLibrary.DisplayTitle(game);
@@ -3628,10 +3631,21 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        var before = Display.Current();
         var error = Display.Apply(target);
         var text = string.Create(CultureInfo.InvariantCulture, $"{target.Width}×{target.Height} {target.Hz} Hz");
         _log.Write("ytelse", error is null ? $"Skjerm satt til {text}" : $"Skjerm {text}: {error}");
-        PerformanceStatus.Text = error ?? $"Skjermen er satt til {text}";
+        var remembered = error is null && SessionActive && _sessionGame is not null;
+        if (remembered)
+        {
+            // Valget gjelder dette spillet: huskes til neste start, og skjermen går tilbake når spillet avsluttes.
+            _displayBeforeGame ??= before;
+            SaveDisplay(_sessionGame!, target);
+        }
+
+        PerformanceStatus.Text = error ?? (remembered
+            ? $"{text} · huskes for {GameLibrary.DisplayTitle(_sessionGame!)}"
+            : $"Skjermen er satt til {text}");
         PerformanceStatus.Visibility = Visibility.Visible;
         FillPerformance();
         FocusPerformance(target);
