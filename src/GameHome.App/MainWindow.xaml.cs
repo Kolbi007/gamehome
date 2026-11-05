@@ -393,7 +393,8 @@ public sealed partial class MainWindow : Window
             }
         }
 
-        var focused = FocusManager.GetFocusedElement(Root.XamlRoot);
+        // XamlRoot finnes ikke før vinduet er vist (første oppbygging skjer i konstruktøren; 0.1.134.0 krasjet ved oppstart).
+        var focused = Root.XamlRoot is { } xamlRoot ? FocusManager.GetFocusedElement(xamlRoot) : null;
         for (var i = 0; i < visible.Count; i++)
         {
             var existing = TileFor(visible[i].Id);
