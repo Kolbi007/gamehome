@@ -19,7 +19,7 @@ $remote = @"
 `$report = Join-Path `$env:TEMP 'gamehome-test.txt'
 Remove-Item `$report -ErrorAction SilentlyContinue
 `$arg = '-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + `$HOME + '\Test-LegionGo.ps1" -Game "$Game"'
-`$a = New-ScheduledTaskAction -Execute powershell.exe -Argument `$arg
+`$a = New-ScheduledTaskAction -Execute conhost.exe -Argument ('--headless powershell.exe ' + `$arg)
 `$s = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 `$p = New-ScheduledTaskPrincipal -UserId `$env:USERNAME -LogonType Interactive
 Register-ScheduledTask -TaskName GameHomeTest -Action `$a -Settings `$s -Principal `$p -Force | Out-Null
