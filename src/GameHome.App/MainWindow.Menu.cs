@@ -43,6 +43,7 @@ public sealed partial class MainWindow
         MenuAccountsHint.Text = missing == 0 ? "Alt er koblet til" : $"{missing} mangler eller er av";
         BatteryText.Text = BatteryLine();
         FillPerformance();
+        FillQuickSettings();
         PerformanceStatus.Visibility = Visibility.Collapsed;
         SessionPanel.Visibility = Visibility.Visible;
         SetHomeEnabled(false);

@@ -97,6 +97,7 @@ function Press($element) {
 function GameHomeInFront { $p = Get-Process GameHome -ErrorAction SilentlyContinue; $p -and [GhTest]::ForegroundPid() -eq $p.Id }
 $logFile = Join-Path $env:LOCALAPPDATA 'Packages\GameHome_80y3cyz35a8xa\LocalState\gamehome.log'
 $logStart = if (Test-Path $logFile) { (Get-Content $logFile).Count } else { 0 }
+$quickLog = { Get-Content $logFile -Encoding UTF8 | Select-Object -Skip $logStart }
 
 $originalMode = [GhTest]::Mode()
 $gameProcess = $null
@@ -149,6 +150,42 @@ try {
         }
         if ($b = Find 'AccountsCloseButton') { Press $b; Start-Sleep 1 }
     }
+
+    # ---- Hurtiginnstillinger i Ytelse-panelet (lysstyrke, volum, Bluetooth; Wi-Fi røres ikke, testen går over det) ----
+    function NameOf([string] $id) { $w = GameHomeWindow; if (-not $w) { return '' }
+        $e = $w.FindFirst([System.Windows.Automation.TreeScope]::Descendants, (New-Object System.Windows.Automation.PropertyCondition($AE::AutomationIdProperty, $id)))
+        if ($e) { $e.Current.Name } else { '' } }
+    function PressId([string] $id) { $w = GameHomeWindow
+        $e = $w.FindFirst([System.Windows.Automation.TreeScope]::Descendants, (New-Object System.Windows.Automation.PropertyCondition($AE::AutomationIdProperty, $id)))
+        if ($e) { Press $e } }
+    if (Wait-Until { (NameOf 'BrightnessValue') -match '^\d+ %$' } 5) {
+        $light = [int]((NameOf 'BrightnessValue') -replace '\D', '')
+        PressId 'BrightnessUp'
+        $changed = Wait-Until { (NameOf 'BrightnessValue') -ne "$light %" } 3
+        Check ($changed -and (Wait-Until { & $quickLog | Select-String 'Lysstyrke satt til' } 3)) "Lysstyrke opp ($light % → $(NameOf 'BrightnessValue'))"
+        PressId 'BrightnessDown'; Start-Sleep 1
+    } else { Fail "Lysstyrken vises ikke («$(NameOf 'BrightnessValue')»)" }
+    $vol = NameOf 'VolumeMute'
+    if ($vol -match '^Volum (\d+) %$') {
+        $v = [int]$Matches[1]; $up = if ($v -ge 100) { 'VolumeDown' } else { 'VolumeUp' }; $back = if ($up -eq 'VolumeUp') { 'VolumeDown' } else { 'VolumeUp' }
+        PressId $up
+        Check (Wait-Until { (NameOf 'VolumeMute') -ne $vol } 3) "Volum endres ($vol → $(NameOf 'VolumeMute'))"
+        PressId $back
+        PressId 'VolumeMute'
+        Check (Wait-Until { (NameOf 'VolumeMute') -eq 'Lyd av' } 3) 'Lyd av'
+        PressId 'VolumeMute'
+        Check (Wait-Until { (NameOf 'VolumeMute') -like 'Volum *' } 3) "Lyd på igjen ($(NameOf 'VolumeMute'))"
+    } else { Note "Volum: «$vol» (ingen lydutgang, eller lyden var av)" }
+    $wifi = NameOf 'WifiToggle'
+    Check ($wifi -eq 'Wi-Fi: på') "Wi-Fi-status vises («$wifi»)"
+    $bt = NameOf 'BluetoothToggle'
+    if ($bt -match '^Bluetooth: (på|av)$') {
+        PressId 'BluetoothToggle'
+        Check (Wait-Until { (NameOf 'BluetoothToggle') -ne $bt -and (NameOf 'BluetoothToggle') -match ': (på|av)$' } 6) "Bluetooth byttes ($bt → $(NameOf 'BluetoothToggle'))"
+        PressId 'BluetoothToggle'
+        Check (Wait-Until { (NameOf 'BluetoothToggle') -eq $bt } 6) "Bluetooth tilbake ($(NameOf 'BluetoothToggle'))"
+    } else { Note "Bluetooth: «$bt»" }
+
     [GhTest]::Chord(0x7B)
     Check (Wait-Until { -not (Find 'MenuAccountsButton') } 5) 'M2 en gang til lukker menyen'
 

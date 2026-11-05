@@ -65,5 +65,6 @@
     <rescap:Capability Name="runFullTrust" />
     <rescap:Capability Name="unvirtualizedResources" />
     <uap4:CustomCapability Name="Microsoft.appCategory.gamingHome_8wekyb3d8bbwe" />
+    <DeviceCapability Name="radios" />
   </Capabilities>
 </Package>

@@ -350,14 +350,52 @@
                     <StackPanel x:Name="PerformancePanel" Spacing="10">
                         <TextBlock Text="Ytelse" FontSize="24" FontWeight="SemiBold" Foreground="White" />
                         <TextBlock x:Name="BatteryText" FontSize="15" Foreground="#C8CDD3" />
+                        <!-- Hurtiginnstillinger, så man slipper å gå ut til Windows (Lysstyrke, volum, Wi-Fi, Bluetooth). -->
+                        <TextBlock Text="Lysstyrke" FontSize="14" Foreground="#A0A7B0" Margin="0,10,0,0" />
+                        <Grid ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="104" />
+                                <ColumnDefinition Width="104" />
+                                <ColumnDefinition Width="104" />
+                            </Grid.ColumnDefinitions>
+                            <Button x:Name="BrightnessDown" Content="−" Click="BrightnessStep_Click" Tag="-10" Height="52" HorizontalAlignment="Stretch" FontSize="20"
+                                    AutomationProperties.Name="Lysstyrke ned" />
+                            <TextBlock x:Name="BrightnessValue" Grid.Column="1" Text="–" FontSize="18" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                       AutomationProperties.AutomationId="BrightnessValue" />
+                            <Button x:Name="BrightnessUp" Grid.Column="2" Content="+" Click="BrightnessStep_Click" Tag="10" Height="52" HorizontalAlignment="Stretch" FontSize="20"
+                                    AutomationProperties.Name="Lysstyrke opp" />
+                        </Grid>
+                        <TextBlock Text="Volum" FontSize="14" Foreground="#A0A7B0" Margin="0,10,0,0" />
+                        <Grid ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="104" />
+                                <ColumnDefinition Width="104" />
+                                <ColumnDefinition Width="104" />
+                            </Grid.ColumnDefinitions>
+                            <Button x:Name="VolumeDown" Content="−" Click="VolumeStep_Click" Tag="-10" Height="52" HorizontalAlignment="Stretch" FontSize="20"
+                                    AutomationProperties.Name="Volum ned" />
+                            <Button x:Name="VolumeMute" Grid.Column="1" Content="–" Click="VolumeMute_Click" Height="52" HorizontalAlignment="Stretch" FontSize="16"
+                                    ToolTipService.ToolTip="Lyd av eller på" />
+                            <Button x:Name="VolumeUp" Grid.Column="2" Content="+" Click="VolumeStep_Click" Tag="10" Height="52" HorizontalAlignment="Stretch" FontSize="20"
+                                    AutomationProperties.Name="Volum opp" />
+                        </Grid>
                         <TextBlock Text="Oppdateringsfrekvens" FontSize="14" Foreground="#A0A7B0" Margin="0,10,0,0" />
                         <StackPanel x:Name="RefreshRateButtons" Orientation="Horizontal" Spacing="8" />
                         <TextBlock Text="Oppløsning" FontSize="14" Foreground="#A0A7B0" Margin="0,10,0,0" />
                         <StackPanel x:Name="ResolutionButtons" Orientation="Horizontal" Spacing="8" />
+                        <TextBlock Text="Trådløst" FontSize="14" Foreground="#A0A7B0" Margin="0,10,0,0" />
+                        <Grid ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="160" />
+                                <ColumnDefinition Width="160" />
+                            </Grid.ColumnDefinitions>
+                            <Button x:Name="WifiToggle" Content="Wi-Fi" Click="WifiToggle_Click" Height="52" HorizontalAlignment="Stretch" FontSize="16" />
+                            <Button x:Name="BluetoothToggle" Grid.Column="1" Content="Bluetooth" Click="BluetoothToggle_Click" Height="52" HorizontalAlignment="Stretch" FontSize="16" />
+                        </Grid>
                         <Button x:Name="QuickToolsButton" Click="QuickToolsButton_Click" HorizontalAlignment="Stretch" Height="64" Margin="0,14,0,0"
                                 ToolTipService.ToolTip="Åpner hurtigmenyen i Handheld Companion">
                             <StackPanel Spacing="2">
-                                <TextBlock Text="TDP, lysstyrke og mer" FontSize="17" />
+                                <TextBlock Text="TDP og mer" FontSize="17" />
                                 <TextBlock Text="Handheld Companion" FontSize="13" Foreground="#A0A7B0" />
                             </StackPanel>
                         </Button>

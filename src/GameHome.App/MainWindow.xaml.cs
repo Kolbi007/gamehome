@@ -3503,6 +3503,7 @@ public sealed partial class MainWindow : Window
         ShowSessionArt();
         BatteryText.Text = BatteryLine();
         FillPerformance();
+        FillQuickSettings();
         PerformanceStatus.Visibility = Visibility.Collapsed;
         SessionPanel.Visibility = Visibility.Visible;
         SetHomeEnabled(false);
