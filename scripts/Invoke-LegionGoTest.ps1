@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+﻿# SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (c) 2026 The GameHome contributors
 #
 # Kjører Test-LegionGo.ps1 på Legion Go fra utviklermaskinen over SSH. Testen må kjøre i brukerens skrivebordsøkt, så den

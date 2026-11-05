@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+﻿# SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (c) 2026 The GameHome contributors
 #
 # Røyktest av GameHome på Legion Go, kjørt i brukerens skrivebordsøkt (ikke over SSH direkte: SSH ser ikke skrivebordet).

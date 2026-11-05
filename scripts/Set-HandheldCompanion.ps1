@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
+﻿# SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright (c) 2026 The GameHome contributors
 #
 # Setter opp hurtigtastene i Handheld Companion (HC) som GameHome bruker (ADR 0006 og 0007):
