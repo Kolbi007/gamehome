@@ -5,6 +5,7 @@ using System.Globalization;
 using GameHome.Core.Library;
 using GameHome.Core.Model;
 using GameHome.Windows;
+using Microsoft.UI.Xaml;
 using Windows.Storage;
 
 namespace GameHome.App;
@@ -115,19 +116,24 @@ public sealed partial class MainWindow
         }
     }
 
-    /// <summary>Etter spillet (eller en mislykket start): skjermen slik den var før spillet.</summary>
-    private void RestoreDisplayAfterGame()
+    /// <summary>Etter spillet (eller en mislykket start): skjermen slik den var før spillet. True hvis skjermen ble endret.</summary>
+    private bool RestoreDisplayAfterGame()
     {
         if (_displayBeforeGame is not { } before)
         {
-            return;
+            return false;
         }
 
         _displayBeforeGame = null;
         var error = Display.Apply(before);
-        RefreshHeroAfterDisplayChange();
+        if (ReturnCover.Visibility != Visibility.Visible)
+        {
+            RefreshHeroAfterDisplayChange(); // Med dekket tegnes hovedfeltet på nytt når dekket fjernes (MainWindow.Return.cs).
+        }
+
         _log.Write("ytelse", error is null
             ? string.Create(CultureInfo.InvariantCulture, $"Skjerm tilbake til {before.Width}×{before.Height} {before.Hz} Hz")
             : $"Skjermen kunne ikke settes tilbake: {error}");
+        return error is null;
     }
 }

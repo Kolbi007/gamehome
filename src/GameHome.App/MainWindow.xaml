@@ -267,6 +267,17 @@
           Go. «Tilbake til spillet» har fokus når menyen åpnes; B går også tilbake til spillet. Avslutt ligger nederst og
           krever bekreftelse. Ingen overlay over spillet; GameHome tar forgrunnen.
         -->
+        <!--
+          Dekke over Home mens et spill kjører (MainWindow.Return.cs). GameHome ligger bak spillet og blir synlig i samme
+          øyeblikk spillvinduet lukkes, før skjermen er satt tilbake og vinduet har fått riktig størrelse (2026-11-05:
+          Home i feil oppløsning, en fjerdedel av skjermen, tomme fliser). Dekket tones bort når alt er på plass.
+        -->
+        <Grid x:Name="ReturnCover" Background="{StaticResource GhBaseBrush}" Visibility="Collapsed" IsHitTestVisible="False"
+              AutomationProperties.AccessibilityView="Raw">
+            <Image x:Name="ReturnLogo" MaxWidth="420" MaxHeight="180" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center" />
+            <TextBlock x:Name="ReturnTitle" FontFamily="{StaticResource GhFontDisplay}" FontSize="{StaticResource GhSizeTitle}"
+                       Foreground="{StaticResource GhTextSecondaryBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </Grid>
         <Grid x:Name="SessionPanel" Background="{StaticResource GhBaseBrush}" Visibility="Collapsed">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="400" />
