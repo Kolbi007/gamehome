@@ -3553,23 +3553,25 @@ public sealed partial class MainWindow : Window
         return picked;
     }
 
+
     /// <summary>
-    /// WinUIs uthevede knappestil. Ligger i en flettet ressursordbok, som <c>TryGetValue</c> ikke søker i (valgt Hz og fane
-    /// ble ikke uthevet, 0.1.138.0); indekseren gjør det.
+    /// Uthever det valgte (Hz, oppløsning, fane) i Windows' aksentfarge. WinUIs AccentButtonStyle lot seg ikke slå opp fra
+    /// koden (0.1.138–139), så fargene settes direkte, også for pekertilstandene.
     /// </summary>
-    private static Style? AccentStyle
+    private static void MarkSelected(Button button)
     {
-        get
+        var accent = new global::Windows.UI.ViewManagement.UISettings().GetColorValue(global::Windows.UI.ViewManagement.UIColorType.AccentLight2);
+        var fill = new Microsoft.UI.Xaml.Media.SolidColorBrush(accent);
+        var text = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Black);
+        foreach (var state in new[] { "", "PointerOver", "Pressed" })
         {
-            try
-            {
-                return Application.Current.Resources["AccentButtonStyle"] as Style;
-            }
-            catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or KeyNotFoundException)
-            {
-                return null;
-            }
+            button.Resources["ButtonBackground" + state] = fill;
+            button.Resources["ButtonForeground" + state] = text;
+            button.Resources["ButtonBorderBrush" + state] = fill;
         }
+
+        button.Background = fill;
+        button.Foreground = text;
     }
 
     private Button PerformanceButton(string label, bool selected, DisplayMode target)
@@ -3584,12 +3586,9 @@ public sealed partial class MainWindow : Window
             FontSize = 16,
             Tag = target,
         };
-        if (selected && AccentStyle is { } style)
+        if (selected)
         {
-            button.Style = style;
-            button.Width = 104;
-            button.Height = 52;
-            button.Padding = new Thickness(4, 0, 4, 0);
+            MarkSelected(button);
         }
 
         button.Click += PerformanceMode_Click;
