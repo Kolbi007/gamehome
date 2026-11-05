@@ -108,7 +108,7 @@ public sealed partial class MainWindow
                 Padding = new Thickness(16, 0, 16, 0),
                 CornerRadius = new CornerRadius(22),
             };
-            if (tab.Key == _libraryTab && Application.Current.Resources.TryGetValue("AccentButtonStyle", out var accent) && accent is Style style)
+            if (tab.Key == _libraryTab && AccentStyle is { } style)
             {
                 button.Style = style;
                 button.Height = 44;

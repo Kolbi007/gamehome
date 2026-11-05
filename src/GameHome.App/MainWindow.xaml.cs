@@ -128,6 +128,17 @@ public sealed partial class MainWindow : Window
         _log.Write("start", "XAML lastet");
         ExtendsContentIntoTitleBar = true;
 
+        // Fullskjerm uten oppgavelinje og vindusknapper. Uten Windows' fullskjermmodus (Gaming Home) sto GameHome som et
+        // vanlig vindu med oppgavelinjen synlig (skjermbilder 2026-11-05).
+        try
+        {
+            AppWindow.SetPresenter(Microsoft.UI.Windowing.AppWindowPresenterKind.FullScreen);
+        }
+        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidOperationException)
+        {
+            _log.Write("start", $"Fikk ikke fullskjerm: {ex.Message}");
+        }
+
         _log.Written += OnLogWritten;
 
         Root.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(OnKeyDown), handledEventsToo: true);
@@ -414,6 +425,12 @@ public sealed partial class MainWindow : Window
                 GameTiles.Children.RemoveAt(at);
                 GameTiles.Children.Insert(Math.Min(i, GameTiles.Children.Count), existing);
             }
+        }
+
+        // Flisen med fokus kan ha flyttet seg; sørg for at den er synlig i raden.
+        if (focused is Button { Tag: string } focusedTile && GameTiles.Children.Contains(focusedTile))
+        {
+            focusedTile.StartBringIntoView();
         }
 
         var hidden = _library.VisibleGames.Count - visible.Count;
@@ -3383,8 +3400,9 @@ public sealed partial class MainWindow : Window
         }
 
         SessionTitle.Text = _sessionGame is null ? "Spill" : GameLibrary.DisplayTitle(_sessionGame);
-        SessionDetail.Text = string.Create(CultureInfo.InvariantCulture,
-            $"Startet for {(DateTime.UtcNow - _sessionStarted).TotalMinutes:F0} min siden");
+        var minutes = (DateTime.UtcNow - _sessionStarted).TotalMinutes;
+        SessionDetail.Text = minutes < 1 ? "Startet nå" : string.Create(CultureInfo.InvariantCulture,
+            $"Startet for {minutes:F0} min siden");
         var streaming = _session is StreamSession;
         ResumeButton.Content = streaming ? "Tilbake til streamen" : "Tilbake til spillet";
         EndSessionButton.Content = streaming ? $"Koble fra (spillet fortsetter på {HostLabel})"
@@ -3399,6 +3417,8 @@ public sealed partial class MainWindow : Window
             SessionDetail.Text = $"Strømmer fra {HostLabel}";
         }
 
+        ShowSessionArt();
+        BatteryText.Text = BatteryLine();
         FillPerformance();
         PerformanceStatus.Visibility = Visibility.Collapsed;
         SessionPanel.Visibility = Visibility.Visible;
@@ -3407,9 +3427,44 @@ public sealed partial class MainWindow : Window
         _log.Write("økt", $"«Kjører nå» vist via {via}");
     }
 
+    /// <summary>Spillets bakgrunnsbilde og logo i menyen; uten logo vises tittelen.</summary>
+    private void ShowSessionArt()
+    {
+        SessionHero.Source = null;
+        SessionLogo.Source = null;
+        SessionLogo.Visibility = Visibility.Collapsed;
+        SessionTitle.Visibility = Visibility.Visible;
+        if (_sessionGame is not { } game)
+        {
+            return;
+        }
+
+        var art = ArtFor(game);
+        if (art.Hero is { } hero && File.Exists(hero))
+        {
+            _ = LoadTileImageAsync(SessionHero, hero, 1280);
+        }
+
+        if (art.Logo is { } logo && File.Exists(logo))
+        {
+            SessionLogo.Visibility = Visibility.Visible;
+            SessionTitle.Visibility = Visibility.Collapsed;
+            _ = LoadTileImageAsync(SessionLogo, logo, 840);
+        }
+    }
+
+    private static string BatteryLine()
+    {
+        var percent = global::Windows.System.Power.PowerManager.RemainingChargePercent;
+        var charging = global::Windows.System.Power.PowerManager.PowerSupplyStatus != global::Windows.System.Power.PowerSupplyStatus.NotPresent;
+        return string.Create(CultureInfo.InvariantCulture, $"Batteri {percent} %{(charging ? " · lader" : "")}");
+    }
+
     private void HideSessionPanel()
     {
         SessionPanel.Visibility = Visibility.Collapsed;
+        SessionHero.Source = null; // Bildene trengs ikke når menyen er lukket.
+        SessionLogo.Source = null;
         SetHomeEnabled(true);
         FocusHome(_focusGameId);
     }
@@ -3498,19 +3553,43 @@ public sealed partial class MainWindow : Window
         return picked;
     }
 
+    /// <summary>
+    /// WinUIs uthevede knappestil. Ligger i en flettet ressursordbok, som <c>TryGetValue</c> ikke søker i (valgt Hz og fane
+    /// ble ikke uthevet, 0.1.138.0); indekseren gjør det.
+    /// </summary>
+    private static Style? AccentStyle
+    {
+        get
+        {
+            try
+            {
+                return Application.Current.Resources["AccentButtonStyle"] as Style;
+            }
+            catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or KeyNotFoundException)
+            {
+                return null;
+            }
+        }
+    }
+
     private Button PerformanceButton(string label, bool selected, DisplayMode target)
     {
+        // Tre knapper i bredden skal få plass i sidepanelet (344 px innenfor margen).
         var button = new Button
         {
             Content = label,
             Height = 52,
-            MinWidth = 120,
-            FontSize = 17,
+            Width = 104,
+            Padding = new Thickness(4, 0, 4, 0),
+            FontSize = 16,
             Tag = target,
         };
-        if (selected && Application.Current.Resources.TryGetValue("AccentButtonStyle", out var accent) && accent is Style style)
+        if (selected && AccentStyle is { } style)
         {
             button.Style = style;
+            button.Width = 104;
+            button.Height = 52;
+            button.Padding = new Thickness(4, 0, 4, 0);
         }
 
         button.Click += PerformanceMode_Click;
@@ -3649,6 +3728,27 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        // Å koble fra en strøm er ufarlig; å lukke et spill her kan miste ulagret fremgang og bekreftes først, som på
+        // Steam Deck og Switch. «Avbryt» har fokus i bekreftelsen.
+        if (session is not StreamSession && _sessionRunnerId != ChiakiRunner.Id)
+        {
+            var title = _sessionGame is null ? "spillet" : GameLibrary.DisplayTitle(_sessionGame);
+            SessionPanel.Visibility = Visibility.Collapsed;
+            ShowMessage($"Avslutte {title}?", "Spillet lukkes. Ulagret fremgang kan gå tapt.",
+                "Avslutt", () =>
+                {
+                    ShowSessionPanel("bekreftet avslutning");
+                    EndSession(session);
+                },
+                "Avbryt", () => ShowSessionPanel("avslutning avbrutt"));
+            return;
+        }
+
+        EndSession(session);
+    }
+
+    private void EndSession(IForegroundSession session)
+    {
         _ = session.RequestCloseAsync();
         _log.Write("økt", "«Avslutt spillet» valgt");
         SessionDetail.Text = "Venter på at spillet avslutter …";
@@ -5226,7 +5326,8 @@ public sealed partial class MainWindow : Window
             }
             else if (SessionPanel.Visibility == Visibility.Visible)
             {
-                HideSessionPanel();
+                // B går tilbake til spillet, som på Steam Deck og Switch. «Til Home» ligger som egen knapp.
+                ResumeButton_Click(ResumeButton, new RoutedEventArgs());
             }
         }
     }
