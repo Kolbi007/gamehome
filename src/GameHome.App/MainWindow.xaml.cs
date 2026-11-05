@@ -2687,7 +2687,7 @@ public sealed partial class MainWindow : Window
         catch (LaunchException ex)
         {
             HideLoading("start feilet");
-            RestoreDisplayAfterGame();
+            _ = RestoreDisplayAfterGame();
             _log.Write("økt", $"Kunne ikke starte «{title}»: {ex.Failure}: {ex.Message}");
             if (ex.Failure == LaunchFailure.FileMissing)
             {
@@ -2749,7 +2749,7 @@ public sealed partial class MainWindow : Window
 
         _hotkeys.UnregisterAll();
         RegisterHomeHotkey();
-        RestoreDisplayAfterGame();
+        var displayChanged = RestoreDisplayAfterGame();
         Efficiency.Set(false);
         UiWatchdog.InGame = false;
         HideLoading("økten avsluttet");
@@ -2796,6 +2796,7 @@ public sealed partial class MainWindow : Window
 
         FocusHome(game?.Id ?? _focusGameId);
         LastInput.Text = $"Velkommen tilbake fra {title}.";
+        RevealHomeAfterGame(displayChanged);
 
         // Windows fant ikke en DLL spillet trenger (0xC0000135) eller fant feil versjon (0xC000007B): sjekk på nytt og forklar.
         if (game is not null && end.ExitCode is Dependencies.DllNotFound or Dependencies.BadImage
@@ -3395,6 +3396,11 @@ public sealed partial class MainWindow : Window
         LoadingIntro.Stop();
         LoadingPulse.Stop();
         HeroDrift.Stop();
+        if (SessionActive && _sessionGame is { } coverGame)
+        {
+            ShowReturnCover(coverGame); // Dekket ligger over Home til spillet er ferdig (MainWindow.Return.cs).
+        }
+
         LoadingPanel.Visibility = Visibility.Collapsed;
         LoadingLogo.Source = null;
         LoadingHero.Source = null;
