@@ -112,7 +112,7 @@
                         <TextBlock x:Name="LibraryTileText" Text="Bibliotek" />
                     </StackPanel>
                 </Button>
-                <Button x:Name="AddGameTile" Click="AddGameTile_Click" Height="48" Padding="18,0" FontSize="{StaticResource GhSizeCaption}" CornerRadius="24">
+                <Button x:Name="AddGameTile" Click="AddGameTile_Click" Visibility="Collapsed" Height="48" Padding="18,0" FontSize="{StaticResource GhSizeCaption}" CornerRadius="24">
                     <StackPanel Orientation="Horizontal" Spacing="10">
                         <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE710;" FontSize="14" />
                         <TextBlock Text="Legg til spill" />
@@ -124,7 +124,7 @@
                         <TextBlock Text="Installer fra Steam" />
                     </StackPanel>
                 </Button>
-                <Button x:Name="DebugTile" Click="DebugTile_Click" Height="48" Padding="18,0" FontSize="{StaticResource GhSizeCaption}" CornerRadius="24">
+                <Button x:Name="DebugTile" Click="DebugTile_Click" Visibility="Collapsed" Height="48" Padding="18,0" FontSize="{StaticResource GhSizeCaption}" CornerRadius="24">
                     <StackPanel Orientation="Horizontal" Spacing="10">
                         <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xEBE8;" FontSize="14" />
                         <TextBlock Text="Feilsøking" />
@@ -259,7 +259,7 @@
             <!-- Spillet: bakgrunnsbilde, logo eller tittel, og valgene for spillet. -->
             <Image x:Name="SessionHero" Grid.Column="1" Stretch="UniformToFill" Opacity="0.35" IsHitTestVisible="False" />
             <Rectangle Grid.Column="1" Fill="{StaticResource GhScrimBrush}" IsHitTestVisible="False" />
-            <StackPanel Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16" Width="520">
+            <StackPanel x:Name="SessionGameCard" Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16" Width="520">
                 <TextBlock Text="Kjører nå" FontSize="18" Foreground="#A0A7B0" />
                 <Image x:Name="SessionLogo" MaxHeight="110" MaxWidth="420" Stretch="Uniform" HorizontalAlignment="Left" Visibility="Collapsed" />
                 <TextBlock x:Name="SessionTitle" FontSize="36" FontWeight="SemiBold" Foreground="White" TextWrapping="Wrap" />
@@ -281,6 +281,34 @@
                     </Button>
                 </Grid>
                 <TextBlock Text="A Velg · B Tilbake til spillet · ◀ Ytelse" FontSize="14" Foreground="{StaticResource GhTextTertiaryBrush}" />
+            </StackPanel>
+
+            <!-- Uten spill i gang: GameHome-valg i stedet for spillet. -->
+            <StackPanel x:Name="HomeMenuCard" Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="14" Width="520" Visibility="Collapsed">
+                <TextBlock Text="GameHome" FontSize="36" FontWeight="SemiBold" Foreground="White" />
+                <TextBlock x:Name="HomeMenuDetail" FontSize="16" Foreground="#C8CDD3" TextWrapping="Wrap" Margin="0,-6,0,8" />
+                <Button x:Name="MenuAccountsButton" Click="MenuAccountsButton_Click" HorizontalAlignment="Stretch" Height="64">
+                    <StackPanel Spacing="2">
+                        <TextBlock Text="Kontoer og kilder" FontSize="19" />
+                        <TextBlock x:Name="MenuAccountsHint" FontSize="13" Foreground="#A0A7B0" />
+                    </StackPanel>
+                </Button>
+                <Button x:Name="MenuArtButton" Content="Hent manglende bilder og info" Click="MenuArtButton_Click" HorizontalAlignment="Stretch" Height="56" FontSize="18" />
+                <Button x:Name="MenuAddGameButton" Content="Legg til spill" Click="MenuAddGameButton_Click" HorizontalAlignment="Stretch" Height="56" FontSize="18" />
+                <Button x:Name="MenuDebugButton" Content="Feilsøking" Click="MenuDebugButton_Click" HorizontalAlignment="Stretch" Height="56" FontSize="18" />
+                <TextBlock x:Name="HomeMenuStatus" FontSize="14" Foreground="#C8CDD3" TextWrapping="Wrap" Visibility="Collapsed" />
+                <Grid ColumnSpacing="12" Margin="0,8,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Button x:Name="MenuCloseButton" Content="Tilbake til Home" Click="ClosePanelButton_Click" HorizontalAlignment="Stretch" Height="52" FontSize="17" />
+                    <Button x:Name="MenuPowerButton" Grid.Column="1" Click="PowerMenuButton_Click" Width="52" Height="52"
+                            AutomationProperties.Name="Strøm" ToolTipService.ToolTip="Strøm">
+                        <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE7E8;" FontSize="20" />
+                    </Button>
+                </Grid>
+                <TextBlock Text="A Velg · B Tilbake · ◀ Ytelse" FontSize="14" Foreground="{StaticResource GhTextTertiaryBrush}" />
             </StackPanel>
 
             <!-- Ytelse: sidepanel til venstre. Skjerm styres av GameHome; TDP og resten i Handheld Companion (ADR 0007). -->
@@ -315,6 +343,16 @@
                     </StackPanel>
                 </ScrollViewer>
             </Border>
+        </Grid>
+
+        <!-- Kontoer og kilder: status for alt GameHome henter fra eller styrer, og hva som mangler. -->
+        <Grid x:Name="AccountsPanel" Background="{StaticResource GhScrimBrush}" Visibility="Collapsed">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Width="720" Spacing="14">
+                <TextBlock Text="Kontoer og kilder" FontFamily="{StaticResource GhFontDisplay}" FontSize="{StaticResource GhSizeTitle}" FontWeight="SemiBold"
+                           Foreground="{StaticResource GhTextPrimaryBrush}" />
+                <StackPanel x:Name="AccountRows" Spacing="6" />
+                <Button x:Name="AccountsCloseButton" Content="Lukk" Click="AccountsCloseButton_Click" HorizontalAlignment="Stretch" Height="56" FontSize="18" Margin="0,8,0,0" />
+            </StackPanel>
         </Grid>
 
         <!-- Spill på PC-en: undermeny der brukeren velger hvilke installerte spill på gaming-PC-en som skal i Home. -->

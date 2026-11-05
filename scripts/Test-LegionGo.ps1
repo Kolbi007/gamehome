@@ -130,6 +130,17 @@ try {
         Note 'Et spill kjørte allerede; hopper over Home-testen'
     }
 
+    # ---- M2 uten spill: GameHome-menyen ----
+    [GhTest]::Chord(0x7B) # F12
+    Check (Wait-Until { Find 'MenuAccountsButton' } 5) 'M2 uten spill åpner GameHome-menyen'
+    if ($b = Find 'MenuAccountsButton') {
+        Press $b
+        Check (Wait-Until { Find 'AccountsCloseButton' } 3) '«Kontoer og kilder» åpner'
+        if ($b = Find 'AccountsCloseButton') { Press $b; Start-Sleep 1 }
+    }
+    [GhTest]::Chord(0x7B)
+    Check (Wait-Until { -not (Find 'MenuAccountsButton') } 5) 'M2 en gang til lukker menyen'
+
     # ---- Start spillet ----
     # Flisen kan ligge utenfor skjermen lenger ut i raden: finn den blant alle, gi den fokus (WinUI ruller den fram).
     $w = GameHomeWindow
