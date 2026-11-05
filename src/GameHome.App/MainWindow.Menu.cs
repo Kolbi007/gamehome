@@ -29,6 +29,10 @@ public sealed partial class MainWindow
         HomeMenuCard.Visibility = Visibility.Visible;
         StreamDebugPanel.Visibility = Visibility.Collapsed;
         SessionHero.Source = null;
+        if (FeaturedGame(out _) is { } featured && ArtFor(featured).Hero is { } hero && File.Exists(hero))
+        {
+            _ = LoadTileImageAsync(SessionHero, hero, 1280); // Et spill i bakgrunnen, så menyen ikke står tom.
+        }
         SessionLogo.Source = null;
         HomeMenuStatus.Visibility = Visibility.Collapsed;
         HomeMenuDetail.Text = $"{_library.VisibleGames.Count} spill · ingen spill kjører";
