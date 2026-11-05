@@ -43,7 +43,7 @@
             </Grid.RowDefinitions>
 
             <!-- Toppen: stille. Navnet lite, klokke og strøm til høyre, fremdrift bare når noe hentes. -->
-            <Grid Grid.Row="0" ColumnSpacing="20">
+            <Grid x:Name="TopBar" Grid.Row="0" ColumnSpacing="20">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
@@ -99,7 +99,7 @@
             </StackPanel>
 
             <!-- Spillflisene lages i koden (ikke ItemsSource; se ADR 0005 om AOT). Plass rundt så flisen i fokus kan forstørres. -->
-            <ScrollViewer Grid.Row="2" HorizontalScrollMode="Enabled" HorizontalScrollBarVisibility="Hidden"
+            <ScrollViewer x:Name="GameTilesScroll" Grid.Row="2" HorizontalScrollMode="Enabled" HorizontalScrollBarVisibility="Hidden"
                           VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled" Padding="10,14" Margin="-10,0">
                 <StackPanel x:Name="GameTiles" Orientation="Horizontal" Spacing="20" />
             </ScrollViewer>
@@ -681,6 +681,28 @@
                 <TextBlock x:Name="MessageText" FontSize="18" Foreground="#C8CDD3" TextWrapping="Wrap" />
                 <Button x:Name="MessagePrimary" Click="MessagePrimary_Click" HorizontalAlignment="Stretch" Height="72" FontSize="22" />
                 <Button x:Name="MessageSecondary" Click="MessageSecondary_Click" HorizontalAlignment="Stretch" Height="72" FontSize="22" />
+            </StackPanel>
+        </Grid>
+
+        <!--
+          Oppstart: GAMEHOME-ordmerket toner inn med en tynn linje som brettes ut fra midten, så pakker Home seg ut fra
+          midten og utover (MainWindow.Intro.cs). Ligger øverst, men tar aldri imot trykk.
+        -->
+        <Grid x:Name="SplashPanel" Background="{StaticResource GhBaseBrush}" IsHitTestVisible="False">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="18">
+                <TextBlock x:Name="SplashWordmark" Text="GAMEHOME" FontFamily="{StaticResource GhFontText}" FontSize="40" FontWeight="SemiBold"
+                           CharacterSpacing="420" Foreground="{StaticResource GhTextPrimaryBrush}" HorizontalAlignment="Center" Opacity="0"
+                           RenderTransformOrigin="0.5,0.5">
+                    <TextBlock.RenderTransform>
+                        <ScaleTransform x:Name="SplashScale" ScaleX="0.94" ScaleY="0.94" />
+                    </TextBlock.RenderTransform>
+                </TextBlock>
+                <Rectangle x:Name="SplashLine" Height="2" Width="220" RadiusX="1" RadiusY="1" HorizontalAlignment="Center"
+                           Fill="{ThemeResource AccentFillColorDefaultBrush}" Opacity="0.85" RenderTransformOrigin="0.5,0.5">
+                    <Rectangle.RenderTransform>
+                        <ScaleTransform x:Name="SplashLineScale" ScaleX="0" ScaleY="1" />
+                    </Rectangle.RenderTransform>
+                </Rectangle>
             </StackPanel>
         </Grid>
     </Grid>

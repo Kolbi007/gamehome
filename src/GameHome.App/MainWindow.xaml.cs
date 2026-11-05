@@ -151,6 +151,7 @@ public sealed partial class MainWindow : Window
         _log.Written += OnLogWritten;
 
         Root.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(OnKeyDown), handledEventsToo: true);
+        Root.Loaded += (_, _) => PlayIntro();
         Root.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(OnPointerPressed), handledEventsToo: true);
         Activated += OnWindowActivated;
         Closed += (_, _) => StopEverything();
