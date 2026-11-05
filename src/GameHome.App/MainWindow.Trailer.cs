@@ -56,8 +56,18 @@ public sealed partial class MainWindow
 
     private async Task PlayTrailerAsync(Game game)
     {
-        if (!TrailersAllowed || _trailerGameId != game.Id || AnyOverlayOpen || _attracting
-            || (SteamAppIdFor(game) ?? await SteamAppIdByTitleAsync(game)) is not { } appId || _trailerGameId != game.Id)
+        if (!TrailersAllowed || _trailerGameId != game.Id || AnyOverlayOpen || _attracting)
+        {
+            return;
+        }
+
+        if ((SteamAppIdFor(game) ?? await SteamAppIdByTitleAsync(game)) is not { } appId)
+        {
+            _log.Write("trailer", $"Ingen Steam-side for «{game.Title}»; ingen trailer");
+            return;
+        }
+
+        if (_trailerGameId != game.Id)
         {
             return;
         }
@@ -76,7 +86,13 @@ public sealed partial class MainWindow
             _trailers[appId] = url;
         }
 
-        if (url is null || _trailerGameId != game.Id || !TrailersAllowed)
+        if (url is null)
+        {
+            _log.Write("trailer", $"Steam har ingen trailer for «{game.Title}» (appid {appId})");
+            return;
+        }
+
+        if (_trailerGameId != game.Id || !TrailersAllowed)
         {
             return;
         }
