@@ -46,6 +46,12 @@ public sealed partial class MainWindow
             return null;
         }
 
+        if (IsRunningOnHost(games[0]))
+        {
+            label = "Fortsett strømmen";
+            return games[0];
+        }
+
         var last = games.MaxBy(LastPlayed);
         if (last is not null && LastPlayed(last) > DateTime.UtcNow - SuggestAfter)
         {
