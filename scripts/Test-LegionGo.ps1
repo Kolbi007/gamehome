@@ -212,6 +212,44 @@ try {
         Check $found "«Installer fra Steam» henter biblioteket ($($line.Line -replace '^.*Steam-biblioteket: ', ''))"
         if ($b = Find 'FindCloseButton') { Press $b }
     } else { Fail '«Installer fra Steam» vises ikke (mangler Steam Web API-nøkkel eller Steam-ID?)' }
+    Start-Sleep 1
+
+    # ---- Home («Fortsett») og Biblioteket ----
+    function GameTilesIn([string] $container) {
+        $c = Find $container
+        if (-not $c) { return @() }
+        @($c.FindAll([System.Windows.Automation.TreeScope]::Children,
+            (New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button))) |
+            Where-Object { $_.Current.AutomationId -like 'game:*' })
+    }
+    $homeCount = (GameTilesIn 'GameTiles').Count
+    Check ($homeCount -ge 1 -and $homeCount -le 10) "Home viser «Fortsett» med $homeCount spill (høyst 10)"
+    if ($b = Find 'LibraryTile') {
+        Press $b
+        Check (Wait-Until { Find 'LibraryCloseButton' } 5) 'Biblioteket åpner'
+        $tabs = @((Find 'LibraryTabs').FindAll([System.Windows.Automation.TreeScope]::Children,
+            (New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button))) | ForEach-Object { $_.Current.Name })
+        Note "Faner: $($tabs -join ', ')"
+        $all = (GameTilesIn 'LibraryGrid').Count
+        $allTab = $tabs | Where-Object { $_ -match '^Alle \((\d+)\)$' } | Select-Object -First 1
+        Check ($allTab -and [int]($allTab -replace '\D', '') -eq $all -and $all -ge $homeCount) "«Alle» viser alle spillene ($all)"
+        if ($retroTab = $tabs | Where-Object { $_ -like 'Retro (*' } | Select-Object -First 1) {
+            Press (FindByName $retroTab)
+            Start-Sleep 1
+            $retro = (GameTilesIn 'LibraryGrid').Count
+            Check ($retro -eq [int]($retroTab -replace '\D', '')) "Fanen «$retroTab» viser $retro spill"
+        }
+        $sortBefore = (Find 'LibrarySortButton').Current.Name
+        Press (Find 'LibrarySortButton')
+        Start-Sleep 1
+        $sortAfter = (Find 'LibrarySortButton').Current.Name
+        Check ($sortAfter -ne $sortBefore) "Sortering byttes («$sortBefore» → «$sortAfter»)"
+        # Tilbake slik brukeren hadde det: sorteringen går rundt (fire valg), og «Alle» velges igjen.
+        foreach ($i in 1..3) { Press (Find 'LibrarySortButton'); Start-Sleep -Milliseconds 400 }
+        if ($allTab -and ($b = FindByName ($tabs | Where-Object { $_ -like 'Alle (*' } | Select-Object -First 1))) { Press $b; Start-Sleep 1 }
+        Press (Find 'LibraryCloseButton')
+        Check (Wait-Until { -not (Find 'LibraryCloseButton') -and (Find 'LibraryTile') } 5) 'Biblioteket lukkes, Home er tilbake'
+    } else { Fail 'Fant ikke Bibliotek-knappen' }
 }
 catch {
     Fail "Testen stoppet: $($_.Exception.Message)"
