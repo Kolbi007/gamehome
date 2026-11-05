@@ -3899,6 +3899,7 @@ public sealed partial class MainWindow : Window
         var missing = _library.VisibleGames.Where(g => TileImageFor(g) is null && !_artTried.Contains(g.Id)).ToList();
         if (missing.Count == 0)
         {
+            await FillArtGapsAsync();
             return;
         }
 
@@ -3990,6 +3991,83 @@ public sealed partial class MainWindow : Window
             _hostArtRunning = false;
             ArtProgressPanel.Visibility = Visibility.Collapsed;
             _log.Write("bilder", string.Create(CultureInfo.InvariantCulture, $"Bilder hentet for {found} av {missing.Count} spill"));
+        }
+
+        await FillArtGapsAsync();
+    }
+
+    private readonly HashSet<string> _artGapTried = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Spill som har bilder, men mangler omslag, bakgrunn eller logo, får det som mangler fra SteamGridDB. Det som finnes
+    /// (også bilder brukeren har valgt selv), røres ikke. Hvert spill prøves én gang per kjøring.
+    /// </summary>
+    private async Task FillArtGapsAsync()
+    {
+        if (SteamGridDb is null || _hostArtRunning || SessionActive)
+        {
+            return;
+        }
+
+        static bool Has(Game g, Func<ArtSet, string?> kind) =>
+            kind(g.Art) is not null || (g.Overrides.Art is { } mine && kind(mine) is not null);
+
+        var gaps = _library.VisibleGames
+            // Steam-spill har egne bilder (lokalt og fra Steam); de hentes ikke på nytt fra nett.
+            .Where(g => !_artGapTried.Contains(g.Id) && SteamAppIdFor(g) is null && (!Has(g, a => a.Cover) || !Has(g, a => a.Hero) || !Has(g, a => a.Logo)))
+            .ToList();
+        if (gaps.Count == 0)
+        {
+            return;
+        }
+
+        _hostArtRunning = true;
+        try
+        {
+            foreach (var game in gaps)
+            {
+                if (SessionActive)
+                {
+                    break;
+                }
+
+                _artGapTried.Add(game.Id);
+                var title = GameLibrary.DisplayTitle(game);
+                try
+                {
+                    if (await SteamGridDbArtAsync(game) is not { } grid)
+                    {
+                        continue;
+                    }
+
+                    var cover = Has(game, a => a.Cover) ? null : grid.Cover;
+                    var hero = Has(game, a => a.Hero) ? null : grid.Hero;
+                    var logo = Has(game, a => a.Logo) ? null : grid.Logo;
+                    if ((cover ?? hero ?? logo) is null || await DownloadArtAsync(game, cover, hero, logo) is not { } art)
+                    {
+                        continue;
+                    }
+
+                    _library.SetArt(game.Id, art);
+                    SaveLibrary();
+                    if (TileFor(game.Id) is { } tile && _library.Find(game.Id) is { } updated)
+                    {
+                        SetTileContent(tile, updated);
+                    }
+
+                    _log.Write("bilder", $"Fylte inn for «{title}» fra SteamGridDB: " +
+                        $"omslag {(cover is null ? "–" : "ja")}, bakgrunn {(hero is null ? "–" : "ja")}, logo {(logo is null ? "–" : "ja")}");
+                }
+                catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException or UnauthorizedAccessException or JsonException)
+                {
+                    _artGapTried.Remove(game.Id);
+                    _log.Write("bilder", $"Utfylling av bilder for «{title}» feilet, prøver igjen senere: {ex.Message}");
+                }
+            }
+        }
+        finally
+        {
+            _hostArtRunning = false;
         }
     }
 
