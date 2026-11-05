@@ -5297,67 +5297,73 @@ public sealed partial class MainWindow : Window
         if (pressed.HasFlag(GamepadButtons.B))
         {
             MenuSounds.Back();
-            if (MessagePanel.Visibility == Visibility.Visible)
+            GoBack();
+        }
+    }
+
+    /// <summary>B på kontrolleren og Escape på tastaturet: lukk det øverste panelet, eller gå tilbake til spillet.</summary>
+    private void GoBack()
+    {
+        if (MessagePanel.Visibility == Visibility.Visible)
+        {
+            CloseMessage(_messageCancel);
+        }
+        else if (ArtPanel.Visibility == Visibility.Visible)
+        {
+            CloseArtPicker();
+        }
+        else if (FindPanel.Visibility == Visibility.Visible)
+        {
+            CloseFind();
+        }
+        else if (NoticePanel.Visibility == Visibility.Visible)
+        {
+            CloseNotices();
+        }
+        else if (OptionsPanel.Visibility == Visibility.Visible)
+        {
+            CloseOptions();
+        }
+        else if (DetailsPanel.Visibility == Visibility.Visible)
+        {
+            CloseDetails();
+        }
+        else if (AccountsPanel.Visibility == Visibility.Visible)
+        {
+            CloseAccounts();
+        }
+        else if (LibraryPanel.Visibility == Visibility.Visible)
+        {
+            CloseLibrary();
+        }
+        else if (DebugPanel.Visibility == Visibility.Visible)
+        {
+            CloseDebug();
+        }
+        else if (HostPanel.Visibility == Visibility.Visible)
+        {
+            CloseHostPanel();
+        }
+        else if (PowerPanel.Visibility == Visibility.Visible)
+        {
+            _log.Write("strøm", "Strømmenyen lukket med B");
+            ClosePowerMenu(restoreSession: true);
+        }
+        else if (LoadingPanel.Visibility == Visibility.Visible)
+        {
+            HideLoading("B");
+            FocusHome(_focusGameId);
+        }
+        else if (SessionPanel.Visibility == Visibility.Visible)
+        {
+            // B går tilbake til spillet, som på Steam Deck og Switch; uten spill lukkes GameHome-menyen.
+            if (SessionActive)
             {
-                CloseMessage(_messageCancel);
+                ResumeButton_Click(ResumeButton, new RoutedEventArgs());
             }
-            else if (ArtPanel.Visibility == Visibility.Visible)
+            else
             {
-                CloseArtPicker();
-            }
-            else if (FindPanel.Visibility == Visibility.Visible)
-            {
-                CloseFind();
-            }
-            else if (NoticePanel.Visibility == Visibility.Visible)
-            {
-                CloseNotices();
-            }
-            else if (OptionsPanel.Visibility == Visibility.Visible)
-            {
-                CloseOptions();
-            }
-            else if (DetailsPanel.Visibility == Visibility.Visible)
-            {
-                CloseDetails();
-            }
-            else if (AccountsPanel.Visibility == Visibility.Visible)
-            {
-                CloseAccounts();
-            }
-            else if (LibraryPanel.Visibility == Visibility.Visible)
-            {
-                CloseLibrary();
-            }
-            else if (DebugPanel.Visibility == Visibility.Visible)
-            {
-                CloseDebug();
-            }
-            else if (HostPanel.Visibility == Visibility.Visible)
-            {
-                CloseHostPanel();
-            }
-            else if (PowerPanel.Visibility == Visibility.Visible)
-            {
-                _log.Write("strøm", "Strømmenyen lukket med B");
-                ClosePowerMenu(restoreSession: true);
-            }
-            else if (LoadingPanel.Visibility == Visibility.Visible)
-            {
-                HideLoading("B");
-                FocusHome(_focusGameId);
-            }
-            else if (SessionPanel.Visibility == Visibility.Visible)
-            {
-                // B går tilbake til spillet, som på Steam Deck og Switch; uten spill lukkes GameHome-menyen.
-                if (SessionActive)
-                {
-                    ResumeButton_Click(ResumeButton, new RoutedEventArgs());
-                }
-                else
-                {
-                    HideSessionPanel();
-                }
+                HideSessionPanel();
             }
         }
     }
@@ -5393,6 +5399,10 @@ public sealed partial class MainWindow : Window
         }
 
         _lastSource = isGamepadKey ? "kontroller (XAML)" : "tastatur";
+        if (e.Key == VirtualKey.Escape)
+        {
+            GoBack();
+        }
     }
 
     private void OnPointerPressed(object sender, PointerRoutedEventArgs e) =>
