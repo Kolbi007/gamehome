@@ -147,8 +147,9 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force artifacts\symbols | Out-Null
-          Get-ChildItem src\GameHome.App\bin -Recurse -Filter GameHome.App.pdb | Where-Object { $_.DirectoryName -like '*publish*' -or $_.DirectoryName -like '*native*' } |
-            Select-Object -First 1 | Copy-Item -Destination artifacts\symbols\
+          # Programmet heter GameHome.exe; med Native AOT er den største GameHome.pdb symbolene for den native koden.
+          Get-ChildItem src\GameHome.App\bin, src\GameHome.App\obj -Recurse -Filter GameHome.pdb -ErrorAction SilentlyContinue |
+            Sort-Object Length -Descending | Select-Object -First 1 | Copy-Item -Destination artifacts\symbols\
       - uses: actions/upload-artifact@v4
         with:
           name: gamehome-symbols-${{ matrix.arch }}${{ !matrix.aot && '-jit' || '' }}
