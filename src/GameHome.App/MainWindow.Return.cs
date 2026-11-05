@@ -39,6 +39,8 @@ public sealed partial class MainWindow
             _ = LoadTileImageAsync(ReturnLogo, logo, Px(420));
         }
 
+        ReturnLogo.Opacity = 1;
+        ReturnTitle.Opacity = 1;
         ReturnCover.Opacity = 1;
         ReturnCover.Visibility = Visibility.Visible;
     }
@@ -58,6 +60,10 @@ public sealed partial class MainWindow
         var started = DateTime.UtcNow;
         if (displayChanged)
         {
+            // Windows gir vinduet ny størrelse først etter et par hundre millisekunder; så lenge ligger dekket i ett hjørne.
+            // Uten logo er det bare mørkt mot svart, som knapt synes (skjermbilder 2026-11-05).
+            ReturnLogo.Opacity = 0;
+            ReturnTitle.Opacity = 0;
             FitWindowToDisplay();
             while (DateTime.UtcNow - started < RevealMaxWait && !WindowFitsDisplay())
             {
