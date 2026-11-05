@@ -135,12 +135,9 @@ public sealed partial class MainWindow
             return;
         }
 
-        // Trinn på 10, men alltid til et rundt tall (26 → 30 eller 20), og aldri helt svart.
+        // Trinn på 10 fra der den står (opp og ned igjen gir samme verdi), aldri helt svart.
         var delta = int.Parse(step, System.Globalization.CultureInfo.InvariantCulture);
-        var target = delta > 0
-            ? ((current / 10) + 1) * 10
-            : current % 10 == 0 ? current - 10 : current / 10 * 10;
-        target = Math.Clamp(target, 5, 100);
+        var target = Math.Clamp(current + delta, 5, 100);
         _brightness = target;
         ShowBrightness();
         var ok = await Brightness.SetAsync(target);
@@ -160,7 +157,7 @@ public sealed partial class MainWindow
         }
 
         var delta = int.Parse(step, System.Globalization.CultureInfo.InvariantCulture);
-        var target = Math.Clamp((int)Math.Round((current.Percent + delta) / 10.0) * 10, 0, 100);
+        var target = Math.Clamp(current.Percent + delta, 0, 100);
         var ok = Volume.SetPercent(target);
         _log.Write("ytelse", ok ? $"Volum satt til {target} %" : $"Volum {target} %: Windows avslo");
         ShowVolume(Volume.Get());

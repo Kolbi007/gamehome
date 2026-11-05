@@ -95,6 +95,26 @@ function Press($element) {
     $element.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
 }
 function GameHomeInFront { $p = Get-Process GameHome -ErrorAction SilentlyContinue; $p -and [GhTest]::ForegroundPid() -eq $p.Id }
+function ForegroundName {
+    $p = Get-Process -Id ([GhTest]::ForegroundPid()) -ErrorAction SilentlyContinue
+    if (-not $p) { return 'ukjent' }
+    $hint = switch ($p.ProcessName) { 'SearchHost' { ' (startmenyen eller søk)' } 'StartMenuExperienceHost' { ' (startmenyen)' } 'HandheldCompanion' { ' (HC-vinduet)' } default { '' } }
+    "$($p.ProcessName)$hint"
+}
+# Skjermtastaturet: synlighet (IFrameworkInputPane) og av/på (ITipInvocation), som i GameHome.
+Add-Type @"
+using System; using System.Runtime.InteropServices;
+[StructLayout(LayoutKind.Sequential)] public struct KbdRect { public int L, T, R, B; }
+[ComImport, Guid("5752238B-24F0-495A-82F1-2FD593056796"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IKbdPane { void Advise(IntPtr a, IntPtr b, out uint c); void AdviseWithHWND(IntPtr a, IntPtr b, out uint c); void Unadvise(uint c); void Location(out KbdRect r); }
+[ComImport, Guid("37c994e7-432b-4834-a2f7-dce1f13b834b"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IKbdTip { void Toggle(IntPtr w); }
+public static class KbdState {
+    [DllImport("user32.dll")] static extern IntPtr GetDesktopWindow();
+    public static bool Visible() { var p = (IKbdPane)Activator.CreateInstance(Type.GetTypeFromCLSID(new Guid("D5120AA3-46BA-44C5-822D-CA8092C1FC72"))); KbdRect r; p.Location(out r); return r.B - r.T > 0; }
+    public static void Toggle() { var t = (IKbdTip)Activator.CreateInstance(Type.GetTypeFromCLSID(new Guid("4ce576fa-83dc-4F88-951c-9d0782b4e376"))); t.Toggle(GetDesktopWindow()); }
+}
+"@
 $logFile = Join-Path $env:LOCALAPPDATA 'Packages\GameHome_80y3cyz35a8xa\LocalState\gamehome.log'
 $logStart = if (Test-Path $logFile) { (Get-Content $logFile).Count } else { 0 }
 $quickLog = { Get-Content $logFile -Encoding UTF8 | Select-Object -Skip $logStart }
@@ -121,7 +141,8 @@ try {
     # Start fra Home: lukk paneler som står åpne fra før (søk/bibliotek, melding).
     # Bare knapper som alltid betyr «lukk» trykkes. En åpen melding kan ha to valg som begge gjør noe (for eksempel
     # «Spill her» og «Stream fra PC-en», 2026-11-05); da stopper testen i stedet for å gjette.
-    if (Find 'MessagePrimary') { Note 'En melding var åpen; lukker med Escape (som B)'; [GhTest]::Chord(0x7A); Start-Sleep 1; [GhTest]::Tap(0x1B); Start-Sleep 1 }
+    # Escape sendes bare når GameHome faktisk er øverst; ellers kunne den lukket eller åpnet noe i et annet program.
+    if (Find 'MessagePrimary') { Note 'En melding var åpen; lukker med Escape (som B)'; [GhTest]::Chord(0x7A); Start-Sleep 1; if (GameHomeInFront) { [GhTest]::Tap(0x1B) }; Start-Sleep 1 }
     if (Find 'MessagePrimary') { throw 'En melding er åpen i GameHome og lot seg ikke lukke. Lukk den og kjør testen igjen.' }
     foreach ($id in 'FindCloseButton', 'LibraryCloseButton', 'PowerCancelButton') {
         if ($b = Find $id) { Note "Lukker åpent panel ($id)"; Press $b; Start-Sleep 1 }
@@ -135,6 +156,11 @@ try {
         Check (Wait-Until { GameHomeInFront } 5) 'Ctrl+Alt+Shift+F11 henter Home fram fra minimert'
     } else {
         Note 'Et spill kjørte allerede; hopper over Home-testen'
+    }
+    # Feil vindu øverst (startmenyen, et HC-vindu som kjører som administrator): Windows nekter da GameHome og spillet å
+    # komme fram, og tastetrykk fra testen kan havne der. Stopp heller enn å starte spill ingen ser (2026-11-05).
+    if (-not (Find 'ResumeButton') -and -not (GameHomeInFront)) {
+        throw "Feil vindu ligger øverst: $(ForegroundName). Lukk eller minimer det, og kjør testen igjen."
     }
 
     # ---- M2 uten spill: GameHome-menyen ----
@@ -159,23 +185,26 @@ try {
         $e = $w.FindFirst([System.Windows.Automation.TreeScope]::Descendants, (New-Object System.Windows.Automation.PropertyCondition($AE::AutomationIdProperty, $id)))
         if ($e) { Press $e } }
     if (Wait-Until { (NameOf 'BrightnessValue') -match '^\d+ %$' } 5) {
-        $light = [int]((NameOf 'BrightnessValue') -replace '\D', '')
-        PressId 'BrightnessUp'
-        $changed = Wait-Until { (NameOf 'BrightnessValue') -ne "$light %" } 3
-        Check ($changed -and (Wait-Until { & $quickLog | Select-String 'Lysstyrke satt til' } 3)) "Lysstyrke opp ($light % → $(NameOf 'BrightnessValue'))"
-        PressId 'BrightnessDown'; Start-Sleep 1
+        # Trinnene er nøyaktig ±10, så én gang hver vei gir samme verdi som før (testen skal ikke endre brukerens oppsett).
+        $before = NameOf 'BrightnessValue'; $light = [int]($before -replace '\D', '')
+        $first = if ($light -le 90) { 'BrightnessUp' } else { 'BrightnessDown' }; $second = if ($first -eq 'BrightnessUp') { 'BrightnessDown' } else { 'BrightnessUp' }
+        PressId $first
+        $changed = Wait-Until { (NameOf 'BrightnessValue') -ne $before } 3
+        Check ($changed -and (Wait-Until { & $quickLog | Select-String 'Lysstyrke satt til' } 3)) "Lysstyrke endres ($before → $(NameOf 'BrightnessValue'))"
+        PressId $second
+        Check (Wait-Until { (NameOf 'BrightnessValue') -eq $before } 3) "Lysstyrke tilbake ($(NameOf 'BrightnessValue'))"
     } else { Fail "Lysstyrken vises ikke («$(NameOf 'BrightnessValue')»)" }
     $vol = NameOf 'VolumeMute'
     if ($vol -match '^Volum (\d+) %$') {
-        $v = [int]$Matches[1]; $up = if ($v -ge 100) { 'VolumeDown' } else { 'VolumeUp' }; $back = if ($up -eq 'VolumeUp') { 'VolumeDown' } else { 'VolumeUp' }
+        $v = [int]$Matches[1]; $up = if ($v -le 90) { 'VolumeUp' } else { 'VolumeDown' }; $back = if ($up -eq 'VolumeUp') { 'VolumeDown' } else { 'VolumeUp' }
         PressId $up
         Check (Wait-Until { (NameOf 'VolumeMute') -ne $vol } 3) "Volum endres ($vol → $(NameOf 'VolumeMute'))"
         PressId $back
         PressId 'VolumeMute'
         Check (Wait-Until { (NameOf 'VolumeMute') -eq 'Lyd av' } 3) 'Lyd av'
         PressId 'VolumeMute'
-        Check (Wait-Until { (NameOf 'VolumeMute') -like 'Volum *' } 3) "Lyd på igjen ($(NameOf 'VolumeMute'))"
-    } else { Note "Volum: «$vol» (ingen lydutgang, eller lyden var av)" }
+        Check (Wait-Until { (NameOf 'VolumeMute') -eq $vol } 3) "Volumet er tilbake slik det var ($(NameOf 'VolumeMute'))"
+    } else { Note "Volum: «$vol» (ingen lydutgang, eller lyden var av); volumet testes ikke" }
     $wifi = NameOf 'WifiToggle'
     Check ($wifi -eq 'Wi-Fi: på') "Wi-Fi-status vises («$wifi»)"
     $bt = NameOf 'BluetoothToggle'
@@ -346,14 +375,7 @@ $ghDuring = Get-Process GameHome; Note "GameHome under spill: $([int]($ghDuring.
     } else { Fail 'Fant ikke Bibliotek-knappen' }
 
     # ---- Skjermtastaturet skal ikke bli liggende (det dekket Home, 2026-11-05) ----
-    Add-Type @"
-using System; using System.Runtime.InteropServices;
-[StructLayout(LayoutKind.Sequential)] public struct KbdRect { public int L, T, R, B; }
-[ComImport, Guid("5752238B-24F0-495A-82F1-2FD593056796"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-public interface IKbdPane { void Advise(IntPtr a, IntPtr b, out uint c); void AdviseWithHWND(IntPtr a, IntPtr b, out uint c); void Unadvise(uint c); void Location(out KbdRect r); }
-public static class KbdState { public static bool Visible() { var p = (IKbdPane)Activator.CreateInstance(Type.GetTypeFromCLSID(new Guid("D5120AA3-46BA-44C5-822D-CA8092C1FC72"))); KbdRect r; p.Location(out r); return r.B - r.T > 0; } }
-"@
-    Start-Sleep 1
+    Start-Sleep 2 # GameHome passer på tastaturet i 1,5 s etter at feltet er lukket.
     Check (-not [KbdState]::Visible()) 'Skjermtastaturet er skjult etter søk og nøkkelfelt'
 
     # ---- Ytelse: GameHome skal være lett når Home bare står på ----
@@ -388,9 +410,24 @@ public static class GhRestore {
         Note "Skjermen satt tilbake til $originalMode (kode $code)"
     }
 
-    if ($gameProcess -and -not $gameProcess.HasExited) {
-        Note "MERK: $($gameProcess.ProcessName) kjører fortsatt. Testen tvangsavslutter aldri; avslutt det selv."
+    # Rydd opp også når testen stoppet midt i (2026-11-05: Broforce kom fram lenge etter at testen hadde gitt opp, og
+    # tastaturet ble liggende over startmenyen). Spillet testen selv startet, finnes via PID-en GameHome logget; det lukkes
+    # pent (som Alt+F4), aldri med tvang.
+    $started = if (Test-Path $logFile) {
+        Get-Content $logFile -Encoding UTF8 | Select-Object -Skip $logStart | Select-String "Startet «$([regex]::Escape($Game))».*PID (\d+)" | Select-Object -Last 1
     }
+    if ($started) {
+        $testGame = Get-Process -Id ([int]$started.Matches[0].Groups[1].Value) -ErrorAction SilentlyContinue
+        if ($testGame -and -not $testGame.HasExited) {
+            $closed = $testGame.CloseMainWindow()
+            $exited = $closed -and $testGame.WaitForExit(15000)
+            Note $(if ($exited) { "Opprydding: lukket $($testGame.ProcessName), som testen startet" } else { "MERK: $($testGame.ProcessName) (startet av testen) lot seg ikke lukke pent; avslutt det selv." })
+        }
+    }
+    try {
+        if ([KbdState]::Visible()) { [KbdState]::Toggle(); Start-Sleep 1; Note "Opprydding: skjermtastaturet var oppe og er skjult ($(if ([KbdState]::Visible()) { 'fortsatt synlig!' } else { 'ok' }))" }
+    } catch { Note "Opprydding: fikk ikke sjekket skjermtastaturet ($($_.Exception.Message))" }
+    Note "Øverst etter testen: $(ForegroundName)"
 
     $log = if (Test-Path $logFile) { Get-Content $logFile | Select-Object -Skip $logStart } else { @() }
     $lines = @("GameHome-test $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), spill: $Game", '') + $results +

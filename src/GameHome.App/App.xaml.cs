@@ -12,6 +12,7 @@ namespace GameHome.App;
 public partial class App : Application
 {
     private MainWindow? _window;
+    private UiWatchdog? _watchdog;
 
     public App()
     {
@@ -37,6 +38,8 @@ public partial class App : Application
             Log.Write("start", "Vindu laget");
             _window.Activate();
             Log.Write("start", "Vindu aktivert");
+            _watchdog = new UiWatchdog(Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread(), Log, ApplicationData.Current.LocalFolder.Path);
+            _watchdog.Start();
         }
         catch (Exception ex)
         {

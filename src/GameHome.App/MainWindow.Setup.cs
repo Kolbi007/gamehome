@@ -107,7 +107,7 @@ public sealed partial class MainWindow
     private void CloseKeyEntry()
     {
         KeyEntryPanel.Visibility = Visibility.Collapsed;
-        TouchKeyboard.Hide();
+        _ = TouchKeyboard.HideAsync();
         KeyEntryBox1.Password = "";
         KeyEntryBox2.Password = "";
         if (AccountsPanel.Visibility == Visibility.Visible)

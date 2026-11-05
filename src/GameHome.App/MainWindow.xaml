@@ -18,7 +18,7 @@
              hang GameHome når testen (og skjermlesere) gikk gjennom vinduet, 2026-11-05. -->
         <MediaPlayerElement x:Name="HeroVideo" Stretch="UniformToFill" HorizontalAlignment="Right" VerticalAlignment="Top" Opacity="0"
                             IsHitTestVisible="False" AreTransportControlsEnabled="False" AutomationProperties.AccessibilityView="Raw" />
-        <Rectangle>
+        <Rectangle x:Name="ScrimLeft" IsHitTestVisible="False">
             <Rectangle.Fill>
                 <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
                     <GradientStop Color="#E6121110" Offset="0" />
@@ -27,7 +27,7 @@
                 </LinearGradientBrush>
             </Rectangle.Fill>
         </Rectangle>
-        <Rectangle>
+        <Rectangle x:Name="ScrimBottom" IsHitTestVisible="False">
             <Rectangle.Fill>
                 <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
                     <GradientStop Color="#66121110" Offset="0" />

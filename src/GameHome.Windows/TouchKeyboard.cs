@@ -63,12 +63,29 @@ public static partial class TouchKeyboard
         return false;
     }
 
-    public static void Hide()
+    /// <summary>
+    /// Skjuler tastaturet og passer på i 1,5 s at det forblir skjult. Tastaturet som er på vei opp, meldes ikke som synlig
+    /// før animasjonen er ferdig, så én sjekk rett etter at feltet lukkes, kunne la det bli liggende (2026-11-05, over
+    /// startmenyen). Høyst to av/på-trykk, så det aldri blinker av og på.
+    /// </summary>
+    public static async Task<bool> HideAsync()
     {
-        if (IsVisible())
+        var deadline = Environment.TickCount64 + 1500;
+        var toggles = 0;
+        while (Environment.TickCount64 < deadline)
         {
-            Toggle();
+            if (IsVisible() && toggles < 2)
+            {
+                Toggle();
+                toggles++;
+                await Task.Delay(400);
+                continue;
+            }
+
+            await Task.Delay(150);
         }
+
+        return !IsVisible();
     }
 
     private static bool Toggle()
