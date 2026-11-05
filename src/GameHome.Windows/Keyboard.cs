@@ -15,7 +15,13 @@ public static class Keyboard
     public const ushort Shift = 0x10;
     public const ushort Alt = 0x12;
     public const ushort S = 0x53;
+    public const ushort F9 = 0x78;
     public const ushort F10 = 0x79;
+
+    // Venstre variant av modifikatorene: Handheld Companion sammenligner tastekoden den ser i tastaturkroken.
+    public const ushort LeftControl = 0xA2;
+    public const ushort LeftShift = 0xA0;
+    public const ushort LeftAlt = 0xA4;
 
     /// <summary>Trykker tastene ned i rekkefølge og slipper dem i motsatt rekkefølge. Returnerer om alt ble sendt.</summary>
     public static bool SendChord(params ushort[] keys)

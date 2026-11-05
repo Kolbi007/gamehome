@@ -215,6 +215,15 @@
                 <Button x:Name="EndSessionButton" Content="Avslutt spillet" Click="EndSessionButton_Click" HorizontalAlignment="Stretch" Height="72" FontSize="22" />
                 <Button x:Name="EndRemoteButton" Content="Avslutt spillet på gaming-PC-en" Click="EndRemoteButton_Click" HorizontalAlignment="Stretch" Height="72" FontSize="22" Visibility="Collapsed" />
                 <Button x:Name="ClosePanelButton" Content="Lukk panelet" Click="ClosePanelButton_Click" HorizontalAlignment="Stretch" Height="72" FontSize="22" />
+                <!-- Ytelse: skjermen styrer GameHome selv; TDP og resten ligger i Handheld Companions QuickTools (ADR 0007). -->
+                <StackPanel x:Name="PerformancePanel" Spacing="8">
+                    <TextBlock Text="Ytelse" FontSize="16" Foreground="#A0A7B0" />
+                    <StackPanel x:Name="RefreshRateButtons" Orientation="Horizontal" Spacing="8" />
+                    <StackPanel x:Name="ResolutionButtons" Orientation="Horizontal" Spacing="8" />
+                    <Button x:Name="QuickToolsButton" Content="TDP, lysstyrke og mer" Click="QuickToolsButton_Click" HorizontalAlignment="Stretch" Height="52" FontSize="17"
+                            ToolTipService.ToolTip="Åpner hurtigmenyen i Handheld Companion" />
+                    <TextBlock x:Name="PerformanceStatus" FontSize="15" Foreground="#C8CDD3" TextWrapping="Wrap" Visibility="Collapsed" />
+                </StackPanel>
                 <!-- Feilsøking: bare når spillet strømmes fra gaming-PC-en. -->
                 <StackPanel x:Name="StreamDebugPanel" Spacing="8" Visibility="Collapsed">
                     <TextBlock Text="Feilsøking" FontSize="16" Foreground="#A0A7B0" />
@@ -224,7 +233,7 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
-                        <Button x:Name="DebugStatsButton" Grid.Column="0" Content="Ytelse" Click="DebugStatsButton_Click" HorizontalAlignment="Stretch" Height="52" FontSize="17"
+                        <Button x:Name="DebugStatsButton" Grid.Column="0" Content="Fps og ping" Click="DebugStatsButton_Click" HorizontalAlignment="Stretch" Height="52" FontSize="17"
                                 ToolTipService.ToolTip="Viser eller skjuler Moonlights overlegg med fps, ping og bitrate" />
                         <Button x:Name="DebugTaskbarButton" Grid.Column="1" Content="Oppgavelinje" Click="DebugTaskbarButton_Click" HorizontalAlignment="Stretch" Height="52" FontSize="17"
                                 ToolTipService.ToolTip="Viser eller skjuler oppgavelinjen og ikonene på gaming-PC-en" />

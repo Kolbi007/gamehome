@@ -3297,6 +3297,8 @@ public sealed partial class MainWindow : Window
             SessionDetail.Text = $"Strømmer fra {HostLabel}";
         }
 
+        FillPerformance();
+        PerformanceStatus.Visibility = Visibility.Collapsed;
         SessionPanel.Visibility = Visibility.Visible;
         SetHomeEnabled(false);
         ResumeButton.Focus(FocusState.Keyboard);
@@ -3331,6 +3333,130 @@ public sealed partial class MainWindow : Window
         var (ok, wasMinimized) = Foreground.BringGame(handle);
         _log.Write("fokus", (ok ? "Tilbake til spillet: spillet fikk forgrunnen" : "Tilbake til spillet: Windows avslo")
             + (wasMinimized ? " (vinduet var minimert og ble gjenopprettet)" : ""));
+    }
+
+    // ---- Ytelse (ADR 0007) ----
+
+    /// <summary>Hurtigtasten Handheld Companion er satt opp til å åpne QuickTools med (scripts/Set-HandheldCompanion.ps1).</summary>
+    private static readonly ushort[] QuickToolsChord =
+        [Keyboard.LeftControl, Keyboard.LeftAlt, Keyboard.LeftShift, Keyboard.F9];
+
+    private void FillPerformance()
+    {
+        RefreshRateButtons.Children.Clear();
+        ResolutionButtons.Children.Clear();
+        if (Display.Current() is not { } current)
+        {
+            return;
+        }
+
+        var modes = Display.Modes();
+        foreach (var hz in modes.Where(m => m.Width == current.Width && m.Height == current.Height)
+                     .Select(m => m.Hz).Distinct().Order().TakeLast(4))
+        {
+            RefreshRateButtons.Children.Add(PerformanceButton($"{hz} Hz", hz == current.Hz,
+                new DisplayMode(current.Width, current.Height, hz)));
+        }
+
+        foreach (var size in PickResolutions(modes, current))
+        {
+            // Beholder frekvensen hvis den finnes i den nye oppløsningen, ellers den høyeste.
+            var hz = modes.Any(m => m.Width == size.Width && m.Height == size.Height && m.Hz == current.Hz)
+                ? current.Hz
+                : modes.Where(m => m.Width == size.Width && m.Height == size.Height).Max(m => m.Hz);
+            ResolutionButtons.Children.Add(PerformanceButton(
+                string.Create(CultureInfo.InvariantCulture, $"{size.Width}×{size.Height}"),
+                size.Width == current.Width && size.Height == current.Height,
+                new DisplayMode(size.Width, size.Height, hz)));
+        }
+    }
+
+    /// <summary>Opptil tre oppløsninger med samme form som skjermen nå: den største, omtrent tre firedeler og halvparten.</summary>
+    private static List<DisplayMode> PickResolutions(IReadOnlyList<DisplayMode> modes, DisplayMode current)
+    {
+        var aspect = (double)current.Width / current.Height;
+        var sizes = modes.Where(m => Math.Abs(((double)m.Width / m.Height) - aspect) < 0.02)
+            .Select(m => new DisplayMode(m.Width, m.Height, 0)).Distinct().ToList();
+        if (sizes.Count == 0)
+        {
+            return [];
+        }
+
+        var largest = sizes.Max(s => s.Width);
+        var picked = new List<DisplayMode>();
+        foreach (var share in new[] { 1.0, 0.75, 0.5 })
+        {
+            var best = sizes.MinBy(s => Math.Abs(s.Width - (largest * share)));
+            if (!picked.Contains(best))
+            {
+                picked.Add(best);
+            }
+        }
+
+        return picked;
+    }
+
+    private Button PerformanceButton(string label, bool selected, DisplayMode target)
+    {
+        var button = new Button
+        {
+            Content = label,
+            Height = 52,
+            MinWidth = 120,
+            FontSize = 17,
+            Tag = target,
+        };
+        if (selected && Application.Current.Resources.TryGetValue("AccentButtonStyle", out var accent) && accent is Style style)
+        {
+            button.Style = style;
+        }
+
+        button.Click += PerformanceMode_Click;
+        return button;
+    }
+
+    private void PerformanceMode_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: DisplayMode target })
+        {
+            return;
+        }
+
+        var error = Display.Apply(target);
+        var text = string.Create(CultureInfo.InvariantCulture, $"{target.Width}×{target.Height} {target.Hz} Hz");
+        _log.Write("ytelse", error is null ? $"Skjerm satt til {text}" : $"Skjerm {text}: {error}");
+        PerformanceStatus.Text = error ?? $"Skjermen er satt til {text}";
+        PerformanceStatus.Visibility = Visibility.Visible;
+        FillPerformance();
+        FocusPerformance(target);
+    }
+
+    // Etter at knappene er laget på nytt, settes fokus på den valgte, så kontrolleren ikke mister plassen sin.
+    private void FocusPerformance(DisplayMode target)
+    {
+        foreach (var row in new[] { RefreshRateButtons, ResolutionButtons })
+        {
+            foreach (var child in row.Children)
+            {
+                if (child is Button { Tag: DisplayMode mode } button && mode == target)
+                {
+                    button.Focus(FocusState.Keyboard);
+                    return;
+                }
+            }
+        }
+    }
+
+    private void QuickToolsButton_Click(object sender, RoutedEventArgs e)
+    {
+        // Handheld Companion lytter på hurtigtasten i sin egen tastaturkrok; hvilket vindu som har forgrunnen, spiller
+        // ingen rolle.
+        var sent = Keyboard.SendChord(QuickToolsChord);
+        _log.Write("ytelse", sent ? "QuickTools: hurtigtast sendt til Handheld Companion" : "QuickTools: Windows avslo tastetrykket");
+        PerformanceStatus.Text = sent
+            ? "Åpner Handheld Companion. Skjer ingenting, trykk høyre Legion-knapp."
+            : "Fikk ikke sendt hurtigtasten. Trykk høyre Legion-knapp.";
+        PerformanceStatus.Visibility = Visibility.Visible;
     }
 
     // ---- Feilsøking under strøm ----
