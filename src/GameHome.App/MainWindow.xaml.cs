@@ -513,6 +513,19 @@ public sealed partial class MainWindow : Window
         }
 
         var inLibrary = LibraryPanel.Visibility == Visibility.Visible;
+        if (!inLibrary && GameTiles.Children.IndexOf(tile) is var index && index >= 0)
+        {
+            // Flisen skal synes helt; den første ligger helt til venstre (raden sto forskjøvet etter omsortering).
+            if (index == 0)
+            {
+                GameTilesScroll.ChangeView(0, null, null);
+            }
+            else
+            {
+                tile.StartBringIntoView();
+            }
+        }
+
         if (!inLibrary)
         {
             UpdateHero(game);
@@ -531,6 +544,7 @@ public sealed partial class MainWindow : Window
         }
 
         ShowAmbientFor(game);
+        ScheduleTrailer(game);
     }
 
     private static void OnTileUnfocused(Button tile)
@@ -1391,12 +1405,12 @@ public sealed partial class MainWindow : Window
             .Select(a => a.Target)
             .ToHashSet(StringComparer.Ordinal);
         var term = FindQuery.Text.Trim();
-        var candidates = _ownedGames
+        var candidates = _ownedGames.Concat(FamilyGamesForInstallList())
             .Where(g => !installed.Contains(g.AppId.ToString(CultureInfo.InvariantCulture)))
             .Where(g => term.Length == 0 || (g.Name?.Contains(term, StringComparison.OrdinalIgnoreCase) ?? false))
             .OrderByDescending(g => g.PlaytimeForeverMinutes)
             .ThenBy(g => g.Name, StringComparer.CurrentCultureIgnoreCase)
-            .Take(30)
+            .Take(60)
             .ToList();
 
         FindResults.Children.Clear();
@@ -2520,6 +2534,7 @@ public sealed partial class MainWindow : Window
 
     private async Task LaunchAsync(Game game, PlayAction? chosen = null)
     {
+        StopTrailer();
         // Ett trykk, én start: ekstra trykk mens noe starter eller avsluttes, ignoreres (0.1.87.0 startet Mega Man tre ganger).
         if (_launching)
         {
@@ -3011,6 +3026,7 @@ public sealed partial class MainWindow : Window
     private void SyncSteamInBackground()
     {
         _ = CheckForUpdateAsync(manual: false);
+        LoadSteamLocalLibrary();
         CheckDownloads();
         SyncStoresInBackground();
     }
@@ -3456,6 +3472,7 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        StopTrailer();
         SessionGameCard.Visibility = Visibility.Visible;
         HomeMenuCard.Visibility = Visibility.Collapsed;
         SessionTitle.Text = _sessionGame is null ? "Spill" : GameLibrary.DisplayTitle(_sessionGame);
@@ -5121,6 +5138,7 @@ public sealed partial class MainWindow : Window
         {
             _metricsTimer.Stop();
             StopAttractTimer();
+            StopTrailer();
 
             // Uten spill eller filvelger fortsetter kontrollerlesingen sakte: noe annet (et varsel, en systemmeny) kan
             // ta fokus mens Home står fremme, og da skal første trykk hente Home tilbake, ikke kreve berøring.
@@ -5297,7 +5315,7 @@ public sealed partial class MainWindow : Window
         }
 
         _lastSource = "kontroller";
-        if (NoteUserInput())
+        if (NoteUserInput(pressed.HasFlag(GamepadButtons.A)))
         {
             return; // Første trykk vekker Home fra visningsmodus og brukes ikke til noe annet.
         }

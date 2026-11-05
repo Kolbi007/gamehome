@@ -134,7 +134,7 @@ public sealed partial class MainWindow
 
     /// <summary>Kalles ved all input (kontroller, tastatur, berøring). Stopper visningsmodus.</summary>
     /// <returns>true hvis input bare vekket Home fra visningsmodus og ikke skal brukes til noe annet.</returns>
-    private bool NoteUserInput()
+    private bool NoteUserInput(bool primary = false)
     {
         _lastUserInput = DateTime.UtcNow;
         if (!_attracting)
@@ -143,6 +143,12 @@ public sealed partial class MainWindow
         }
 
         _attracting = false;
+        if (primary && _attractSuggestion is not null)
+        {
+            InstallAttractSuggestion(); // A på et forslag som ikke er installert: installer det.
+        }
+
+        _attractSuggestion = null;
         _heroGameId = null;
         RefreshHero(force: false);
         if (Root.XamlRoot is { } root && FocusManager.GetFocusedElement(root) is Button { Tag: string id } tile && GameTiles.Children.Contains(tile))
@@ -177,6 +183,16 @@ public sealed partial class MainWindow
             return;
         }
 
+        StopTrailer();
+        // Hver tredje gang: et Steam-spill du har (eid eller familiedelt), men ikke har installert.
+        if (Random.Shared.Next(3) == 0 && ShowAttractSuggestion())
+        {
+            _attracting = true;
+            _lastAttractSwitch = DateTime.UtcNow;
+            return;
+        }
+
+        _attractSuggestion = null;
         var candidates = _library.VisibleGames.Where(g => g.Id != _heroGameId && ArtFor(g).Hero is { } hero && File.Exists(hero)).ToList();
         if (candidates.Count == 0)
         {

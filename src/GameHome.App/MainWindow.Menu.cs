@@ -24,6 +24,7 @@ public sealed partial class MainWindow
             return;
         }
 
+        StopTrailer();
         CloseLibrary(focusHome: false);
         SessionGameCard.Visibility = Visibility.Collapsed;
         HomeMenuCard.Visibility = Visibility.Visible;

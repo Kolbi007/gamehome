@@ -90,38 +90,15 @@ public sealed partial class MainWindow
         _log.Write("meny", $"Legg inn nøkkel: {kind}");
     }
 
-
-    private const string TouchKeyboardExe = @"C:\Program Files\Common Files\microsoft shared\ink\TabTip.exe";
-
     /// <summary>
-    /// Viser skjermtastaturet også når kontrolleren brukes (Windows viser det ellers bare ved berøring). Først via det
-    /// dokumenterte InputPane-grensesnittet; feiler det (typefeil i 0.1.166.0), startes tastaturprogrammet. Kaster aldri:
-    /// et unntak her ville krasjet appen fra et knappetrykk.
+    /// Viser skjermtastaturet også når kontrolleren brukes (Windows viser det ellers bare ved berøring). InputPane virket
+    /// ikke fra GameHome (typefeil i 0.1.166.0), så TouchKeyboard brukes. Kaster aldri: et unntak her ville krasjet appen.
     /// </summary>
     private void ShowTouchKeyboard()
     {
-        try
+        if (!TouchKeyboard.Show())
         {
-            if (global::Windows.UI.ViewManagement.InputPaneInterop.GetForWindow(WinRT.Interop.WindowNative.GetWindowHandle(this)).TryShow())
-            {
-                return;
-            }
-        }
-        catch (Exception ex)
-        {
-            _log.Write("meny", $"Skjermtastatur via InputPane feilet ({ex.GetType().Name}); prøver tastaturprogrammet");
-        }
-
-        try
-        {
-            if (File.Exists(TouchKeyboardExe))
-            {
-                using var _ = Process.Start(new ProcessStartInfo(TouchKeyboardExe) { UseShellExecute = true });
-            }
-        }
-        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
-        {
-            _log.Write("meny", $"Skjermtastaturet kunne ikke vises: {ex.Message}");
+            _log.Write("meny", "Skjermtastaturet kunne ikke vises");
         }
     }
 
@@ -130,6 +107,7 @@ public sealed partial class MainWindow
     private void CloseKeyEntry()
     {
         KeyEntryPanel.Visibility = Visibility.Collapsed;
+        TouchKeyboard.Hide();
         KeyEntryBox1.Password = "";
         KeyEntryBox2.Password = "";
         if (AccountsPanel.Visibility == Visibility.Visible)

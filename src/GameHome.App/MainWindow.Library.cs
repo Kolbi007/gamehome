@@ -33,11 +33,28 @@ public sealed partial class MainWindow
         new("steam", "Steam", a => a.Any(x => x.RunnerId == GameLibrary.SteamRunnerId)),
         new("xbox", "Xbox", a => a.Any(x => x.RunnerId == XboxRunner.Id)),
         new("retro", "Retro", a => a.Any(x => x.RunnerId == RetroArchRunner.Id)),
+        new("short", "Kort økt", _ => false), // Se IsShortSession.
         new("battlenet", "Battle.net", a => a.Any(x => x.RunnerId == BattleNetRunner.Id)),
         new("gog", "GOG", a => a.Any(x => x.RunnerId == GogRunner.Id)),
         new("epic", "Epic", a => a.Any(x => x.RunnerId == EpicRunner.Id)),
     ];
 
+
+    // Sjangre der en økt typisk er kort (Steam-sjangre og IGDB-sjangre). Brukes til fanen «Kort økt».
+    private static readonly string[] ShortSessionGenres =
+        ["Casual", "Arcade", "Puzzle", "Card", "Card & Board Game", "Roguelike", "Roguelite", "Pinball", "Platform", "Sport", "Racing", "Fighting"];
+
+    private bool InTab(LibraryTab tab, Game game, IReadOnlyList<PlayAction> actions) =>
+        tab.Key == "short" ? IsShortSession(game, actions) : tab.Includes(actions);
+
+    /// <summary>
+    /// Passer for 15–30 minutter: retrospill, og spill der en sjanger tyder på korte økter. Blir mer presist med IGDBs
+    /// spilletid når nøklene er lagt inn.
+    /// </summary>
+    private bool IsShortSession(Game game, IReadOnlyList<PlayAction> actions) =>
+        actions.Any(a => a.RunnerId == RetroArchRunner.Id)
+        || (_details.TryGetValue(game.Id, out var details)
+            && details.Genres.Any(g => ShortSessionGenres.Any(s => g.Contains(s, StringComparison.OrdinalIgnoreCase))));
     private string _libraryTab = "all";
     private string _libraryQuery = "";
     private LibrarySort _librarySort = LibrarySort.LastPlayed;
@@ -69,6 +86,7 @@ public sealed partial class MainWindow
             // Standardvalgene brukes.
         }
 
+        StopTrailer();
         _libraryQuery = "";
         LibrarySearchBox.Text = "";
         LibraryPanel.Visibility = Visibility.Visible;
@@ -82,6 +100,8 @@ public sealed partial class MainWindow
     {
         LibraryPanel.Visibility = Visibility.Collapsed;
         LibraryGrid.Children.Clear(); // Bildene trengs ikke når biblioteket er lukket.
+        TouchKeyboard.Hide();
+        LibrarySearchBox.IsTabStop = false;
         SetHomeEnabled(true);
         if (focusHome)
         {
@@ -92,7 +112,7 @@ public sealed partial class MainWindow
     private void BuildLibrary()
     {
         var games = _library.VisibleGames.Select((g, index) => (Game: g, Index: index, Actions: _library.PlayActionsFor(g.Id))).ToList();
-        var tabs = LibraryTabDefinitions.Where(t => t.Key == "all" || games.Any(g => t.Includes(g.Actions))).ToList();
+        var tabs = LibraryTabDefinitions.Where(t => t.Key == "all" || games.Any(g => InTab(t, g.Game, g.Actions))).ToList();
         if (!tabs.Any(t => t.Key == _libraryTab))
         {
             _libraryTab = "all";
@@ -101,7 +121,7 @@ public sealed partial class MainWindow
         LibraryTabs.Children.Clear();
         foreach (var tab in tabs)
         {
-            var count = games.Count(g => tab.Includes(g.Actions));
+            var count = games.Count(g => InTab(tab, g.Game, g.Actions));
             // Strømmede spill får navnet på PC-en, så det er tydelig at de kjører der og strømmes hit.
             var label = tab.Key == "stream" ? $"Strøm fra {HostLabel}" : tab.Label;
             var button = new Button
@@ -122,7 +142,7 @@ public sealed partial class MainWindow
         }
 
         var current = tabs.First(t => t.Key == _libraryTab);
-        var shown = games.Where(g => current.Includes(g.Actions));
+        var shown = games.Where(g => InTab(current, g.Game, g.Actions));
         shown = _librarySort switch
         {
             LibrarySort.MostPlayed => shown.OrderByDescending(g => MinutesPlayed(g.Game)).ThenBy(g => GameLibrary.DisplayTitle(g.Game), StringComparer.CurrentCultureIgnoreCase),
@@ -246,6 +266,8 @@ public sealed partial class MainWindow
         if (e.Key == global::Windows.System.VirtualKey.Enter)
         {
             e.Handled = true;
+            TouchKeyboard.Hide();
+            LibrarySearchBox.IsTabStop = false;
             FocusLibrary(null);
         }
     }
@@ -253,6 +275,7 @@ public sealed partial class MainWindow
     /// <summary>View-knappen (⧉): søkefeltet får fokus og skjermtastaturet vises, også når kontrolleren brukes.</summary>
     private void OpenLibrarySearch()
     {
+        LibrarySearchBox.IsTabStop = true; // Søkefeltet får fokus bare via View-knappen, ellers dukker tastaturet opp.
         LibrarySearchBox.Focus(FocusState.Programmatic);
         ShowTouchKeyboard();
 
