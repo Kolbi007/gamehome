@@ -100,7 +100,7 @@ public sealed partial class MainWindow
     {
         LibraryPanel.Visibility = Visibility.Collapsed;
         LibraryGrid.Children.Clear(); // Bildene trengs ikke når biblioteket er lukket.
-        TouchKeyboard.Hide();
+        _ = TouchKeyboard.HideAsync();
         LibrarySearchBox.IsTabStop = false;
         SetHomeEnabled(true);
         if (focusHome)
@@ -266,7 +266,7 @@ public sealed partial class MainWindow
         if (e.Key == global::Windows.System.VirtualKey.Enter)
         {
             e.Handled = true;
-            TouchKeyboard.Hide();
+            _ = TouchKeyboard.HideAsync();
             LibrarySearchBox.IsTabStop = false;
             FocusLibrary(null);
         }

@@ -28,7 +28,10 @@ public sealed class HotkeyListener
     private readonly nint _window;
     private readonly HashSet<int> _registered = [];
     private readonly List<(int Id, HotkeyModifiers Modifiers, uint Key)> _combos = [];
-    private nint _hook;
+    private volatile nint _hook;
+    private Thread? _hookThread;
+    private uint _hookThreadId;
+    private volatile (int Id, HotkeyModifiers Modifiers, uint Key)[] _hookCombos = [];
     private int _lastId = -1;
     private long _lastTicks;
 
@@ -75,15 +78,57 @@ public sealed class HotkeyListener
     /// «raw input» og slår av programmers hurtigtaster mens de har fokus (målt 2026-11-02: Assassin's Creed Rogue; M2 kom
     /// aldri fram). Kroken ser tasten før spillet og melder den; kommer ikke den vanlige hurtigtasten innen 150 ms,
     /// brukes kroken. Den gjør bare en sammenligning per tast og fjernes når økten slutter.
+    /// <para>
+    /// Kroken kjører i en egen tråd (sover i GetMessage mellom tastetrykk). Windows venter på kroken ved hvert tastetrykk i
+    /// hele systemet; lå den på UI-tråden, ville en heng i GameHome gjort alt tastatur tregt (2026-11-05).
+    /// </para>
     /// </summary>
-    public unsafe bool StartHook()
+    public bool StartHook()
     {
-        if (_hook == 0)
+        if (_hookThread is not null)
         {
-            _hook = NativeMethods.SetWindowsHookExW(13, &KeyboardProc, NativeMethods.GetModuleHandleW(null), 0); // WH_KEYBOARD_LL
+            return _hook != 0;
         }
 
+        _hookCombos = [.. _combos];
+        using var ready = new ManualResetEventSlim();
+        _hookThread = new Thread(() => HookLoop(ready)) { IsBackground = true, Name = "GameHome tastaturkrok", Priority = ThreadPriority.AboveNormal };
+        _hookThread.Start();
+        ready.Wait(TimeSpan.FromSeconds(2));
         return _hook != 0;
+    }
+
+    private unsafe void HookLoop(ManualResetEventSlim ready)
+    {
+        _hookThreadId = NativeMethods.GetCurrentThreadId();
+        _hook = NativeMethods.SetWindowsHookExW(13, &KeyboardProc, NativeMethods.GetModuleHandleW(null), 0); // WH_KEYBOARD_LL
+        ready.Set();
+        if (_hook == 0)
+        {
+            return;
+        }
+
+        HookMsg msg;
+        while (NativeMethods.GetMessageW(&msg, 0, 0, 0) > 0)
+        {
+            _ = NativeMethods.DispatchMessageW(&msg);
+        }
+
+        NativeMethods.UnhookWindowsHookEx(_hook);
+        _hook = 0;
+    }
+
+    private void StopHook()
+    {
+        if (_hookThread is null)
+        {
+            return;
+        }
+
+        _ = NativeMethods.PostThreadMessageW(_hookThreadId, 0x0012 /* WM_QUIT */, 0, 0);
+        _hookThread.Join(TimeSpan.FromSeconds(1));
+        _hookThread = null;
+        _hookCombos = [];
     }
 
     public void UnregisterAll()
@@ -95,11 +140,20 @@ public sealed class HotkeyListener
 
         _registered.Clear();
         _combos.Clear();
-        if (_hook != 0)
-        {
-            NativeMethods.UnhookWindowsHookEx(_hook);
-            _hook = 0;
-        }
+        StopHook();
+    }
+
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    internal struct HookMsg
+    {
+        public nint Window;
+        public uint Message;
+        public nint WParam;
+        public nint LParam;
+        public uint Time;
+        public int X;
+        public int Y;
+        public uint Private;
     }
 
     // Kroken melder en tast med WmHookSeen; RegisterHotKey-veien gir WmHotkey. Kommer ikke WmHotkey innen 150 ms
@@ -246,7 +300,7 @@ public sealed class HotkeyListener
                 modifiers |= HotkeyModifiers.Shift;
             }
 
-            foreach (var (id, wanted, wantedKey) in listener._combos)
+            foreach (var (id, wanted, wantedKey) in listener._hookCombos)
             {
                 if (wantedKey == key && wanted == modifiers)
                 {
@@ -261,8 +315,21 @@ public sealed class HotkeyListener
     }
 }
 
-internal static partial class NativeMethods
+internal static unsafe partial class NativeMethods
 {
     [LibraryImport("user32.dll", SetLastError = true)]
     internal static partial nint RegisterPowerSettingNotification(nint recipient, in Guid powerSetting, uint flags);
+
+    [LibraryImport("user32.dll", EntryPoint = "GetMessageW")]
+    internal static partial int GetMessageW(HotkeyListener.HookMsg* msg, nint window, uint filterMin, uint filterMax);
+
+    [LibraryImport("user32.dll", EntryPoint = "DispatchMessageW")]
+    internal static partial nint DispatchMessageW(HotkeyListener.HookMsg* msg);
+
+    [LibraryImport("user32.dll", EntryPoint = "PostThreadMessageW")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool PostThreadMessageW(uint threadId, uint message, nint wParam, nint lParam);
+
+    [LibraryImport("kernel32.dll")]
+    internal static partial uint GetCurrentThreadId();
 }

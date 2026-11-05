@@ -5,6 +5,7 @@ using GameHome.Core.Model;
 using GameHome.Metadata;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
 using Windows.Media.Core;
 using Windows.Media.Playback;
@@ -111,6 +112,16 @@ public sealed partial class MainWindow
             if (ReferenceEquals(HeroVideo.MediaPlayer, player))
             {
                 FadeTo(HeroVideo, 0.9, 900);
+                MakeRoomForTrailer(true);
+                _log.Write("trailer", "Trailer spiller");
+            }
+        });
+        player.MediaFailed += (_, args) => DispatcherQueue.TryEnqueue(() =>
+        {
+            _log.Write("trailer", $"Traileren feilet: {args.Error} 0x{args.ExtendedErrorCode?.HResult ?? 0:X8}");
+            if (ReferenceEquals(HeroVideo.MediaPlayer, player))
+            {
+                StopTrailer();
             }
         });
         player.Source = MediaSource.CreateFromUri(new Uri(url));
@@ -154,9 +165,59 @@ public sealed partial class MainWindow
         {
             HeroVideo.SetMediaPlayer(null);
             player.Dispose();
+            _log.Write("trailer", "Trailer stoppet");
         }
 
         HeroVideo.Opacity = 0;
+        MakeRoomForTrailer(false);
+    }
+
+    private bool _roomForTrailer;
+
+    /// <summary>
+    /// Mens traileren spiller, glir tekst og fliser litt til siden og nedover, og sløret over bildet blir lettere, så
+    /// videoen får plass. Alt glir tilbake når traileren stopper (ved input, nytt spill eller slutt).
+    /// </summary>
+    private void MakeRoomForTrailer(bool room)
+    {
+        if (_roomForTrailer == room)
+        {
+            return;
+        }
+
+        _roomForTrailer = room;
+        var duration = room ? 900 : 350;
+        var shift = room ? 56.0 : 0;
+        SlideTo(HeroInfo, room ? -16 : 0, shift, duration);
+        SlideTo(GameTilesScroll, 0, shift, duration);
+        SlideTo(ToolTiles, 0, shift, duration);
+        FadeTo(ToolTiles, room ? 0 : 1, duration);
+        FadeTo(ScrimLeft, room ? 0.55 : 1, duration);
+        FadeTo(ScrimBottom, room ? 0.85 : 1, duration);
+    }
+
+    private static void SlideTo(UIElement element, double x, double y, int milliseconds)
+    {
+        if (element.RenderTransform is not TranslateTransform)
+        {
+            element.RenderTransform = new TranslateTransform();
+        }
+
+        var story = new Storyboard();
+        foreach (var (property, value) in new[] { ("X", x), ("Y", y) })
+        {
+            var animation = new DoubleAnimation
+            {
+                To = value,
+                Duration = new Duration(TimeSpan.FromMilliseconds(milliseconds)),
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut },
+            };
+            Storyboard.SetTarget(animation, element);
+            Storyboard.SetTargetProperty(animation, $"(UIElement.RenderTransform).(TranslateTransform.{property})");
+            story.Children.Add(animation);
+        }
+
+        story.Begin();
     }
 
     private static void FadeTo(UIElement element, double to, int milliseconds)

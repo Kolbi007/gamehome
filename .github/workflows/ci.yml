@@ -141,3 +141,17 @@ jobs:
             scripts/Install-DevBuild.ps1
           if-no-files-found: error
           retention-days: 14
+
+      # Symboler, så minnebilder fra vakthunden (heng-*.dmp) kan leses for akkurat denne versjonen.
+      - name: Collect symbols
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifacts\symbols | Out-Null
+          Get-ChildItem src\GameHome.App\bin -Recurse -Filter GameHome.App.pdb | Where-Object { $_.DirectoryName -like '*publish*' -or $_.DirectoryName -like '*native*' } |
+            Select-Object -First 1 | Copy-Item -Destination artifacts\symbols\
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gamehome-symbols-${{ matrix.arch }}${{ !matrix.aot && '-jit' || '' }}
+          path: artifacts/symbols/*.pdb
+          if-no-files-found: warn
+          retention-days: 30

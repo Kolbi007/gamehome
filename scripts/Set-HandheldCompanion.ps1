@@ -5,7 +5,12 @@
 #   M2              -> Ctrl+Alt+Shift+F12 (meny under spill)
 #   venstre Legion  -> Ctrl+Alt+Shift+F11 (Home)
 #   høyre Legion    -> QuickTools (HCs standard, endres ikke)
-#   Ctrl+Alt+Shift+F9 -> QuickTools (knappen «TDP, lysstyrke og mer» i GameHome)
+#   Ctrl+Alt+Shift+F9 -> QuickTools (knappen «Mer i Handheld Companion» i GameHome)
+#   Ctrl+Alt+Shift+F7 / F8 -> HCs egne «TDP ned» / «TDP opp» (knappene − og + ved TDP i GameHome)
+#
+# TDP styres fortsatt av HC; GameHome fjernstyrer bare med hurtigtastene (ADR 0011). HCs TDP-knapper virker bare når
+# strømprofilen har TDP-overstyring, så skriptet slår den på i HCs egen «Default»-strømprofil og lar spillprofilen
+# «Default» bruke den både på batteri og lader. HC holder verdiene innenfor maskinens grenser.
 #
 # Kjøres på Legion Go mens HC er avsluttet. HC-formatet er internt (JSON-filer i %LOCALAPPDATA%\HandheldCompanion\hotkeys)
 # og kan endres i nye HC-versjoner; skriptet er laget for HC 1.3 og tar sikkerhetskopi før det skriver. Ingen kode fra HC
@@ -34,13 +39,18 @@ if ($template.Version -notlike '1.3.*') {
     Write-Warning "Laget for HC 1.3; filene er fra $($template.Version). Sjekk resultatet i HC etterpå."
 }
 
-$backup = Join-Path $Root ("hotkeys.backup-{0:yyyyMMdd-HHmmss}" -f (Get-Date))
-Copy-Item $dir $backup -Recurse
-Write-Host "Sikkerhetskopi: $backup"
+$stamp = '{0:yyyyMMdd-HHmmss}' -f (Get-Date)
+foreach ($folder in 'hotkeys', 'profiles', 'powerprofiles') {
+    if (Test-Path (Join-Path $Root $folder)) {
+        $backup = Join-Path $Root "$folder.backup-$stamp"
+        Copy-Item (Join-Path $Root $folder) $backup -Recurse
+        Write-Host "Sikkerhetskopi: $backup"
+    }
+}
 
 # HCs knappenavn (ButtonFlags) og tallverdier for egne hurtigtaster.
 $hotkeyUser0 = 80
-$keys = @{ LControlKey = @(162, 29); LMenu = @(164, 56); LShiftKey = @(160, 42); F9 = @(120, 67); F11 = @(122, 87); F12 = @(123, 88) }
+$keys = @{ LControlKey = @(162, 29); LMenu = @(164, 56); LShiftKey = @(160, 42); F7 = @(118, 65); F8 = @(119, 66); F9 = @(120, 67); F11 = @(122, 87); F12 = @(123, 88) }
 
 function Copy-Json($value) { $value | ConvertTo-Json -Depth 30 | ConvertFrom-Json }
 
@@ -123,12 +133,39 @@ $mainWindow.inputsChord.ButtonState.State.OEM2 = $false
 $mainWindow | ConvertTo-Json -Depth 30 | Set-Content $mainWindowFile -Encoding UTF8
 
 $used = Get-ChildItem $dir -Filter 'HOTKEY_USER*.json' | ForEach-Object { [int]($_.BaseName -replace 'HOTKEY_USER', '') }
-$free = 0..59 | Where-Object { $used -notcontains $_ } | Select-Object -First 3
+$free = 0..59 | Where-Object { $used -notcontains $_ } | Select-Object -First 5
 
 Save-Hotkey $free[0] 'GameHome: meny (M2)' (Keystroke @('LControlKey', 'LMenu', 'LShiftKey', 'F12')) (New-Chord @('B5') @() 0)
 Save-Hotkey $free[1] 'GameHome: Home (venstre Legion)' (Keystroke @('LControlKey', 'LMenu', 'LShiftKey', 'F11')) (New-Chord @('OEM2') @() 0)
 Save-Hotkey $free[2] 'GameHome: QuickTools' ([ordered]@{
         '$type' = $template.command.'$type'; commandType = 1; deviceType = $null; PageIndex = 0
     }) (New-Chord @() @('LControlKey', 'LMenu', 'LShiftKey', 'F9') 0)
+# HCs egne funksjoner (Commands/Functions/Performance i HCs kildekode); commandType 1 = funksjon.
+Save-Hotkey $free[3] 'GameHome: TDP ned' ([ordered]@{
+        '$type' = 'HandheldCompanion.Commands.Functions.Performance.TDPDecrease, HandheldCompanion'; commandType = 1; deviceType = $null
+    }) (New-Chord @() @('LControlKey', 'LMenu', 'LShiftKey', 'F7') 0)
+Save-Hotkey $free[4] 'GameHome: TDP opp' ([ordered]@{
+        '$type' = 'HandheldCompanion.Commands.Functions.Performance.TDPIncrease, HandheldCompanion'; commandType = 1; deviceType = $null
+    }) (New-Chord @() @('LControlKey', 'LMenu', 'LShiftKey', 'F8') 0)
+
+# TDP-overstyring i HCs «Default»-strømprofil (Guid 0), og spillprofilen «Default» bruker den på batteri (0) og lader (1).
+# Bare disse feltene endres, som tekst, så resten av filene står urørt.
+$defaultPowerGuid = '00000000-0000-0000-0000-000000000000'
+$powerFile = Join-Path $Root 'powerprofiles\Default.json'
+$profileFile = Join-Path $Root 'profiles\Default.json'
+if ((Test-Path $powerFile) -and (Test-Path $profileFile)) {
+    $power = Get-Content $powerFile -Raw
+    if ($power -notmatch "`"Guid`":\s*`"$defaultPowerGuid`"") { throw "$powerFile er ikke HCs Default-strømprofil; endrer ingenting." }
+    $power = $power -replace '"TDPOverrideEnabled":\s*false', '"TDPOverrideEnabled": true'
+    [System.IO.File]::WriteAllText($powerFile, $power, (New-Object System.Text.UTF8Encoding($false)))
+
+    $gameProfile = Get-Content $profileFile -Raw
+    $gameProfile = [regex]::Replace($gameProfile, '("PowerProfiles":\s*\{[^}]*?"0":\s*")[0-9a-fA-F-]{36}(",\s*"1":\s*")[0-9a-fA-F-]{36}(")',
+        "`${1}$defaultPowerGuid`${2}$defaultPowerGuid`${3}")
+    [System.IO.File]::WriteAllText($profileFile, $gameProfile, (New-Object System.Text.UTF8Encoding($false)))
+    Write-Host 'TDP-overstyring slått på i HCs Default-strømprofil, brukt på batteri og lader.'
+} else {
+    Write-Warning 'Fant ikke HCs Default-profiler; TDP − og + i GameHome virker ikke før de finnes.'
+}
 
 Write-Host 'Ferdig. Start Handheld Companion igjen.'
