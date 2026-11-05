@@ -13,6 +13,7 @@
 - Nøytrale prosjekter: `dotnet test --project tests/GameHome.Core.Tests` (virker på Mac og Linux).
 - Windows-app og MSIX: bare på Windows eller i CI (`.github/workflows/ci.yml`).
 - Advarsler er feil i CI (`CI=true`). Kjør med `CI=true` lokalt før push.
+- Legion Go: `scripts/Invoke-LegionGoTest.ps1` kjører røyktesten (`Test-LegionGo.ps1`) i skrivebordsøkten over SSH. Kjør den etter hver ny versjon før brukeren tester.
 - Release: tagg `vX.Y.Z` på `main` gir en GitHub-release med signert MSIX (`.github/workflows/release.yml`).
 
 ## Produktregler
