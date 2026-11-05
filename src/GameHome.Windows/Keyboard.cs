@@ -15,6 +15,8 @@ public static class Keyboard
     public const ushort Shift = 0x10;
     public const ushort Alt = 0x12;
     public const ushort S = 0x53;
+    public const ushort F7 = 0x76;
+    public const ushort F8 = 0x77;
     public const ushort F9 = 0x78;
     public const ushort F10 = 0x79;
 

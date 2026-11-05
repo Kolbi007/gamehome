@@ -19,6 +19,7 @@ public sealed partial class MainWindow
     /// <summary>Leser verdiene på nytt; kalles hver gang panelet vises.</summary>
     private async void FillQuickSettings()
     {
+        ShowTdp();
         ShowVolume(Volume.Get());
 
         _brightness = await Brightness.GetAsync();
@@ -27,6 +28,49 @@ public sealed partial class MainWindow
         var (wifi, bluetooth) = await Radios.GetAsync();
         ShowRadio(WifiToggle, "Wi-Fi", wifi);
         ShowRadio(BluetoothToggle, "Bluetooth", bluetooth);
+    }
+
+    // ---- TDP: fjernstyrt i Handheld Companion (ADR 0011) ----
+
+    private void ShowTdp()
+    {
+        var hcRunning = HandheldCompanionRunning();
+        var watts = HandheldCompanionTdp.Read();
+        TdpValue.Text = watts is { } w && hcRunning ? $"{w:0} W" : "–";
+        TdpDown.IsEnabled = TdpUp.IsEnabled = hcRunning && watts is not null;
+    }
+
+    private async void TdpStep_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string direction } button)
+        {
+            return;
+        }
+
+        var before = HandheldCompanionTdp.Read();
+        var chord = direction == "+" ? HandheldCompanionTdp.IncreaseChord : HandheldCompanionTdp.DecreaseChord;
+        var sent = await Keyboard.SendChordHeldAsync(TimeSpan.FromMilliseconds(60), chord);
+
+        // HC lagrer profilen når verdien er endret; vent litt på at filen viser den nye verdien.
+        var after = before;
+        for (var i = 0; i < 10 && after == before; i++)
+        {
+            await Task.Delay(100);
+            after = HandheldCompanionTdp.Read();
+        }
+
+        ShowTdp();
+        button.Focus(FocusState.Keyboard);
+        _log.Write("ytelse", !sent ? "TDP: Windows avslo tastetrykket"
+            : after != before ? $"TDP {(direction == "+" ? "opp" : "ned")} i Handheld Companion: {before:0} → {after:0} W"
+            : $"TDP {(direction == "+" ? "opp" : "ned")}: Handheld Companion endret ikke verdien ({before:0} W)");
+        if (sent && after == before)
+        {
+            PerformanceStatus.Text = after is null
+                ? "TDP styres i Handheld Companion. Kjør oppsettet (Set-HandheldCompanion.ps1) eller bruk knappen under."
+                : $"TDP er {after:0} W, som er grensen i Handheld Companion.";
+            PerformanceStatus.Visibility = Visibility.Visible;
+        }
     }
 
     private void ShowBrightness()

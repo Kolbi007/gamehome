@@ -110,7 +110,7 @@ try {
     Check ([bool]$hc) 'Handheld Companion kjører'
     $hotkeys = Get-ChildItem (Join-Path $env:LOCALAPPDATA 'HandheldCompanion\hotkeys') -Filter 'HOTKEY_USER*.json' -ErrorAction SilentlyContinue |
         ForEach-Object { (Get-Content $_.FullName -Raw | ConvertFrom-Json).Name } | Where-Object { $_ -like 'GameHome*' }
-    Check (@($hotkeys).Count -eq 3) "HC har GameHome-hurtigtastene ($(@($hotkeys) -join ', '))"
+    Check (@($hotkeys).Count -eq 5) "HC har GameHome-hurtigtastene ($(@($hotkeys) -join ', '))"
     Note "Skjerm før test: $originalMode"
 
     # Låst skjerm: hurtigtaster og forgrunn virker ikke, og testen ville startet et spill ingen ser.
@@ -185,6 +185,15 @@ try {
         PressId 'BluetoothToggle'
         Check (Wait-Until { (NameOf 'BluetoothToggle') -eq $bt } 6) "Bluetooth tilbake ($(NameOf 'BluetoothToggle'))"
     } else { Note "Bluetooth: «$bt»" }
+    # TDP: GameHome sender HCs hurtigtast, HC endrer verdien (ADR 0011). Én watt opp og tilbake.
+    $tdp = NameOf 'TdpValue'
+    if ($tdp -match '^(\d+) W$') {
+        $w = [int]$Matches[1]; $first = if ($w -ge 30) { 'TdpDown' } else { 'TdpUp' }; $second = if ($first -eq 'TdpUp') { 'TdpDown' } else { 'TdpUp' }
+        PressId $first
+        Check (Wait-Until { (NameOf 'TdpValue') -ne $tdp } 4) "TDP endres via Handheld Companion ($tdp → $(NameOf 'TdpValue'))"
+        PressId $second
+        Check (Wait-Until { (NameOf 'TdpValue') -eq $tdp } 4) "TDP tilbake ($(NameOf 'TdpValue'))"
+    } else { Fail "TDP vises ikke («$tdp»); er Set-HandheldCompanion.ps1 kjørt?" }
 
     [GhTest]::Chord(0x7B)
     Check (Wait-Until { -not (Find 'MenuAccountsButton') } 5) 'M2 en gang til lukker menyen'
@@ -246,7 +255,7 @@ $ghDuring = Get-Process GameHome; Note "GameHome under spill: $([int]($ghDuring.
     # ---- QuickTools (TDP) ----
     if ($hc -and ($b = Find 'QuickToolsButton')) {
         Press $b
-        Check (Wait-Until { [GhTest]::VisibleTitles($hc.Id) -match 'QuickTools' } 4) '«TDP, lysstyrke og mer» åpner QuickTools i HC'
+        Check (Wait-Until { [GhTest]::VisibleTitles($hc.Id) -match 'QuickTools' } 4) '«Mer i Handheld Companion» åpner QuickTools i HC'
         if ([GhTest]::VisibleTitles($hc.Id) -match 'QuickTools') {
             [GhTest]::Chord(0x78) # F9: lukker QuickTools igjen
             Start-Sleep 1
