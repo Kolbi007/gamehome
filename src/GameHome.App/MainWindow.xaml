@@ -124,6 +124,14 @@
                         <TextBlock Text="Installer fra Steam" />
                     </StackPanel>
                 </Button>
+                <!-- Steam-nedlasting som pågår (startet fra GameHome eller Steam): navn og prosent. -->
+                <Border x:Name="DownloadPill" Visibility="Collapsed" Height="48" Padding="18,0" CornerRadius="24" Background="{StaticResource GhSurfaceBrush}">
+                    <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                        <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE896;" FontSize="14" />
+                        <TextBlock x:Name="DownloadText" FontSize="{StaticResource GhSizeCaption}" VerticalAlignment="Center" />
+                        <ProgressBar x:Name="DownloadProgress" Width="90" Maximum="100" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Border>
                 <Button x:Name="DebugTile" Click="DebugTile_Click" Visibility="Collapsed" Height="48" Padding="18,0" FontSize="{StaticResource GhSizeCaption}" CornerRadius="24">
                     <StackPanel Orientation="Horizontal" Spacing="10">
                         <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xEBE8;" FontSize="14" />
@@ -149,12 +157,16 @@
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <TextBlock x:Name="LibraryHeading" Text="Bibliotek" FontFamily="{StaticResource GhFontDisplay}" FontSize="{StaticResource GhSizeTitle}"
-                           FontWeight="SemiBold" Foreground="{StaticResource GhTextPrimaryBrush}" VerticalAlignment="Center" />
-                <Button x:Name="LibrarySortButton" Grid.Column="1" Click="LibrarySortButton_Click" Height="48" Padding="18,0" CornerRadius="24"
+                           FontWeight="SemiBold" Foreground="{StaticResource GhTextPrimaryBrush}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                <!-- Søk: filtrerer mens du skriver. View-knappen (⧉) åpner det; skjermtastaturet vises også med kontroller. -->
+                <TextBox x:Name="LibrarySearchBox" Grid.Column="1" Width="260" Height="48" VerticalContentAlignment="Center" FontSize="{StaticResource GhSizeCaption}"
+                         PlaceholderText="Søk i biblioteket" TextChanged="LibrarySearchBox_TextChanged" KeyDown="LibrarySearchBox_KeyDown" CornerRadius="24" Padding="18,12,18,0" />
+                <Button x:Name="LibrarySortButton" Grid.Column="2" Click="LibrarySortButton_Click" Height="48" Padding="18,0" CornerRadius="24"
                         FontSize="{StaticResource GhSizeCaption}" ToolTipService.ToolTip="Sortering (X)" />
-                <Button x:Name="LibraryCloseButton" Grid.Column="2" Content="Tilbake" Click="LibraryCloseButton_Click" Height="48" Padding="18,0"
+                <Button x:Name="LibraryCloseButton" Grid.Column="3" Content="Tilbake" Click="LibraryCloseButton_Click" Height="48" Padding="18,0"
                         CornerRadius="24" FontSize="{StaticResource GhSizeCaption}" />
             </Grid>
             <ScrollViewer Grid.Row="1" HorizontalScrollMode="Enabled" HorizontalScrollBarVisibility="Hidden" VerticalScrollMode="Disabled">
@@ -163,7 +175,7 @@
             <ScrollViewer x:Name="LibraryScroll" Grid.Row="2" VerticalScrollBarVisibility="Hidden" Padding="8" Margin="-8,0">
                 <VariableSizedWrapGrid x:Name="LibraryGrid" Orientation="Horizontal" ItemWidth="252" ItemHeight="150" />
             </ScrollViewer>
-            <TextBlock Grid.Row="3" Text="A Spill · Y Om spillet · ☰ Valg og fest i Home · X Sortering · LB/RB Bytt fane · B Tilbake"
+            <TextBlock Grid.Row="3" Text="A Spill · Y Om spillet · ☰ Valg og fest i Home · X Sortering · ⧉ Søk · LB/RB Fane · LT/RT Bla · B Tilbake"
                        FontSize="{StaticResource GhSizeSmall}" Foreground="{StaticResource GhTextTertiaryBrush}" />
         </Grid>
 
@@ -300,9 +312,17 @@
                         <TextBlock x:Name="MenuUpdateHint" FontSize="13" />
                     </StackPanel>
                 </Button>
+                <Button x:Name="MenuStartHcButton" Click="MenuStartHcButton_Click" HorizontalAlignment="Stretch" Height="64" Visibility="Collapsed">
+                    <StackPanel Spacing="2">
+                        <TextBlock Text="Start Handheld Companion" FontSize="19" />
+                        <TextBlock Text="Kjører ikke: M2, Legion-knappene og TDP virker ikke" FontSize="13" Foreground="#FCC23D" />
+                    </StackPanel>
+                </Button>
                 <Button x:Name="MenuArtButton" Content="Hent manglende bilder og info" Click="MenuArtButton_Click" HorizontalAlignment="Stretch" Height="56" FontSize="18" />
                 <Button x:Name="MenuAddGameButton" Content="Legg til spill" Click="MenuAddGameButton_Click" HorizontalAlignment="Stretch" Height="56" FontSize="18" />
                 <Button x:Name="MenuDebugButton" Content="Feilsøking" Click="MenuDebugButton_Click" HorizontalAlignment="Stretch" Height="56" FontSize="18" />
+                <Button x:Name="MenuRestoreScreenButton" Content="Gjenopprett skjermen på gaming-PC-en" Click="RestorePcScreen_Click" HorizontalAlignment="Stretch" Height="48" FontSize="16" Visibility="Collapsed"
+                        ToolTipService.ToolTip="Hvis skjermen på PC-en er svart etter strømming: fjerner Vibepollos virtuelle skjerm" />
                 <TextBlock x:Name="HomeMenuStatus" FontSize="14" Foreground="#C8CDD3" TextWrapping="Wrap" Visibility="Collapsed" />
                 <Grid ColumnSpacing="12" Margin="0,8,0,0">
                     <Grid.ColumnDefinitions>
@@ -345,6 +365,8 @@
                                     ToolTipService.ToolTip="Viser eller skjuler oppgavelinjen og ikonene på gaming-PC-en" />
                             <Button x:Name="DebugStatusButton" Content="Status fra PC-en" Click="DebugStatusButton_Click" HorizontalAlignment="Stretch" Height="48" FontSize="16"
                                     ToolTipService.ToolTip="Hva Vibepollo på gaming-PC-en melder" />
+                            <Button x:Name="DebugRestoreScreenButton" Content="Gjenopprett PC-skjermen" Click="RestorePcScreen_Click" HorizontalAlignment="Stretch" Height="48" FontSize="16"
+                                    ToolTipService.ToolTip="Fjerner Vibepollos virtuelle skjerm; strømmen mister bildet" />
                             <TextBlock x:Name="DebugStatusText" FontSize="14" Foreground="#C8CDD3" TextWrapping="Wrap" Visibility="Collapsed" />
                         </StackPanel>
                     </StackPanel>

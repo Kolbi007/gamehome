@@ -170,6 +170,11 @@ public sealed partial class MainWindow : Window
 
         _hotkeys = new HotkeyListener(WinRT.Interop.WindowNative.GetWindowHandle(this));
         _hotkeys.Pressed += OnSessionHotkey;
+        _hotkeys.DisplayPowerChanged += OnDisplayPowerChanged;
+        if (!_hotkeys.WatchDisplayPower())
+        {
+            _log.Write("dvale", "Fikk ikke beskjed om skjerm av/på (dvale) fra Windows");
+        }
         RegisterHomeHotkey();
         _hotkeys.Failed += (_, message) => _log.Write("krasj", $"Fanget i kall fra Windows: {message}");
 
@@ -187,6 +192,7 @@ public sealed partial class MainWindow : Window
         ShowSteamCloseSetting();
         ShowSteamLibraryTile();
         BuildGameTiles();
+        RefreshHero(force: false); // Hovedfeltet viser et spill før noen flis har fått fokus.
 
         // Pakkeversjonen er den som installeres og oppgraderes (0.1.N.0); assembly-versjonen er alltid 1.0.0.0.
         var version = global::Windows.ApplicationModel.Package.Current.Id.Version;
@@ -513,13 +519,7 @@ public sealed partial class MainWindow : Window
             return; // Bakgrunnen bak Home synes ikke mens biblioteket er åpent.
         }
 
-        var hero = ArtFor(game).Hero is { } heroFile && File.Exists(heroFile) ? heroFile : null;
-        var backdrop = hero ?? image;
-        if (!string.Equals(_ambientPath, backdrop, StringComparison.OrdinalIgnoreCase))
-        {
-            _ambientPath = backdrop;
-            _ = LoadAmbientAsync(backdrop, sharp: hero is not null);
-        }
+        ShowAmbientFor(game);
     }
 
     private static void OnTileUnfocused(Button tile)
@@ -1412,7 +1412,8 @@ public sealed partial class MainWindow : Window
                 {
                     using var _ = Process.Start(new ProcessStartInfo($"steam://install/{owned.AppId.ToString(CultureInfo.InvariantCulture)}") { UseShellExecute = true });
                     _log.Write("steam", $"Installasjon av «{name}» (appid {owned.AppId}) startet i Steam");
-                    FindStatus.Text = $"Steam viser installasjonen av «{name}». Når den er ferdig, dukker spillet opp i Home.";
+                    FindStatus.Text = $"Bekreft i Steam-vinduet. Fremdriften vises i Home, og spillet dukker opp når det er ferdig.";
+                    StartDownloadTimer();
                 }
                 catch (System.ComponentModel.Win32Exception ex)
                 {
@@ -2632,12 +2633,14 @@ public sealed partial class MainWindow : Window
 
         try
         {
+            ApplyGameDisplay(game);
             _session = (IForegroundSession)await runner.LaunchAsync(action, Profile.Default, CancellationToken.None);
             _sessionRunnerId = action.RunnerId;
         }
         catch (LaunchException ex)
         {
             HideLoading("start feilet");
+            RestoreDisplayAfterGame();
             _log.Write("økt", $"Kunne ikke starte «{title}»: {ex.Failure}: {ex.Message}");
             if (ex.Failure == LaunchFailure.FileMissing)
             {
@@ -2696,6 +2699,7 @@ public sealed partial class MainWindow : Window
 
         _hotkeys.UnregisterAll();
         RegisterHomeHotkey();
+        RestoreDisplayAfterGame();
         HideLoading("økten avsluttet");
         var game = _sessionGame;
         var title = game is null ? "spillet" : GameLibrary.DisplayTitle(game);
@@ -2979,6 +2983,7 @@ public sealed partial class MainWindow : Window
     private void SyncSteamInBackground()
     {
         _ = CheckForUpdateAsync(manual: false);
+        CheckDownloads();
         SyncStoresInBackground();
     }
 
@@ -3628,11 +3633,27 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        var before = Display.Current();
         var error = Display.Apply(target);
         var text = string.Create(CultureInfo.InvariantCulture, $"{target.Width}×{target.Height} {target.Hz} Hz");
         _log.Write("ytelse", error is null ? $"Skjerm satt til {text}" : $"Skjerm {text}: {error}");
-        PerformanceStatus.Text = error ?? $"Skjermen er satt til {text}";
+        var remembered = error is null && SessionActive && _sessionGame is not null;
+        if (remembered)
+        {
+            // Valget gjelder dette spillet: huskes til neste start, og skjermen går tilbake når spillet avsluttes.
+            _displayBeforeGame ??= before;
+            SaveDisplay(_sessionGame!, target);
+        }
+
+        PerformanceStatus.Text = error ?? (remembered
+            ? $"{text} · huskes for {GameLibrary.DisplayTitle(_sessionGame!)}"
+            : $"Skjermen er satt til {text}");
         PerformanceStatus.Visibility = Visibility.Visible;
+        if (error is null)
+        {
+            RefreshHeroAfterDisplayChange();
+        }
+
         FillPerformance();
         FocusPerformance(target);
 
@@ -4359,6 +4380,26 @@ public sealed partial class MainWindow : Window
                 };
                 Grid.SetColumn(fix, 1);
                 grid.Children.Add(fix);
+            }
+            else if (notice.Key is "hc" or "update")
+            {
+                // Varsler som gjelder hele GameHome: knappen gjør det varselet ber om.
+                var action = new Button { Content = notice.Key == "hc" ? "Start" : "Oppdater", Height = 52, Padding = new Thickness(18, 0, 18, 0), VerticalAlignment = VerticalAlignment.Center };
+                var key = notice.Key;
+                action.Click += (_, _) =>
+                {
+                    CloseNotices(focusHome: false);
+                    if (key == "hc")
+                    {
+                        StartHandheldCompanion();
+                    }
+                    else
+                    {
+                        ShowMenu("varsel");
+                    }
+                };
+                Grid.SetColumn(action, 1);
+                grid.Children.Add(action);
             }
 
             NoticeList.Children.Add(new Border
@@ -5141,6 +5182,16 @@ public sealed partial class MainWindow : Window
         _gamepadTimer.Interval = TimeSpan.FromMilliseconds(16);
         _gamepadTimer.Start();
         _log.Write("fokus", $"Fikk fokus ({args.WindowActivationState})");
+        if (SessionPanel.Visibility != Visibility.Visible && Root.XamlRoot is { } activeRoot
+            && FocusManager.GetFocusedElement(activeRoot) is not Button { Tag: string })
+        {
+            RefreshHero(force: false); // Ingen flis har fokus (for eksempel etter låst skjerm): hovedfeltet skal ikke stå tomt.
+        }
+
+        if (!SessionActive)
+        {
+            CheckHandheldCompanion();
+        }
     }
 
     private static GamepadReading Combined(IReadOnlyList<Gamepad> gamepads)
@@ -5269,6 +5320,20 @@ public sealed partial class MainWindow : Window
             {
                 MenuSounds.Move();
                 NextLibrarySort();
+                return;
+            }
+
+            if (pressed.HasFlag(GamepadButtons.View))
+            {
+                MenuSounds.Select();
+                OpenLibrarySearch();
+                return;
+            }
+
+            if (leftTriggerPressed || rightTriggerPressed)
+            {
+                MenuSounds.Move();
+                PageLibrary(rightTriggerPressed ? 1 : -1);
                 return;
             }
         }

@@ -269,6 +269,15 @@ try {
         Start-Sleep 1
         $sortAfter = (Find 'LibrarySortButton').Current.Name
         Check ($sortAfter -ne $sortBefore) "Sortering byttes («$sortBefore» → «$sortAfter»)"
+        # Søk: «mario» skal gi bare Super Mario World (hvis det finnes i biblioteket).
+        if ($box = Find 'LibrarySearchBox') {
+            $box.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('mario')
+            Start-Sleep 1
+            $hits = @(ActiveGameTiles | ForEach-Object { $_.Current.Name })
+            Check ($hits.Count -ge 1 -and @($hits | Where-Object { $_ -notmatch 'mario' }).Count -eq 0) "Søk «mario» gir $($hits.Count) treff ($($hits -join ', '))"
+            $box.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('')
+            Start-Sleep 1
+        } else { Fail 'Fant ikke søkefeltet i biblioteket' }
         # Tilbake slik brukeren hadde det: sorteringen går rundt (fire valg), og «Alle» velges igjen.
         foreach ($i in 1..3) { Press (Find 'LibrarySortButton'); Start-Sleep -Milliseconds 400 }
         if ($allTab -and ($b = FindByName ($tabs | Where-Object { $_ -like 'Alle (*' } | Select-Object -First 1))) { Press $b; Start-Sleep 1 }

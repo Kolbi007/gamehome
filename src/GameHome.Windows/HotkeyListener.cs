@@ -45,6 +45,16 @@ public sealed class HotkeyListener
     /// <summary>Feil som ble fanget i kallene fra Windows (for loggen).</summary>
     public event EventHandler<string>? Failed;
 
+    /// <summary>Skjermen slås av (false) eller på (true). På Legion Go (Modern Standby) er det dvale og oppvåkning.</summary>
+    public event EventHandler<bool>? DisplayPowerChanged;
+
+    private static readonly Guid ConsoleDisplayState = new("6FE69556-704A-47A0-8F24-C28D936FDA47"); // GUID_CONSOLE_DISPLAY_STATE
+    private bool? _displayOn;
+
+    /// <summary>Ber Windows om beskjed når skjermen slås av og på (RegisterPowerSettingNotification, dokumentert).</summary>
+    public bool WatchDisplayPower() =>
+        NativeMethods.RegisterPowerSettingNotification(_window, in ConsoleDisplayState, 0 /* DEVICE_NOTIFY_WINDOW_HANDLE */) != 0;
+
     /// <summary>Om reserven (tastaturkroken) er aktiv.</summary>
     public bool HookActive => _hook != 0;
 
@@ -115,10 +125,33 @@ public sealed class HotkeyListener
         }
     }
 
+
+    // POWERBROADCAST_SETTING: GUID (16 byte), DataLength (4), Data (her en DWORD: 0 av, 1 på, 2 dempet).
+    private unsafe void OnPowerSetting(nint setting)
+    {
+        if (setting == 0 || *(Guid*)setting != ConsoleDisplayState || *(uint*)(setting + 16) < 4)
+        {
+            return;
+        }
+
+        var on = *(uint*)(setting + 20) != 0;
+        if (_displayOn != on)
+        {
+            _displayOn = on;
+            DisplayPowerChanged?.Invoke(this, on);
+        }
+    }
+
     private static nint SubclassCore(nint hwnd, uint message, nint wParam, nint lParam)
     {
         if (s_current is not { } listener)
         {
+            return NativeMethods.DefSubclassProc(hwnd, message, wParam, lParam);
+        }
+
+        if (message == 0x0218 && wParam == 0x8013) // WM_POWERBROADCAST, PBT_POWERSETTINGCHANGE
+        {
+            listener.OnPowerSetting(lParam);
             return NativeMethods.DefSubclassProc(hwnd, message, wParam, lParam);
         }
 
@@ -226,4 +259,10 @@ public sealed class HotkeyListener
 
         return NativeMethods.CallNextHookEx(0, code, wParam, lParam);
     }
+}
+
+internal static partial class NativeMethods
+{
+    [LibraryImport("user32.dll", SetLastError = true)]
+    internal static partial nint RegisterPowerSettingNotification(nint recipient, in Guid powerSetting, uint flags);
 }

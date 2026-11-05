@@ -29,9 +29,15 @@ public sealed partial class MainWindow
         HomeMenuCard.Visibility = Visibility.Visible;
         StreamDebugPanel.Visibility = Visibility.Collapsed;
         SessionHero.Source = null;
+        if (FeaturedGame(out _) is { } featured && ArtFor(featured).Hero is { } hero && File.Exists(hero))
+        {
+            _ = LoadTileImageAsync(SessionHero, hero, 1280); // Et spill i bakgrunnen, så menyen ikke står tom.
+        }
         SessionLogo.Source = null;
         HomeMenuStatus.Visibility = Visibility.Collapsed;
         HomeMenuDetail.Text = $"{_library.VisibleGames.Count} spill · ingen spill kjører";
+        CheckHandheldCompanion();
+        MenuRestoreScreenButton.Visibility = Vibepollo is null ? Visibility.Collapsed : Visibility.Visible;
         var missing = AccountStatuses().Count(a => !a.Ok);
         MenuAccountsHint.Text = missing == 0 ? "Alt er koblet til" : $"{missing} mangler eller er av";
         BatteryText.Text = BatteryLine();
@@ -44,6 +50,66 @@ public sealed partial class MainWindow
         _log.Write("meny", $"GameHome-menyen vist via {via}");
     }
 
+
+    private const string HandheldCompanionExe = @"C:\Program Files\Handheld Companion\HandheldCompanion.exe";
+
+    private static bool HandheldCompanionRunning()
+    {
+        var processes = Process.GetProcessesByName("HandheldCompanion");
+        foreach (var p in processes)
+        {
+            p.Dispose();
+        }
+
+        return processes.Length > 0;
+    }
+
+    /// <summary>
+    /// Handheld Companion kan krasje (målt 2026-11-05: minnefeil i HC under skjermbytte). Da virker verken M2 eller
+    /// Legion-knappene, så Home varsler og GameHome-menyen får en knapp som starter den igjen.
+    /// </summary>
+    private void CheckHandheldCompanion()
+    {
+        if (!File.Exists(HandheldCompanionExe))
+        {
+            return;
+        }
+
+        var running = HandheldCompanionRunning();
+        MenuStartHcButton.Visibility = running ? Visibility.Collapsed : Visibility.Visible;
+        if (running)
+        {
+            if (_notices.RemoveAll(n => n.Key == "hc") > 0)
+            {
+                UpdateNoticeButton();
+            }
+        }
+        else if (!_notices.Any(n => n.Key == "hc"))
+        {
+            AddNotice("hc", null, "Handheld Companion kjører ikke, så M2, Legion-knappene og TDP virker ikke.");
+            _log.Write("meny", "Handheld Companion kjører ikke");
+        }
+    }
+
+    private void MenuStartHcButton_Click(object sender, RoutedEventArgs e) => StartHandheldCompanion();
+
+    private void StartHandheldCompanion()
+    {
+        try
+        {
+            // HC krever administrator; Windows spør om lov.
+            using var _ = Process.Start(new ProcessStartInfo(HandheldCompanionExe) { UseShellExecute = true });
+            HomeMenuStatus.Text = "Starter Handheld Companion. Trykk «Ja» hvis Windows spør.";
+            _log.Write("meny", "Handheld Companion startet fra menyen");
+        }
+        catch (System.ComponentModel.Win32Exception ex)
+        {
+            HomeMenuStatus.Text = $"Handheld Companion startet ikke: {ex.Message}";
+        }
+
+        HomeMenuStatus.Visibility = Visibility.Visible;
+    }
+
     private sealed record AccountStatus(string Name, bool Ok, string Detail);
 
     /// <summary>Status for alt GameHome henter fra eller styrer. Leses lokalt; ingen nettverkskall.</summary>
@@ -52,12 +118,7 @@ public sealed partial class MainWindow
         var hosts = MoonlightClient.FindHosts();
         var consoles = Chiaki.RegisteredConsoles();
         var retro = RetroArch.FindExe() is null ? 0 : Sources.Retro.RetroLibrary.Systems.Count(s => RetroArch.CorePath(s) is not null);
-        var handheldCompanion = Process.GetProcessesByName("HandheldCompanion");
-        var hcRunning = handheldCompanion.Length > 0;
-        foreach (var p in handheldCompanion)
-        {
-            p.Dispose();
-        }
+        var hcRunning = HandheldCompanionRunning();
 
         return
         [
@@ -104,6 +165,52 @@ public sealed partial class MainWindow
         AccountsPanel.Visibility = Visibility.Visible;
         AccountsCloseButton.Focus(FocusState.Keyboard);
         _log.Write("meny", "Kontoer og kilder vist");
+    }
+
+
+    /// <summary>
+    /// Svart PC-skjerm etter strømming (Vibepollo slapp ikke den virtuelle skjermen, 2026-11-05): ber Vibepollo fjerne
+    /// virtuelle skjermer. Under strømming mister strømmen bildet, så da spørres det først.
+    /// </summary>
+    private void RestorePcScreen_Click(object sender, RoutedEventArgs e)
+    {
+        if (_session is StreamSession)
+        {
+            SessionPanel.Visibility = Visibility.Collapsed;
+            ShowMessage($"Gjenopprette skjermen på {HostLabel}?", "Strømmen mister bildet. Bruk dette hvis PC-skjermen er svart eller strømmen henger.",
+                "Gjenopprett", () => _ = RestorePcScreenAsync(), "Avbryt", () => ShowSessionPanel("avbrutt"));
+            return;
+        }
+
+        _ = RestorePcScreenAsync();
+    }
+
+    private async Task RestorePcScreenAsync()
+    {
+        if (Vibepollo is not { } api)
+        {
+            return;
+        }
+
+        void Show(string text)
+        {
+            HomeMenuStatus.Text = text;
+            HomeMenuStatus.Visibility = Visibility.Visible;
+            LastInput.Text = text;
+        }
+
+        Show($"Gjenoppretter skjermen på {HostLabel} …");
+        try
+        {
+            var ok = await api.TerminateVirtualDisplayAsync();
+            Show(ok ? $"Skjermen på {HostLabel} er gjenopprettet." : "Vibepollo-nøkkelen mangler tilgang til dette. Den må fornyes med tilgang til skjermgjenoppretting.");
+            _log.Write("vibepollo", ok ? "Virtuell skjerm fjernet; PC-skjermen gjenopprettet" : "Gjenoppretting av skjerm: nøkkelen mangler tilgang");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            Show($"{HostLabel} svarte ikke: {ex.Message}");
+            _log.Write("vibepollo", $"Gjenoppretting av skjerm feilet: {ex.Message}");
+        }
     }
 
     private void AccountsCloseButton_Click(object sender, RoutedEventArgs e) => CloseAccounts();

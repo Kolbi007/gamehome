@@ -110,6 +110,26 @@ public sealed class VibepolloClient : IDisposable
         return response.IsSuccessStatusCode;
     }
 
+    /// <summary>
+    /// Fjerner Vibepollos virtuelle skjermer og gjenoppretter PC-ens vanlige skjerm (samme som «Terminate virtual screen» i
+    /// Vibepollo). Krever at nøkkelen har tilgang til <c>POST /api/display/terminate_virtual</c>.
+    /// </summary>
+    /// <returns>true ved suksess, false hvis nøkkelen mangler tilgang (401/403); kaster ved andre feil.</returns>
+    public async Task<bool> TerminateVirtualDisplayAsync(CancellationToken ct = default)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(20));
+        using var content = new StringContent("{}", System.Text.Encoding.UTF8, "application/json");
+        using var response = await _http.PostAsync(new Uri("api/display/terminate_virtual", UriKind.Relative), content, timeout.Token).ConfigureAwait(false);
+        if (response.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)
+        {
+            return false;
+        }
+
+        response.EnsureSuccessStatusCode();
+        return true;
+    }
+
     /// <summary>Vanlige kall: høyst 8 s, så en PC som ikke svarer aldri holder Home igjen.</summary>
     private static CancellationTokenSource Short(CancellationToken ct)
     {
