@@ -88,6 +88,7 @@ public sealed class LocalProcessSession : IForegroundSession
     private readonly HashSet<int> _before;
     private readonly Timer _search;
     private Process _process;
+    private volatile bool _disposed;
     private Process? _game;
     private bool _closeRequested;
 
@@ -214,6 +215,7 @@ public sealed class LocalProcessSession : IForegroundSession
 
     public void Dispose()
     {
+        _disposed = true;
         _search.Dispose();
         _game?.Dispose();
         _process.Dispose();
@@ -224,6 +226,24 @@ public sealed class LocalProcessSession : IForegroundSession
     /// Bare prosesser som ikke fantes ved start, undersøkes.
     /// </summary>
     private void SearchForGame()
+    {
+        // Tidtakeren kan fyre én gang til mens økten ryddes bort; da er oppstarterens Process lukket, og et oppslag på den
+        // kastet et ubehandlet unntak som tok ned GameHome (0.1.122.0, funnet av røyktesten).
+        if (_disposed)
+        {
+            return;
+        }
+
+        try
+        {
+            SearchForGameCore();
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException && _disposed)
+        {
+        }
+    }
+
+    private void SearchForGameCore()
     {
         if (_game is not null || _completion.Task.IsCompleted || DateTime.UtcNow - _started > GameSearchWindow)
         {
