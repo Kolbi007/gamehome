@@ -68,6 +68,7 @@ public sealed partial class MainWindow
         if (error is null)
         {
             _displayBeforeGame ??= current;
+            RefreshHeroAfterDisplayChange();
             _log.Write("ytelse", $"Skjerm for «{GameLibrary.DisplayTitle(game)}»: {text}");
         }
         else
@@ -86,6 +87,7 @@ public sealed partial class MainWindow
 
         _displayBeforeGame = null;
         var error = Display.Apply(before);
+        RefreshHeroAfterDisplayChange();
         _log.Write("ytelse", error is null
             ? string.Create(CultureInfo.InvariantCulture, $"Skjerm tilbake til {before.Width}×{before.Height} {before.Hz} Hz")
             : $"Skjermen kunne ikke settes tilbake: {error}");

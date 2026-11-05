@@ -187,6 +187,7 @@ public sealed partial class MainWindow : Window
         ShowSteamCloseSetting();
         ShowSteamLibraryTile();
         BuildGameTiles();
+        RefreshHero(force: false); // Hovedfeltet viser et spill før noen flis har fått fokus.
 
         // Pakkeversjonen er den som installeres og oppgraderes (0.1.N.0); assembly-versjonen er alltid 1.0.0.0.
         var version = global::Windows.ApplicationModel.Package.Current.Id.Version;
@@ -513,13 +514,7 @@ public sealed partial class MainWindow : Window
             return; // Bakgrunnen bak Home synes ikke mens biblioteket er åpent.
         }
 
-        var hero = ArtFor(game).Hero is { } heroFile && File.Exists(heroFile) ? heroFile : null;
-        var backdrop = hero ?? image;
-        if (!string.Equals(_ambientPath, backdrop, StringComparison.OrdinalIgnoreCase))
-        {
-            _ambientPath = backdrop;
-            _ = LoadAmbientAsync(backdrop, sharp: hero is not null);
-        }
+        ShowAmbientFor(game);
     }
 
     private static void OnTileUnfocused(Button tile)
@@ -3649,6 +3644,11 @@ public sealed partial class MainWindow : Window
             ? $"{text} · huskes for {GameLibrary.DisplayTitle(_sessionGame!)}"
             : $"Skjermen er satt til {text}");
         PerformanceStatus.Visibility = Visibility.Visible;
+        if (error is null)
+        {
+            RefreshHeroAfterDisplayChange();
+        }
+
         FillPerformance();
         FocusPerformance(target);
 
@@ -5157,6 +5157,11 @@ public sealed partial class MainWindow : Window
         _gamepadTimer.Interval = TimeSpan.FromMilliseconds(16);
         _gamepadTimer.Start();
         _log.Write("fokus", $"Fikk fokus ({args.WindowActivationState})");
+        if (SessionPanel.Visibility != Visibility.Visible && Root.XamlRoot is { } activeRoot
+            && FocusManager.GetFocusedElement(activeRoot) is not Button { Tag: string })
+        {
+            RefreshHero(force: false); // Ingen flis har fokus (for eksempel etter låst skjerm): hovedfeltet skal ikke stå tomt.
+        }
     }
 
     private static GamepadReading Combined(IReadOnlyList<Gamepad> gamepads)
