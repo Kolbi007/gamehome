@@ -60,15 +60,8 @@ public sealed partial class MainWindow
         _ownedGames is { } owned && owned.All(o => o.AppId != app.AppId);
 
     /// <summary>Visningsmodus: viser et Steam-spill som ikke er installert. A installerer det.</summary>
-    private bool ShowAttractSuggestion()
+    private void ShowAttractSuggestion(SteamLibraryApp app)
     {
-        var candidates = NotInstalledSteamGames().Where(a => a.Hero is not null).ToList();
-        if (candidates.Count == 0)
-        {
-            return false;
-        }
-
-        var app = candidates[Random.Shared.Next(candidates.Count)];
         _attractSuggestion = app;
         _heroGameId = null;
         _heroLogoPath = app.Logo;
@@ -86,8 +79,6 @@ public sealed partial class MainWindow
             _ambientPath = hero;
             _ = LoadAmbientAsync(hero, sharp: true);
         }
-
-        return true;
     }
 
     /// <summary>A på et forslag i visningsmodus: Steam viser installasjonen, fremdriften kommer i Home.</summary>
