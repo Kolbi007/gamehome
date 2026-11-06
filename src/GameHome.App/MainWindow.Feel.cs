@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (c) 2026 The GameHome contributors
 
+using System.Globalization;
 using GameHome.Core.Library;
 using GameHome.Core.Model;
+using GameHome.Sources.Steam;
 using GameHome.Windows;
 using Microsoft.UI;
 using Microsoft.UI.Dispatching;
@@ -147,8 +149,11 @@ public sealed partial class MainWindow
 
     // ---- Visningsmodus ----
 
-    private static readonly TimeSpan AttractAfter = TimeSpan.FromSeconds(45);
-    private static readonly TimeSpan AttractEvery = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan AttractAfter = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan AttractEvery = TimeSpan.FromSeconds(10);
+
+    /// <summary>Lysbildene i blandet rekkefølge: installerte spill (Game) og Steam-spill som ikke er installert (SteamLibraryApp).</summary>
+    private readonly Queue<object> _attractDeck = new();
     private DateTime _lastUserInput = DateTime.UtcNow;
     private DateTime _lastAttractSwitch = DateTime.MinValue;
     private DispatcherQueueTimer? _attractTimer;
@@ -186,7 +191,7 @@ public sealed partial class MainWindow
         if (_attractTimer is null)
         {
             _attractTimer = DispatcherQueue.CreateTimer();
-            _attractTimer.Interval = TimeSpan.FromSeconds(5);
+            _attractTimer.Interval = TimeSpan.FromSeconds(2); // Billig sjekk; gir bytte hvert 10.–12. sekund.
             _attractTimer.Tick += (_, _) => AttractTick();
         }
 
@@ -196,7 +201,11 @@ public sealed partial class MainWindow
 
     private void StopAttractTimer() => _attractTimer?.Stop();
 
-    /// <summary>Etter 45 s uten input i Home: hovedfeltet viser et annet spill hvert 20. sekund, med en kort grunn.</summary>
+    /// <summary>
+    /// Lysbildeserie: etter 30 s uten input i Home viser hovedfeltet et nytt spill hvert 10. sekund. Alle spillene i
+    /// biblioteket og Steam-spillene du har, men ikke har installert, vises i blandet rekkefølge, hvert spill én gang
+    /// før rekken begynner på nytt. Bare bilder som allerede ligger på disken brukes (ingen nedlasting).
+    /// </summary>
     private void AttractTick()
     {
         if (SessionActive || AnyOverlayOpen || DateTime.UtcNow - _lastUserInput < AttractAfter
@@ -205,28 +214,48 @@ public sealed partial class MainWindow
             return;
         }
 
-        StopTrailer();
-        // Hver tredje gang: et Steam-spill du har (eid eller familiedelt), men ikke har installert.
-        if (Random.Shared.Next(3) == 0 && ShowAttractSuggestion())
+        if (_attractDeck.Count == 0)
         {
-            _attracting = true;
-            _lastAttractSwitch = DateTime.UtcNow;
-            return;
+            FillAttractDeck();
         }
 
-        _attractSuggestion = null;
-        var candidates = _library.VisibleGames.Where(g => g.Id != _heroGameId && ArtFor(g).Hero is { } hero && File.Exists(hero)).ToList();
-        if (candidates.Count == 0)
+        while (_attractDeck.TryDequeue(out var next))
         {
-            return;
+            if (next is Game game && game.Id != _heroGameId && ArtFor(game).Hero is { } hero && File.Exists(hero))
+            {
+                StopTrailer();
+                _attractSuggestion = null;
+                _attracting = true;
+                _lastAttractSwitch = DateTime.UtcNow;
+                UpdateHero(game);
+                HeroFacts.Text = $"{AttractReason(game)} · {HeroFacts.Text}";
+                ShowAmbientFor(game);
+                return;
+            }
+
+            if (next is SteamLibraryApp app && app.Hero is { } appHero && File.Exists(appHero))
+            {
+                StopTrailer();
+                ShowAttractSuggestion(app);
+                _attracting = true;
+                _lastAttractSwitch = DateTime.UtcNow;
+                return;
+            }
+        }
+    }
+
+    private void FillAttractDeck()
+    {
+        var slides = new List<object>();
+        slides.AddRange(_library.VisibleGames);
+        slides.AddRange(NotInstalledSteamGames().Where(a => a.Hero is not null));
+        Random.Shared.Shuffle(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(slides));
+        foreach (var slide in slides)
+        {
+            _attractDeck.Enqueue(slide);
         }
 
-        var game = candidates[Random.Shared.Next(candidates.Count)];
-        _attracting = true;
-        _lastAttractSwitch = DateTime.UtcNow;
-        UpdateHero(game);
-        HeroFacts.Text = $"{AttractReason(game)} · {HeroFacts.Text}";
-        ShowAmbientFor(game);
+        _log.Write("visning", string.Create(CultureInfo.InvariantCulture, $"Lysbildeserie: {slides.Count} spill i ny rekkefølge"));
     }
 
     private string AttractReason(Game game)

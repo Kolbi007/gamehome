@@ -3458,6 +3458,16 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        // M2 en gang til mens menyen vises over spillet: tilbake til spillet, som «Tilbake til spillet» (2026-11-05: M2 åpnet
+        // menyen på nytt i stedet). Et kort vindu etter at menyen ble vist hindrer at et dobbelt signal lukker den med en gang.
+        if (SessionActive && SessionPanel.Visibility == Visibility.Visible && _windowActive
+            && DateTime.UtcNow - _sessionPanelShown > TimeSpan.FromMilliseconds(400))
+        {
+            _log.Write("hurtigtast", $"Mottatt: {name}; tilbake til spillet");
+            ResumeButton_Click(this, new RoutedEventArgs());
+            return;
+        }
+
         _log.Write("hurtigtast", $"Mottatt: {name}");
         HideLoading("M2");
         Activate();
@@ -3480,6 +3490,8 @@ public sealed partial class MainWindow : Window
 
         ShowMenu($"hurtigtast {name}");
     }
+
+    private DateTime _sessionPanelShown = DateTime.MinValue;
 
     private void ShowSessionPanel(string via)
     {
@@ -3515,6 +3527,7 @@ public sealed partial class MainWindow : Window
         FillQuickSettings();
         PerformanceStatus.Visibility = Visibility.Collapsed;
         SessionPanel.Visibility = Visibility.Visible;
+        _sessionPanelShown = DateTime.UtcNow;
         SetHomeEnabled(false);
         ResumeButton.Focus(FocusState.Keyboard);
         _log.Write("økt", $"«Kjører nå» vist via {via}");

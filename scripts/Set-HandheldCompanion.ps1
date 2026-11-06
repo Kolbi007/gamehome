@@ -2,7 +2,7 @@
 # Copyright (c) 2026 The GameHome contributors
 #
 # Setter opp hurtigtastene i Handheld Companion (HC) som GameHome bruker (ADR 0006 og 0007):
-#   M2              -> Ctrl+Alt+Shift+F12 (meny under spill)
+#   M2              -> Ctrl+Alt+Shift+F12 (meny under spill; M2 sender ikke lenger R1 til spillet)
 #   venstre Legion  -> Ctrl+Alt+Shift+F11 (Home)
 #   høyre Legion    -> QuickTools (HCs standard, endres ikke)
 #   Ctrl+Alt+Shift+F9 -> QuickTools (knappen «Mer i Handheld Companion» i GameHome)
@@ -162,6 +162,14 @@ if ((Test-Path $powerFile) -and (Test-Path $profileFile)) {
     $gameProfile = Get-Content $profileFile -Raw
     $gameProfile = [regex]::Replace($gameProfile, '("PowerProfiles":\s*\{[^}]*?"0":\s*")[0-9a-fA-F-]{36}(",\s*"1":\s*")[0-9a-fA-F-]{36}(")',
         "`${1}$defaultPowerGuid`${2}$defaultPowerGuid`${3}")
+
+    # M2 (B5) skal bare åpne GameHome-menyen. HCs standardoppsett for Legion Go sender også R1 på kontrolleren fra M2;
+    # da tar GameHome forgrunnen mens R1 er nede, og spillet får aldri slippet (2026-11-05: R1 hang i WoW etter menyen).
+    $m2 = '("B5":\s*\{\s*"\$type":\s*"[^"]*",\s*"\$values":\s*)\[[^\[\]]*?ButtonActions[^\[\]]*\]'
+    if ($gameProfile -match $m2) {
+        $gameProfile = [regex]::Replace($gameProfile, $m2, '${1}[]')
+        Write-Host 'M2 sender ikke lenger en kontrollerknapp i spillet (bare GameHome-menyen).'
+    }
     [System.IO.File]::WriteAllText($profileFile, $gameProfile, (New-Object System.Text.UTF8Encoding($false)))
     Write-Host 'TDP-overstyring slått på i HCs Default-strømprofil, brukt på batteri og lader.'
 } else {
