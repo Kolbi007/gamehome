@@ -635,9 +635,30 @@ public sealed partial class MainWindow : Window
         Canvas.SetZIndex(incoming, -1);
         Canvas.SetZIndex(outgoing, -2);
 
+        // I lysbildeserien: lang krysstoning og en langsom zoom (Ken Burns) på det nye bildet. Begge er Opacity- og
+        // RenderTransform-animasjoner som kjører i komposisjonstråden, ikke på UI-tråden.
+        var slide = _attracting;
         var ease = new Microsoft.UI.Xaml.Media.Animation.SineEase { EasingMode = Microsoft.UI.Xaml.Media.Animation.EasingMode.EaseInOut };
-        var duration = new Duration(TimeSpan.FromMilliseconds(380));
+        var duration = new Duration(TimeSpan.FromMilliseconds(slide ? 1600 : 380));
         var story = new Microsoft.UI.Xaml.Media.Animation.Storyboard();
+        incoming.RenderTransformOrigin = new global::Windows.Foundation.Point(0.6, 0.4);
+        var zoom = new Microsoft.UI.Xaml.Media.ScaleTransform();
+        incoming.RenderTransform = zoom;
+        if (slide)
+        {
+            foreach (var axis in new[] { "ScaleX", "ScaleY" })
+            {
+                var drift = new Microsoft.UI.Xaml.Media.Animation.DoubleAnimation
+                {
+                    From = 1.0,
+                    To = 1.07,
+                    Duration = new Duration(TimeSpan.FromSeconds(13)),
+                };
+                Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTarget(drift, zoom);
+                Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTargetProperty(drift, axis);
+                story.Children.Add(drift);
+            }
+        }
         void Fade(Image target, double to)
         {
             var animation = new Microsoft.UI.Xaml.Media.Animation.DoubleAnimation { To = to, Duration = duration, EasingFunction = ease };
@@ -649,14 +670,14 @@ public sealed partial class MainWindow : Window
         incoming.Opacity = 0;
         Fade(incoming, sharp ? 0.9 : 0.5);
         Fade(outgoing, 0);
-        story.Completed += (_, _) =>
-        {
-            if (outgoing.Opacity == 0)
-            {
-                outgoing.Source = null;
-            }
-        };
         story.Begin();
+
+        // Det gamle bildet slippes når krysstoningen er ferdig (zoomen på det nye kan fortsatt pågå).
+        await Task.Delay(duration.TimeSpan + TimeSpan.FromMilliseconds(50));
+        if ((_ambientFrontIsA ? AmbientImage : AmbientImageB) != outgoing)
+        {
+            outgoing.Source = null; // Ikke hvis et nyere bytte allerede har gjort det til det fremste bildet.
+        }
     }
 
     private bool _ambientFrontIsA = true;
@@ -686,9 +707,9 @@ public sealed partial class MainWindow : Window
         HeroFacts.Text = HeroFactsFor(game);
         var continues = (SessionActive && _sessionGame?.Id == game.Id) || IsRunningOnHost(game);
         SetHints(HeroHints, ("A", continues ? "Fortsett" : "Spill"), ("Y", "Om spillet"), ("☰", "Valg"));
-        if (changed)
+        if (changed && !_attracting)
         {
-            HeroFadeIn.Begin();
+            HeroFadeIn.Begin(); // I lysbildeserien toner AttractTick logo og tekst selv.
         }
     }
 
