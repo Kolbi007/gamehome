@@ -19,22 +19,56 @@ public sealed partial class MainWindow
 {
     private IReadOnlyList<SteamLibraryApp>? _steamLocal;
     private bool _steamLocalLoading;
+    private CancellationTokenSource? _steamLocalLoadCancellation;
     private SteamLibraryApp? _attractSuggestion;
 
     /// <summary>Leser Steams lokale bibliotek én gang per kjøring, i bakgrunnen.</summary>
     private async void LoadSteamLocalLibrary()
     {
-        if (_steamLocal is not null || _steamLocalLoading || SteamClient.FindRoot() is not { } root)
+        if (SessionActive || _steamLocal is not null || _steamLocalLoading || SteamClient.FindRoot() is not { } root)
         {
             return;
         }
 
         _steamLocalLoading = true;
-        var apps = await Task.Run(() => SteamLocalLibrary.Read(root));
-        _steamLocal = apps;
-        _steamLocalLoading = false;
-        _log.Write("steam", $"Steam-biblioteket på maskinen: {apps.Count} spill (også familiedelte)");
+        var cancellation = new CancellationTokenSource();
+        _steamLocalLoadCancellation = cancellation;
+        try
+        {
+            var apps = await Task.Run(() => SteamLocalLibrary.ReadAsync(root, cancellation.Token));
+            if (SessionActive || cancellation.IsCancellationRequested)
+            {
+                return;
+            }
+
+            _steamLocal = apps;
+            _log.Write("steam", $"Steam-biblioteket på maskinen: {apps.Count} spill (også familiedelte)");
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            // A game session started while the local Steam cache was being read.
+        }
+        catch (Exception ex)
+        {
+            _log.Write("steam", $"Kunne ikke lese lokalt Steam-bibliotek: {ex.GetType().Name}: {ex.Message}");
+        }
+        finally
+        {
+            _steamLocalLoading = false;
+            if (ReferenceEquals(_steamLocalLoadCancellation, cancellation))
+            {
+                _steamLocalLoadCancellation = null;
+            }
+
+            cancellation.Dispose();
+            if (_steamLocal is null && !SessionActive && _windowActive)
+            {
+                LoadSteamLocalLibrary();
+            }
+        }
     }
+
+    private void CancelSteamLocalLibraryLoad() => _steamLocalLoadCancellation?.Cancel();
 
     private HashSet<string> InstalledSteamIds() =>
     [

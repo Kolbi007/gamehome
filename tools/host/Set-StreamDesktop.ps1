@@ -32,10 +32,10 @@ param(
     # Intern: Hide er startet i bakgrunnen og skal gjøre jobben nå.
     [switch] $Now
 )
-
 $ErrorActionPreference = 'Stop'
 $stateDir = Join-Path $env:LOCALAPPDATA 'GameHome'
 $stateFile = Join-Path $stateDir 'stream-desktop.json'
+$streamFlagFile = Join-Path (Join-Path $stateDir 'host') 'gamehome-stream.flag'
 $coverPidFile = Join-Path $stateDir 'stream-cover.pid'
 $hidePidFile = Join-Path $stateDir 'stream-hide.pid'
 $watchPidFile = Join-Path $stateDir 'stream-watch.pid'
@@ -46,6 +46,30 @@ function Write-Log([string] $message) {
         New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
         Add-Content -Path $logFile -Value ("{0:yyyy-MM-dd HH:mm:ss} {1} {2}" -f (Get-Date), $Action, $message) -Encoding UTF8
     } catch { }
+}
+
+# Global prep-kommander kan også kjøres for direkte Apollo-starter eller «Desktop». Bare et ferskt GameHome-signal
+# autoriserer Hide; flagget skrives via SMB av klienten rett før Moonlight startes og brukes bare én gang.
+if ($Action -eq 'Hide' -and -not $Now) {
+    $appName = if ($env:APOLLO_APP_NAME) { $env:APOLLO_APP_NAME } else { $env:SUNSHINE_APP_NAME }
+    if ($appName -match '^(Desktop|Skrivebord)$') {
+        Remove-Item -Path $streamFlagFile -Force -ErrorAction SilentlyContinue
+        Write-Log 'Hide hoppet over for Desktop'
+        exit 0
+    }
+
+    $freshSignal = $false
+    try {
+        if (Test-Path $streamFlagFile) {
+            $age = [DateTime]::UtcNow - (Get-Item $streamFlagFile).LastWriteTimeUtc
+            $freshSignal = $age -ge [TimeSpan]::Zero -and $age -lt [TimeSpan]::FromSeconds(45)
+            Remove-Item -Path $streamFlagFile -Force -ErrorAction SilentlyContinue
+        }
+    } catch { }
+    if (-not $freshSignal) {
+        Write-Log 'Hide hoppet over: mangler ferskt GameHome-signal'
+        exit 0
+    }
 }
 
 # Hjelpekoden (C#) kompileres én gang og lagres som DLL ved siden av skriptet; senere kjøringer laster den på et øyeblikk.
@@ -108,7 +132,12 @@ if ($Action -eq 'Hide' -and -not $Now) {
 if ($Action -eq 'Restore' -and (Test-Path $hidePidFile)) {
     try {
         $hide = Get-Process -Id ([int](Get-Content $hidePidFile -Raw)) -ErrorAction SilentlyContinue
-        if ($hide -and $hide.ProcessName -eq 'powershell') { [void]$hide.WaitForExit(10000) }
+        if ($hide -and $hide.ProcessName -eq 'powershell') {
+            if (-not $hide.WaitForExit(10000)) {
+                Write-Log 'Hide bruker fortsatt tid; venter til skrivebordstilstanden er lagret før Restore'
+                $hide.WaitForExit()
+            }
+        }
     } catch { }
 }
 
@@ -473,7 +502,10 @@ public static class GameHomeDesktop
             $firstHide = -not (Test-Path $stateFile)
             if ($firstHide) {
                 New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
-                @{ IconsVisible = $icons; TaskbarAutoHide = $autoHide; MinimizedAll = $true } | ConvertTo-Json | Set-Content -Path $stateFile -Encoding UTF8
+                $tempState = "$stateFile.$PID.tmp"
+                @{ IconsVisible = $icons; TaskbarAutoHide = $autoHide; TaskbarVisible = [GameHomeDesktop]::TaskbarVisible; MinimizedAll = $true } |
+                    ConvertTo-Json | Set-Content -Path $tempState -Encoding UTF8
+                Move-Item -Path $tempState -Destination $stateFile -Force
 
                 # Som Win+D: åpne vinduer minimeres, så streamen bare viser bakgrunnen og så spillet.
                 (New-Object -ComObject Shell.Application).MinimizeAll()
@@ -559,13 +591,12 @@ public class GameHomeHotkey : NativeWindow, IDisposable
             Stop-Cover
             Stop-Watch
 
-            # Oppgavelinjen vises alltid igjen, også uten lagret tilstand (sikkerhetsnett ved pålogging).
-            [GameHomeDesktop]::SetTaskbarVisible($true)
             if (-not (Test-Path $stateFile)) {
                 Write-Log 'ingen lagret tilstand; ingenting å sette tilbake'
                 break
             }
             $saved = Get-Content -Path $stateFile -Raw | ConvertFrom-Json
+            [GameHomeDesktop]::SetTaskbarVisible($saved.TaskbarVisible -ne $false)
             if ($saved.IconsVisible -eq $true -and [GameHomeDesktop]::IconsVisible -eq $false) { [void][GameHomeDesktop]::ToggleIcons() }
             if ($saved.TaskbarAutoHide -eq $false -and [GameHomeDesktop]::TaskbarAutoHide) { [GameHomeDesktop]::TaskbarAutoHide = $false }
             if ($saved.MinimizedAll -eq $true) { (New-Object -ComObject Shell.Application).UndoMinimizeALL() }

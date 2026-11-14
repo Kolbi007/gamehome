@@ -164,12 +164,13 @@ public sealed partial class MainWindow
     private bool NoteUserInput(bool primary = false)
     {
         _lastUserInput = DateTime.UtcNow;
-        if (!_attracting)
+        if (!_attracting && !_attractSwitching)
         {
             return false;
         }
 
         _attracting = false;
+        StopAmbientAnimation();
         FadeTo(HeroInfo, 1, 200); // Kan ha vært midt i en uttoning i lysbildeserien.
         if (primary && _attractSuggestion is not null)
         {
@@ -209,7 +210,7 @@ public sealed partial class MainWindow
     /// </summary>
     private async void AttractTick()
     {
-        if (SessionActive || AnyOverlayOpen || _attractSwitching || DateTime.UtcNow - _lastUserInput < AttractAfter
+        if (!_windowActive || SessionActive || AnyOverlayOpen || _attractSwitching || DateTime.UtcNow - _lastUserInput < AttractAfter
             || DateTime.UtcNow - _lastAttractSwitch < AttractEvery)
         {
             return;
@@ -234,6 +235,7 @@ public sealed partial class MainWindow
 
         if (slide is null)
         {
+            _lastAttractSwitch = DateTime.UtcNow; // Ikke skann biblioteket hvert andre sekund når ingen bilder finnes.
             return;
         }
 
@@ -245,16 +247,14 @@ public sealed partial class MainWindow
         _lastAttractSwitch = DateTime.UtcNow;
         try
         {
-            if (_attracting)
+            StopAmbientAnimation();
+            FadeTo(HeroInfo, 0, 450);
+            await Task.Delay(470);
+            if (_lastUserInput != inputBefore || !CanContinueAttract())
             {
-                FadeTo(HeroInfo, 0, 450);
-                await Task.Delay(470);
-                if (_lastUserInput != inputBefore || SessionActive || AnyOverlayOpen || !_windowActive)
-                {
-                    _attracting = false;
-                    FadeTo(HeroInfo, 1, 200);
-                    return;
-                }
+                _attracting = false;
+                FadeTo(HeroInfo, 1, 200);
+                return;
             }
 
             _attracting = true;
@@ -271,10 +271,25 @@ public sealed partial class MainWindow
             }
 
             await Task.Delay(250); // Logoen rekker å bli lest inn før den tones inn.
+            if (_lastUserInput != inputBefore || !CanContinueAttract())
+            {
+                _attracting = false;
+                StopAmbientAnimation();
+                FadeTo(HeroInfo, 1, 200);
+                return;
+            }
+
             if (_attracting)
             {
                 FadeTo(HeroInfo, 1, 900);
             }
+        }
+        catch (Exception ex)
+        {
+            _log.Write("visning", $"Lysbildeserien ble avbrutt: {ex.GetType().Name}: {ex.Message}");
+            _attracting = false;
+            StopAmbientAnimation();
+            FadeTo(HeroInfo, 1, 200);
         }
         finally
         {
@@ -283,6 +298,8 @@ public sealed partial class MainWindow
     }
 
     private bool _attractSwitching;
+
+    private bool CanContinueAttract() => _windowActive && _attracting && !SessionActive && !AnyOverlayOpen;
 
     private void FillAttractDeck()
     {

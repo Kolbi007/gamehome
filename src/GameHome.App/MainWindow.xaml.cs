@@ -638,9 +638,11 @@ public sealed partial class MainWindow : Window
         // I lysbildeserien: lang krysstoning og en langsom zoom (Ken Burns) på det nye bildet. Begge er Opacity- og
         // RenderTransform-animasjoner som kjører i komposisjonstråden, ikke på UI-tråden.
         var slide = _attracting;
+        StopAmbientAnimation();
         var ease = new Microsoft.UI.Xaml.Media.Animation.SineEase { EasingMode = Microsoft.UI.Xaml.Media.Animation.EasingMode.EaseInOut };
         var duration = new Duration(TimeSpan.FromMilliseconds(slide ? 1600 : 380));
         var story = new Microsoft.UI.Xaml.Media.Animation.Storyboard();
+        _ambientStoryboard = story;
         incoming.RenderTransformOrigin = new global::Windows.Foundation.Point(0.6, 0.4);
         var zoom = new Microsoft.UI.Xaml.Media.ScaleTransform();
         incoming.RenderTransform = zoom;
@@ -681,6 +683,21 @@ public sealed partial class MainWindow : Window
     }
 
     private bool _ambientFrontIsA = true;
+    private Microsoft.UI.Xaml.Media.Animation.Storyboard? _ambientStoryboard;
+
+    private void StopAmbientAnimation()
+    {
+        _ambientStoryboard?.Stop();
+        _ambientStoryboard = null;
+        foreach (var image in new[] { AmbientImage, AmbientImageB })
+        {
+            if (image?.RenderTransform is Microsoft.UI.Xaml.Media.ScaleTransform scale)
+            {
+                scale.ScaleX = 1;
+                scale.ScaleY = 1;
+            }
+        }
+    }
 
     // ---- Hovedfeltet: spillet i fokus ----
 
@@ -2602,6 +2619,7 @@ public sealed partial class MainWindow : Window
 
     private async Task LaunchCoreAsync(Game game, PlayAction? chosen)
     {
+        _firstSteamSync?.Stop();
         if (SessionActive)
         {
             ShowSessionPanel("flis (økt kjører allerede)");
@@ -2675,6 +2693,8 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        CancelSteamLocalLibraryLoad();
+        StopAmbientAnimation();
         ShowLoading(game, action);
 
         // Stream: sover gaming-PC-en, vekkes den først (Wake-on-LAN), så Moonlight ikke gir opp etter 30 s.
@@ -2702,6 +2722,12 @@ public sealed partial class MainWindow : Window
         {
             await ApplyGameDisplayAsync(game);
             SaveBatteryForGame(game);
+            if (action.RunnerId == GameLibrary.MoonlightRunnerId && action.HostId is { } streamHostId)
+            {
+                var streamHost = MoonlightClient.FindHosts().FirstOrDefault(candidate => candidate.Uuid == streamHostId);
+                await SignalGameHomeStreamAsync(streamHost?.Name);
+            }
+
             _session = (IForegroundSession)await runner.LaunchAsync(action, Profile.Default, CancellationToken.None);
             _sessionRunnerId = action.RunnerId;
         }
@@ -3056,6 +3082,11 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void SyncSteamInBackground()
     {
+        if (SessionActive)
+        {
+            return;
+        }
+
         _ = CheckForUpdateAsync(manual: false);
         LoadSteamLocalLibrary();
         CheckDownloads();
@@ -5191,6 +5222,7 @@ public sealed partial class MainWindow : Window
         {
             _metricsTimer.Stop();
             StopAttractTimer();
+            StopAmbientAnimation();
             StopTrailer();
             if (!SessionActive)
             {
@@ -5258,8 +5290,15 @@ public sealed partial class MainWindow : Window
             FocusHome(found ? remembered : null);
         }
 
-        UpdateMemory();
-        _metricsTimer.Start();
+        if (SessionActive)
+        {
+            _metricsTimer.Stop();
+        }
+        else
+        {
+            UpdateMemory();
+            _metricsTimer.Start();
+        }
 
         // Spill som fortsatt mangler bilder (for eksempel etter en nettverksfeil), prøves igjen når Home blir aktiv.
         _ = RefreshHostStatusAsync();
@@ -5612,6 +5651,39 @@ public sealed partial class MainWindow : Window
     }
 
     private void LogChoice(Button tile) => _log.Write("valg", $"{tile.Content} valgt via {_lastSource}");
+
+    /// <summary>Best-effort signal for an optional host-side splash guard, sent before Moonlight connects.</summary>
+    private async Task SignalGameHomeStreamAsync(string? host, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(host))
+        {
+            _log.Write("stream", "Fant ikke vert for Moonlight-signal; fortsetter uten signal");
+            return;
+        }
+
+        var cleanHost = host.Trim();
+        if (Uri.TryCreate(cleanHost, UriKind.Absolute, out var uri) && !string.IsNullOrWhiteSpace(uri.Host))
+        {
+            cleanHost = uri.Host;
+        }
+        else if (cleanHost.Contains(':'))
+        {
+            cleanHost = cleanHost.Split(':')[0];
+        }
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(2));
+        var path = $@"\\{cleanHost}\GameHomeHost\gamehome-stream.flag";
+        try
+        {
+            await File.WriteAllTextAsync(path, DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture), cts.Token).ConfigureAwait(false);
+            _log.Write("stream", $"Sendte GameHome-streamsignal til {cleanHost}");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or OperationCanceledException or ArgumentException or System.Security.SecurityException)
+        {
+            _log.Write("stream", $"Kunne ikke sende GameHome-streamsignal til {cleanHost}: {ex.GetType().Name}; fortsetter stream-start");
+        }
+    }
 
     private void OnLogWritten(object? sender, string line) => DispatcherQueue.TryEnqueue(() =>
     {

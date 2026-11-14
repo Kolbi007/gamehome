@@ -14,8 +14,9 @@ public sealed record SteamLibraryApp(uint AppId, string Name, string? Hero, stri
 /// </summary>
 public static class SteamLocalLibrary
 {
-    public static IReadOnlyList<SteamLibraryApp> Read(string steamRoot)
+    public static async Task<IReadOnlyList<SteamLibraryApp>> ReadAsync(string steamRoot, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var cache = Path.Combine(steamRoot, "appcache", "librarycache");
         var info = Path.Combine(steamRoot, "appcache", "appinfo.vdf");
         if (!Directory.Exists(cache) || !File.Exists(info))
@@ -26,7 +27,7 @@ public static class SteamLocalLibrary
         IReadOnlyDictionary<uint, SteamAppSummary> apps;
         try
         {
-            apps = SteamAppInfo.Read(File.ReadAllBytes(info));
+            apps = SteamAppInfo.Read(await File.ReadAllBytesAsync(info, cancellationToken));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FormatException or ArgumentException)
         {
@@ -36,21 +37,23 @@ public static class SteamLocalLibrary
         var result = new List<SteamLibraryApp>();
         foreach (var folder in Directory.EnumerateDirectories(cache))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (!uint.TryParse(Path.GetFileName(folder), out var appId) || !apps.TryGetValue(appId, out var app)
                 || !app.Type.Equals("game", StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
 
-            result.Add(new SteamLibraryApp(appId, app.Name, Find(folder, "library_hero.jpg"), Find(folder, "logo.png"), Find(folder, "library_600x900.jpg")));
+            result.Add(new SteamLibraryApp(appId, app.Name, Find(folder, "library_hero.jpg", cancellationToken), Find(folder, "logo.png", cancellationToken), Find(folder, "library_600x900.jpg", cancellationToken)));
         }
 
         return result;
     }
 
     // Bildene ligger enten rett i mappen eller i en undermappe (Steam lagrer noen under en hash).
-    private static string? Find(string folder, string name)
+    private static string? Find(string folder, string name, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var direct = Path.Combine(folder, name);
         if (File.Exists(direct))
         {
@@ -59,7 +62,13 @@ public static class SteamLocalLibrary
 
         try
         {
-            return Directory.EnumerateFiles(folder, name, SearchOption.AllDirectories).FirstOrDefault();
+            foreach (var file in Directory.EnumerateFiles(folder, name, SearchOption.AllDirectories))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return file;
+            }
+
+            return null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

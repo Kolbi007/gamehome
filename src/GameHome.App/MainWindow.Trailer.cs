@@ -223,8 +223,15 @@ public sealed partial class MainWindow
         story.Begin();
     }
 
-    private static void FadeTo(UIElement element, double to, int milliseconds)
+    private readonly Dictionary<UIElement, Storyboard> _fadeStories = new();
+
+    private void FadeTo(UIElement element, double to, int milliseconds)
     {
+        if (_fadeStories.Remove(element, out var previous))
+        {
+            previous.Stop();
+        }
+
         var animation = new DoubleAnimation
         {
             To = to,
@@ -235,6 +242,14 @@ public sealed partial class MainWindow
         Storyboard.SetTarget(animation, element);
         Storyboard.SetTargetProperty(animation, "Opacity");
         story.Children.Add(animation);
+        _fadeStories[element] = story;
+        story.Completed += (_, _) =>
+        {
+            if (_fadeStories.TryGetValue(element, out var current) && ReferenceEquals(current, story))
+            {
+                _fadeStories.Remove(element);
+            }
+        };
         story.Begin();
     }
 }
