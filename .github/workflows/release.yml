@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Hver sammenslåing til main gir en Beta-prerelease v0.2.<nummer>. En tagg vX.Y.Z gir en Stable-release.
+# Hver sammenslåing til main gir en Beta-prerelease v0.2.<run number + 1>. En tagg vX.Y.Z gir en Stable-release.
 name: Release
 
 on:
@@ -18,7 +18,13 @@ jobs:
     steps:
       - id: v
         run: |
-          if [[ "$GITHUB_REF" == refs/tags/* ]]; then tag="$GITHUB_REF_NAME"; else tag="v0.2.${GITHUB_RUN_NUMBER}"; fi
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            # Reserve a higher package version than the latest manual CI test-build (for example 0.2.20.1).
+            next_minor=$((GITHUB_RUN_NUMBER + 1))
+            tag="v0.2.${next_minor}"
+          fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "Versjon: $tag"
 
