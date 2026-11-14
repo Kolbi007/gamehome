@@ -29,23 +29,31 @@ public sealed partial class MainWindow
     private static bool BetaChannel => ApplicationData.Current.LocalSettings.Values[UpdateChannelSetting] as string == "beta";
 
     private void RefreshUpdateChannelButton() =>
-        MenuUpdateChannelText.Text = $"Oppdateringskanal: {(BetaChannel ? "Beta" : "Stable")}";
+        UpdateChannelText.Text = $"Kanal: {(BetaChannel ? "Beta" : "Stable")}";
 
-    private async void MenuUpdateChannelButton_Click(object sender, RoutedEventArgs e)
+    private async void UpdateChannelButton_Click(object sender, RoutedEventArgs e)
     {
         var settings = ApplicationData.Current.LocalSettings.Values;
         settings[UpdateChannelSetting] = BetaChannel ? "stable" : "beta";
         settings.Remove(LastUpdateCheckSetting);
         _update = null;
-        MenuUpdateButton.Visibility = Visibility.Collapsed;
+        UpdateButton.Visibility = Visibility.Collapsed;
         if (_notices.RemoveAll(n => n.Key == "update") > 0)
         {
             UpdateNoticeButton();
         }
         RefreshUpdateChannelButton();
-        HomeMenuStatus.Text = $"Sjekker {(BetaChannel ? "Beta" : "Stable")} …";
-        HomeMenuStatus.Visibility = Visibility.Visible;
+        UpdateStatus.Text = $"Sjekker {(BetaChannel ? "Beta" : "Stable")} …";
+        UpdateStatus.Visibility = Visibility.Visible;
         _log.Write("oppdatering", $"Oppdateringskanal endret til {(BetaChannel ? "Beta" : "Stable")}");
+        await CheckForUpdateAsync(manual: true, fromMenu: true);
+    }
+
+    private async void UpdateCheckButton_Click(object sender, RoutedEventArgs e)
+    {
+        UpdateButton.Visibility = Visibility.Collapsed;
+        UpdateStatus.Text = $"Sjekker {(BetaChannel ? "Beta" : "Stable")} …";
+        UpdateStatus.Visibility = Visibility.Visible;
         await CheckForUpdateAsync(manual: true, fromMenu: true);
     }
 
@@ -95,23 +103,25 @@ public sealed partial class MainWindow
                 _log.Write("oppdatering", $"Ingen nyere versjon (installert {installed}, nyeste {newest?.Version.ToString() ?? "ingen"})");
                 if (manual)
                 {
-                    HomeMenuStatus.Text = $"Ingen nyere {(BetaChannel ? "Beta" : "Stable")}-oppdatering (installert {installed}).";
-                    HomeMenuStatus.Visibility = Visibility.Visible;
+                    UpdateStatus.Text = $"Du har nyeste {(BetaChannel ? "Beta" : "Stable")}-versjon ({Short(installed)}).";
+                    UpdateStatus.Visibility = Visibility.Visible;
                 }
 
                 return;
             }
 
             _update = newest;
-            MenuUpdateText.Text = $"Oppdater til {Short(newest.Version)}";
-            MenuUpdateHint.Text = string.Create(CultureInfo.InvariantCulture,
-                $"Du har {Short(installed)} · {newest.Size / 1_000_000.0:F0} MB");
-            MenuUpdateButton.Visibility = Visibility.Visible;
-            AddNotice("update", null, $"GameHome {Short(newest.Version)} ({(BetaChannel ? "Beta" : "Stable")}) er klar. Trykk M2 og velg «Oppdater».");
+            UpdateText.Text = $"Oppdater til {Short(newest.Version)}";
+            UpdateButton.Visibility = Visibility.Visible;
+            UpdateStatus.Text = $"Ny versjon klar · {newest.Size / 1_000_000.0:F0} MB (du har {Short(installed)}).";
+            UpdateStatus.Visibility = Visibility.Visible;
+            AddNotice("update", null, $"GameHome {Short(newest.Version)} ({(BetaChannel ? "Beta" : "Stable")}) er klar på hovedsiden.");
             _log.Write("oppdatering", $"Ny {(BetaChannel ? "Beta" : "Stable")}-kanalversjon {newest.Version} ({newest.Tag}); installert {installed}");
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
         {
+            UpdateStatus.Text = $"Kunne ikke se etter oppdateringer: {ex.Message}";
+            UpdateStatus.Visibility = Visibility.Visible;
             _log.Write("oppdatering", $"Kunne ikke se etter oppdatering: {ex.Message}");
         }
         finally
@@ -122,15 +132,15 @@ public sealed partial class MainWindow
 
     private static string Short(Version v) => $"{v.Major}.{v.Minor}.{v.Build}";
 
-    private async void MenuUpdateButton_Click(object sender, RoutedEventArgs e)
+    private async void UpdateButton_Click(object sender, RoutedEventArgs e)
     {
         if (_update is not { } update || SessionActive)
         {
             return;
         }
 
-        MenuUpdateButton.IsEnabled = false;
-        HomeMenuStatus.Visibility = Visibility.Visible;
+        UpdateButton.IsEnabled = false;
+        UpdateStatus.Visibility = Visibility.Visible;
         try
         {
             var folder = await ApplicationData.Current.TemporaryFolder.CreateFolderAsync("update", CreationCollisionOption.OpenIfExists);
@@ -153,28 +163,28 @@ public sealed partial class MainWindow
                     if (percent != lastShown)
                     {
                         lastShown = percent;
-                        HomeMenuStatus.Text = $"Laster ned {Short(update.Version)} … {percent} %";
+                        UpdateStatus.Text = $"Laster ned {Short(update.Version)} … {percent} %";
                     }
                 }
             }
 
-            HomeMenuStatus.Text = "Åpner Windows' installasjonsprogram. Trykk «Oppdater» der; GameHome starter på nytt.";
+            UpdateStatus.Text = "Åpner Windows' installasjonsprogram. Trykk «Oppdater» der; GameHome starter på nytt.";
             _log.Write("oppdatering", $"Lastet ned {update.AssetName}; åpner App Installer");
             var launched = await global::Windows.System.Launcher.LaunchFileAsync(file);
             if (!launched)
             {
-                HomeMenuStatus.Text = "Windows åpnet ikke installasjonsprogrammet.";
+                UpdateStatus.Text = "Windows åpnet ikke installasjonsprogrammet.";
                 _log.Write("oppdatering", "App Installer ble ikke åpnet");
             }
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException or UnauthorizedAccessException)
         {
-            HomeMenuStatus.Text = $"Nedlastingen feilet: {ex.Message}";
+            UpdateStatus.Text = $"Nedlastingen feilet: {ex.Message}";
             _log.Write("oppdatering", $"Nedlasting feilet: {ex.Message}");
         }
         finally
         {
-            MenuUpdateButton.IsEnabled = true;
+            UpdateButton.IsEnabled = true;
         }
     }
 }

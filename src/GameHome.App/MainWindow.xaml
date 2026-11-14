@@ -144,6 +144,19 @@
                         <TextBlock Text="Feilsøking" />
                     </StackPanel>
                 </Button>
+                <Button x:Name="UpdateChannelButton" Click="UpdateChannelButton_Click" Height="48" Padding="18,0" FontSize="{StaticResource GhSizeCaption}" CornerRadius="24"
+                        ToolTipService.ToolTip="Bytt mellom Stable og Beta">
+                    <TextBlock x:Name="UpdateChannelText" />
+                </Button>
+                <Button x:Name="UpdateCheckButton" Click="UpdateCheckButton_Click" Height="48" Padding="18,0" FontSize="{StaticResource GhSizeCaption}" CornerRadius="24">
+                    <TextBlock Text="Se etter oppdateringer" />
+                </Button>
+                <Button x:Name="UpdateButton" Click="UpdateButton_Click" Visibility="Collapsed" Height="48" Padding="18,0" FontSize="{StaticResource GhSizeCaption}" CornerRadius="24"
+                        Style="{StaticResource AccentButtonStyle}">
+                    <TextBlock x:Name="UpdateText" />
+                </Button>
+                <TextBlock x:Name="UpdateStatus" VerticalAlignment="Center" FontSize="{StaticResource GhSizeCaption}" Foreground="{StaticResource GhTextSecondaryBrush}"
+                           TextWrapping="Wrap" MaxWidth="300" Visibility="Collapsed" />
             </StackPanel>
         </Grid>
 
@@ -319,19 +332,6 @@
                     <StackPanel Spacing="2">
                         <TextBlock Text="Kontoer og kilder" FontSize="19" />
                         <TextBlock x:Name="MenuAccountsHint" FontSize="13" Foreground="#A0A7B0" />
-                    </StackPanel>
-                </Button>
-                <Button x:Name="MenuUpdateChannelButton" Click="MenuUpdateChannelButton_Click" HorizontalAlignment="Stretch" Height="48">
-                    <StackPanel Spacing="1">
-                        <TextBlock x:Name="MenuUpdateChannelText" FontSize="17" />
-                        <TextBlock Text="Trykk for å bytte mellom Stable og Beta" FontSize="12" Foreground="#A0A7B0" />
-                    </StackPanel>
-                </Button>
-                <Button x:Name="MenuUpdateButton" Click="MenuUpdateButton_Click" HorizontalAlignment="Stretch" Height="64" Visibility="Collapsed"
-                        Style="{StaticResource AccentButtonStyle}">
-                    <StackPanel Spacing="2">
-                        <TextBlock x:Name="MenuUpdateText" FontSize="19" />
-                        <TextBlock x:Name="MenuUpdateHint" FontSize="13" />
                     </StackPanel>
                 </Button>
                 <Button x:Name="MenuStartHcButton" Click="MenuStartHcButton_Click" HorizontalAlignment="Stretch" Height="64" Visibility="Collapsed">

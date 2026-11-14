@@ -134,6 +134,7 @@ public sealed partial class MainWindow : Window
     {
         _log = log;
         InitializeComponent();
+        RefreshUpdateChannelButton();
         _log.Write("start", "XAML lastet");
         ExtendsContentIntoTitleBar = true;
 
