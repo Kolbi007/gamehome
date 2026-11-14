@@ -103,6 +103,7 @@ public sealed class BattleNetRunner : IRunner
 
     private static readonly TimeSpan GiveUp = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan SecondCall = TimeSpan.FromSeconds(20);
+    public static readonly TimeSpan WowStartupGracePeriod = TimeSpan.FromSeconds(20);
 
     public string RunnerId => Id;
 
@@ -131,8 +132,18 @@ public sealed class BattleNetRunner : IRunner
         Exec(launcher, action.Target);
         var started = DateTime.UtcNow;
         var secondSent = false;
+        var attentionShown = false;
         while (DateTime.UtcNow - started < GiveUp && !ct.IsCancellationRequested)
         {
+            var elapsed = DateTime.UtcNow - started;
+            if (action.Target.Equals("WoWF", StringComparison.OrdinalIgnoreCase))
+            {
+                if (elapsed < WowStartupGracePeriod)
+                {
+                    MinimizeLauncherWindows();
+                }
+            }
+
             foreach (var candidate in Process.GetProcesses())
             {
                 if (!before.Contains(candidate.Id) && names.Contains(candidate.ProcessName, StringComparer.OrdinalIgnoreCase))
@@ -141,6 +152,13 @@ public sealed class BattleNetRunner : IRunner
                 }
 
                 candidate.Dispose();
+            }
+
+            if (action.Target.Equals("WoWF", StringComparison.OrdinalIgnoreCase)
+                && elapsed >= WowStartupGracePeriod && !attentionShown)
+            {
+                ShowLauncherForAttention();
+                attentionShown = true;
             }
 
             if (!secondSent && DateTime.UtcNow - started > SecondCall)
@@ -170,6 +188,45 @@ public sealed class BattleNetRunner : IRunner
         catch (System.ComponentModel.Win32Exception ex)
         {
             throw new LaunchException(LaunchFailure.StartFailed, ex.Message, ex);
+        }
+    }
+
+    /// <summary>Etter 20 sekunder uten spillvindu kan brukeren se Battle.net og håndtere innlogging eller feil.</summary>
+    public static void ShowLauncherForAttention() => SetLauncherWindowsMinimized(false);
+
+    private static void MinimizeLauncherWindows() => SetLauncherWindowsMinimized(true);
+
+    private static void SetLauncherWindowsMinimized(bool minimized)
+    {
+        foreach (var processName in new[] { "Battle.net", "Battle.net Launcher" })
+        {
+            foreach (var process in Process.GetProcessesByName(processName))
+            {
+                using (process)
+                {
+                    try
+                    {
+                        var window = Foreground.FindVisibleWindow(process.Id);
+                        if (window == 0)
+                        {
+                            continue;
+                        }
+
+                        if (minimized)
+                        {
+                            Foreground.Minimize(window);
+                        }
+                        else
+                        {
+                            _ = Foreground.BringGame(window);
+                        }
+                    }
+                    catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException)
+                    {
+                        // Launcher windows can disappear while Battle.net updates or restarts its UI process.
+                    }
+                }
+            }
         }
     }
 }

@@ -105,6 +105,8 @@ public sealed partial class MainWindow : Window
     private DispatcherQueueTimer? _firstSteamSync;
     private DispatcherQueueTimer? _loadingTimer;
     private DispatcherQueueTimer? _streamCover;
+    private DispatcherQueueTimer? _wowStartupCover;
+    private DateTime _wowStartupCoverStarted;
     private DateTime _loadingShown;
     private bool _waking;
     private bool _lastWakeNoNetwork;
@@ -2735,6 +2737,7 @@ public sealed partial class MainWindow : Window
                 await SignalGameHomeStreamAsync(streamHost?.Name);
             }
 
+            StartWowStartupCover(game, action);
             _session = (IForegroundSession)await runner.LaunchAsync(action, Profile.Default, CancellationToken.None);
             _sessionRunnerId = action.RunnerId;
         }
@@ -3328,6 +3331,55 @@ public sealed partial class MainWindow : Window
         _log.Write("laster", "Tar lang tid; viser Vent og Tilbake til Home");
     }
 
+    /// <summary>
+    /// For WoW Forever lokalt på Legion Go beholdes GameHomes lasteskjerm foran Battle.net mens spillet starter.
+    /// Etter 20 sekunder uten spillvindu vises Battle.net så eventuell innlogging eller feil kan håndteres.
+    /// </summary>
+    private void StartWowStartupCover(Game game, PlayAction action)
+    {
+        if (!string.Equals(action.RunnerId, BattleNetRunner.Id, StringComparison.Ordinal)
+            || !string.Equals(action.Target, "WoWF", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        EndWowStartupCover("ny WoW-start");
+        _wowStartupCoverStarted = DateTime.UtcNow;
+        Foreground.SetTopmost(WinRT.Interop.WindowNative.GetWindowHandle(this), true);
+
+        _wowStartupCover = DispatcherQueue.CreateTimer();
+        _wowStartupCover.Interval = TimeSpan.FromMilliseconds(250);
+        _wowStartupCover.Tick += (_, _) =>
+        {
+            if (_sessionGame?.Id == game.Id && _session is IForegroundSession foreground && foreground.MainWindowHandle != 0)
+            {
+                EndWowStartupCover("WoW-vinduet åpnet");
+                HideLoading("WoW-vinduet åpnet");
+            }
+            else if (DateTime.UtcNow - _wowStartupCoverStarted >= BattleNetRunner.WowStartupGracePeriod)
+            {
+                BattleNetRunner.ShowLauncherForAttention();
+                EndWowStartupCover("20 sekunder uten WoW-vindu");
+                HideLoading("20 sekunder uten WoW-vindu; viser Battle.net");
+            }
+        };
+        _wowStartupCover.Start();
+        _log.Write("laster", $"WoW Forever: splash foran Battle.net i opptil {BattleNetRunner.WowStartupGracePeriod.TotalSeconds:F0} sekunder");
+    }
+
+    private void EndWowStartupCover(string reason)
+    {
+        if (_wowStartupCover is null)
+        {
+            return;
+        }
+
+        _wowStartupCover.Stop();
+        _wowStartupCover = null;
+        Foreground.SetTopmost(WinRT.Interop.WindowNative.GetWindowHandle(this), false);
+        _log.Write("laster", $"WoW-startsplash avsluttet: {reason}");
+    }
+
     // ---- Lasteskjerm over Moonlight til streamen viser bilde ----
 
     /// <summary>
@@ -3440,6 +3492,7 @@ public sealed partial class MainWindow : Window
 
     private void HideLoading(string why)
     {
+        EndWowStartupCover(why);
         if (_streamCover is not null)
         {
             EndStreamCover(why);
@@ -5310,7 +5363,7 @@ public sealed partial class MainWindow : Window
         _windowActive = true;
         UpdateClock();
         _clockTimer.Start();
-        if (LoadingPanel.Visibility == Visibility.Visible && _loadingCovered)
+        if (LoadingPanel.Visibility == Visibility.Visible && _loadingCovered && _wowStartupCover is null)
         {
             HideLoading("GameHome aktiv igjen");
         }

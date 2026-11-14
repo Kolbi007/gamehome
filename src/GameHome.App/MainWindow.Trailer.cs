@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (c) 2026 The GameHome contributors
 
+using GameHome.Core.Library;
 using GameHome.Core.Model;
 using GameHome.Metadata;
 using Microsoft.UI.Dispatching;
@@ -22,6 +23,7 @@ public sealed partial class MainWindow
 {
     private static readonly TimeSpan TrailerDelay = TimeSpan.FromSeconds(3);
     private readonly Dictionary<int, string?> _trailers = [];
+    private readonly Dictionary<string, string?> _youtubeTrailers = [];
     private DispatcherQueueTimer? _trailerTimer;
     private string? _trailerGameId;
 
@@ -62,41 +64,57 @@ public sealed partial class MainWindow
             return;
         }
 
-        if ((SteamAppIdFor(game) ?? await SteamAppIdByTitleAsync(game)) is not { } appId)
-        {
-            _log.Write("trailer", $"Ingen Steam-side for «{game.Title}»; ingen trailer");
-            return;
-        }
-
         if (_trailerGameId != game.Id)
         {
             return;
         }
 
-        if (!_trailers.TryGetValue(appId, out var url))
+        var appId = SteamAppIdFor(game) ?? await SteamAppIdByTitleAsync(game);
+        string? url = null;
+        if (appId is { } steamId && !_trailers.TryGetValue(steamId, out url))
         {
             try
             {
-                url = await new SteamStoreClient(ArtHttp).GetTrailerAsync(appId);
+                url = await new SteamStoreClient(ArtHttp).GetTrailerAsync(steamId);
             }
             catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
             {
                 url = null;
             }
 
-            _trailers[appId] = url;
+            _trailers[steamId] = url;
         }
 
-        if (url is null)
+        if (url is not null)
         {
-            _log.Write("trailer", $"Steam har ingen trailer for «{game.Title}» (appid {appId})");
+            if (_trailerGameId == game.Id && TrailersAllowed)
+            {
+                PlaySteamTrailer(game, appId, url);
+            }
+
             return;
         }
 
+        var youtubeId = await YouTubeTrailerIdAsync(game, appId);
         if (_trailerGameId != game.Id || !TrailersAllowed)
         {
             return;
         }
+
+        if (youtubeId is { } id)
+        {
+            await PlayYouTubeTrailerAsync(game, id);
+        }
+        else
+        {
+            _log.Write("trailer", $"Ingen treffende trailer for «{game.Title}»");
+        }
+    }
+
+    private void PlaySteamTrailer(Game game, int? appId, string url)
+    {
+        YouTubeTrailer.Opacity = 0;
+        YouTubeTrailer.CoreWebView2?.Stop();
 
         // Spilles én gang: en trailer som går i loop, bruker strøm og blir støy.
         var player = new MediaPlayer { IsMuted = true, IsLoopingEnabled = false, AutoPlay = true };
@@ -126,7 +144,92 @@ public sealed partial class MainWindow
         });
         player.Source = MediaSource.CreateFromUri(new Uri(url));
         HeroVideo.SetMediaPlayer(player);
-        _log.Write("trailer", $"Trailer for «{game.Title}» (appid {appId})");
+        _log.Write("trailer", $"Steam-trailer for «{game.Title}» (appid {appId})");
+    }
+
+    private async Task<string?> YouTubeTrailerIdAsync(Game game, int? steamAppId)
+    {
+        if (Igdb is not { } igdb)
+        {
+            return null;
+        }
+
+        if (_youtubeTrailers.TryGetValue(game.Id, out var cached))
+        {
+            return cached;
+        }
+
+        try
+        {
+            var match = steamAppId is { } id ? await igdb.FindBySteamAppIdAsync(id) : null;
+            if (match is null)
+            {
+                // IGDB-søk kan returnere lignende spill; godta kun normalisert eksakt tittel.
+                var title = NormalizeTrailerTitle(GameLibrary.DisplayTitle(game));
+                match = (await igdb.SearchAsync(GameLibrary.DisplayTitle(game), 10))
+                    .FirstOrDefault(candidate => NormalizeTrailerTitle(candidate.Name) == title);
+            }
+
+            if (match is null)
+            {
+                _youtubeTrailers[game.Id] = null;
+                return null;
+            }
+
+            var videos = await igdb.GetVideosAsync(match.Id);
+            IgdbGameVideo? video = null;
+            foreach (var candidate in videos)
+            {
+                video ??= candidate;
+                if (candidate.Name.Contains("trailer", StringComparison.OrdinalIgnoreCase))
+                {
+                    video = candidate;
+                    break;
+                }
+            }
+            _youtubeTrailers[game.Id] = video?.VideoId;
+            if (video is not null)
+            {
+                _log.Write("trailer", $"IGDB knytter «{video.Name}» til «{match.Name}»; YouTube-ID {video.VideoId}");
+            }
+
+            return video?.VideoId;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        {
+            return null;
+        }
+    }
+
+    private static string NormalizeTrailerTitle(string title)
+    {
+        var normalized = title.Replace("the hedgehog", "", StringComparison.OrdinalIgnoreCase)
+            .Replace("&", " and ", StringComparison.Ordinal);
+        return new string([.. normalized.Where(char.IsAsciiLetterOrDigit)]).ToLowerInvariant();
+    }
+
+    private async Task PlayYouTubeTrailerAsync(Game game, string videoId)
+    {
+        try
+        {
+            YouTubeTrailer.DefaultBackgroundColor = global::Windows.UI.Color.FromArgb(255, 18, 17, 16);
+            await YouTubeTrailer.EnsureCoreWebView2Async();
+            if (_trailerGameId != game.Id || !TrailersAllowed)
+            {
+                return;
+            }
+
+            YouTubeTrailer.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
+            YouTubeTrailer.CoreWebView2.Settings.IsStatusBarEnabled = false;
+            YouTubeTrailer.Source = new Uri($"https://www.youtube-nocookie.com/embed/{videoId}?autoplay=1&mute=1&controls=0&playsinline=1&rel=0");
+            FadeTo(YouTubeTrailer, 0.9, 900);
+            MakeRoomForTrailer(true);
+            _log.Write("trailer", $"YouTube-trailer for «{game.Title}» (IGDB-treff, ID {videoId})");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _log.Write("trailer", $"YouTube-avspilling utilgjengelig: {ex.GetType().Name}");
+        }
     }
 
 
@@ -167,6 +270,10 @@ public sealed partial class MainWindow
             player.Dispose();
             _log.Write("trailer", "Trailer stoppet");
         }
+
+        YouTubeTrailer.Opacity = 0;
+        YouTubeTrailer.CoreWebView2?.Stop();
+        YouTubeTrailer.Source = null;
 
         HeroVideo.Opacity = 0;
         MakeRoomForTrailer(false);
