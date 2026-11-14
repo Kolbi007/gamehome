@@ -37,6 +37,7 @@ public sealed partial class MainWindow
         SessionLogo.Source = null;
         HomeMenuStatus.Visibility = Visibility.Collapsed;
         HomeMenuDetail.Text = $"{_library.VisibleGames.Count} spill · ingen spill kjører";
+        RefreshUpdateChannelButton();
         CheckHandheldCompanion();
         MenuRestoreScreenButton.Visibility = Vibepollo is null ? Visibility.Collapsed : Visibility.Visible;
         var missing = AccountStatuses().Count(a => !a.Ok);

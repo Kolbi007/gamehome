@@ -19,11 +19,35 @@ public sealed partial class MainWindow
 {
     private const string ReleasesUrl = "https://api.github.com/repos/Kolbi007/gamehome/releases?per_page=10";
     private const string LastUpdateCheckSetting = "update.lastCheck";
+    private const string UpdateChannelSetting = "update.channel";
     private static readonly TimeSpan UpdateCheckInterval = TimeSpan.FromHours(6);
 
     private static readonly HttpClient UpdateHttp = CreateUpdateHttp();
     private AvailableRelease? _update;
     private bool _updateChecking;
+
+    private static bool BetaChannel => ApplicationData.Current.LocalSettings.Values[UpdateChannelSetting] as string == "beta";
+
+    private void RefreshUpdateChannelButton() =>
+        MenuUpdateChannelText.Text = $"Oppdateringskanal: {(BetaChannel ? "Beta" : "Stable")}";
+
+    private async void MenuUpdateChannelButton_Click(object sender, RoutedEventArgs e)
+    {
+        var settings = ApplicationData.Current.LocalSettings.Values;
+        settings[UpdateChannelSetting] = BetaChannel ? "stable" : "beta";
+        settings.Remove(LastUpdateCheckSetting);
+        _update = null;
+        MenuUpdateButton.Visibility = Visibility.Collapsed;
+        if (_notices.RemoveAll(n => n.Key == "update") > 0)
+        {
+            UpdateNoticeButton();
+        }
+        RefreshUpdateChannelButton();
+        HomeMenuStatus.Text = $"Sjekker {(BetaChannel ? "Beta" : "Stable")} …";
+        HomeMenuStatus.Visibility = Visibility.Visible;
+        _log.Write("oppdatering", $"Oppdateringskanal endret til {(BetaChannel ? "Beta" : "Stable")}");
+        await CheckForUpdateAsync(manual: true, fromMenu: true);
+    }
 
     private static HttpClient CreateUpdateHttp()
     {
@@ -64,14 +88,14 @@ public sealed partial class MainWindow
         {
             settings[LastUpdateCheckSetting] = DateTime.UtcNow.ToBinary();
             var json = await UpdateHttp.GetStringAsync(new Uri(ReleasesUrl));
-            var newest = ReleaseFeed.Newest(json, Architecture);
+            var newest = ReleaseFeed.Newest(json, Architecture, includePrerelease: BetaChannel);
             var installed = InstalledVersion;
             if (newest is null || newest.Version <= installed)
             {
                 _log.Write("oppdatering", $"Ingen nyere versjon (installert {installed}, nyeste {newest?.Version.ToString() ?? "ingen"})");
                 if (manual)
                 {
-                    HomeMenuStatus.Text = $"GameHome {installed} er nyeste versjon.";
+                    HomeMenuStatus.Text = $"Ingen nyere {(BetaChannel ? "Beta" : "Stable")}-oppdatering (installert {installed}).";
                     HomeMenuStatus.Visibility = Visibility.Visible;
                 }
 
@@ -83,8 +107,8 @@ public sealed partial class MainWindow
             MenuUpdateHint.Text = string.Create(CultureInfo.InvariantCulture,
                 $"Du har {Short(installed)} · {newest.Size / 1_000_000.0:F0} MB");
             MenuUpdateButton.Visibility = Visibility.Visible;
-            AddNotice("update", null, $"GameHome {Short(newest.Version)} er klar. Trykk M2 og velg «Oppdater».");
-            _log.Write("oppdatering", $"Ny versjon {newest.Version} ({newest.Tag}); installert {installed}");
+            AddNotice("update", null, $"GameHome {Short(newest.Version)} ({(BetaChannel ? "Beta" : "Stable")}) er klar. Trykk M2 og velg «Oppdater».");
+            _log.Write("oppdatering", $"Ny {(BetaChannel ? "Beta" : "Stable")}-kanalversjon {newest.Version} ({newest.Tag}); installert {installed}");
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
         {

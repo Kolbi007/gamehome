@@ -8,16 +8,26 @@ Nye versjoner ble installert av Claude over SSH. Produkteier skal kunne oppdater
 
 ## Beslutning
 
-- Hver sammenslåing til `main` gir en GitHub-release `v0.2.<nummer>` (pre-release) med signert MSIX (release.yml).
-  Testbygg fra grener er 0.1.N og ligger alltid under.
-- GameHome ser etter en nyere release høyst hver sjette time, når Home blir aktiv og aldri mens et spill kjører
-  (`GET https://api.github.com/repos/Kolbi007/gamehome/releases`). Finnes det en, vises «Oppdater til …» i M2-menyen
-  og et varsel i Home.
+- Hver sammenslåing til `main` gir en Beta-prerelease `v0.2.<nummer>` med signert MSIX. En versjonstagg `vX.Y.Z`
+  gir en Stable-release.
+- GameHome ser etter en nyere utgivelse høyst hver sjette time, når Home blir aktiv og aldri mens et spill kjører
+  (`GET https://api.github.com/repos/Kolbi007/gamehome/releases`). Stable ignorerer prereleases; Beta følger både
+  prereleases og stabile utgivelser. Kanalen velges i M2-menyen, lagres lokalt og har Stable som standard.
 - «Oppdater» laster ned pakken til appens midlertidige mappe og åpner den i Windows' App Installer, som sjekker
-  signaturen (samme utgiver som installert pakke) og ber brukeren bekrefte. GameHome installerer ikke selv og trenger
-  ingen begrensede rettigheter (`packageManagement`).
+  signaturen (samme utgiver som installert pakke) og ber brukeren bekrefte. Manuell nettlesernedlasting er ikke nødvendig.
+  GameHome installerer ikke selv og trenger ingen begrensede rettigheter (`packageManagement`).
 
 ## Konsekvenser
 
-- Mange pre-releases på GitHub; de er små og kan ryddes.
+### Stable and Beta channels (2026-11-14)
+
+- Merging to `main` publishes a Beta prerelease. A `vX.Y.Z` tag publishes a Stable release.
+- The app defaults to Stable. The M2 menu can switch to Beta and immediately checks the selected channel. Stable ignores
+  prereleases; Beta accepts both prereleases and Stable releases.
+- The app downloads the selected MSIX itself and opens Windows App Installer for the user to confirm. The user no longer
+  needs to find and download a release asset manually. Silent installation is intentionally not enabled.
+- Switching from Beta to Stable does not downgrade an installed package. Stable will update it after a Stable package
+  with a greater MSIX version is published.
+
+- Keep recent Beta prereleases for diagnostics and rollback; older releases may be archived periodically.
 - Signeringen bruker fortsatt utviklersertifikatet; første installasjon krever at det er tiltrodd (Install-DevBuild.ps1).

@@ -6,6 +6,12 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      version:
+        description: Optional three- or four-part package version for a signed device test build (for example 0.2.18.1)
+        type: string
+        required: false
+        default: ""
   # Brukes av release.yml med versjon fra taggen.
   workflow_call:
     inputs:
@@ -74,11 +80,17 @@ jobs:
           $revision = if ('${{ matrix.aot }}' -eq 'true') { 0 } else { 1 }
           if ('${{ inputs.version }}') {
             $v = '${{ inputs.version }}'.TrimStart('v')
-            if ($v -notmatch '^\d+\.\d+\.\d+$') { throw "Ugyldig versjon: $v (forventet vX.Y.Z)" }
+            if ($v -match '^\d+\.\d+\.\d+\.\d+$') {
+              $full = $v
+            } elseif ($v -match '^\d+\.\d+\.\d+$') {
+              $full = "$v.$revision"
+            } else {
+              throw "Ugyldig versjon: $v (forventet X.Y.Z eller X.Y.Z.R)"
+            }
           } else {
             $v = "0.1.${{ github.run_number }}"
+            $full = "$v.$revision"
           }
-          $full = "$v.$revision"
           $m = 'src/GameHome.App/Package.appxmanifest'
           $xml = Get-Content $m -Raw
           $xml = [regex]::Replace($xml, '(<Identity [^>]*Version=")[^"]+', "`${1}$full")

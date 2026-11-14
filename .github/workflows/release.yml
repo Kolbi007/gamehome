@@ -1,6 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Hver sammenslåing til main gir en GitHub-release v0.2.<nummer> med signert MSIX for x64 og ARM64; GameHome finner
-# den selv og tilbyr oppdatering (ADR 0010). En tagg vX.Y.Z gir en release med den versjonen.
+# Hver sammenslåing til main gir en Beta-prerelease v0.2.<nummer>. En tagg vX.Y.Z gir en Stable-release.
 name: Release
 
 on:
@@ -49,6 +48,8 @@ jobs:
           # Bare standardvariantene (Native AOT, ADR 0005); JIT-artefaktet er for sammenligning.
           msix=(dist/gamehome-msix-x64/**/*.msix dist/gamehome-msix-arm64/**/*.msix)
           if [ ${#msix[@]} -eq 0 ]; then echo "Fant ingen MSIX" >&2; exit 1; fi
+          release_args=()
+          if [[ "$GITHUB_REF" != refs/tags/* ]]; then release_args+=(--prerelease); fi
           gh release create "$TAG" \
             "${msix[@]}" \
             dist/gamehome-msix-x64/certs/GameHome-Dev.cer \
@@ -56,5 +57,5 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "GameHome $TAG" \
-            --prerelease \
+            "${release_args[@]}" \
             --notes "Bygg fra main. GameHome på Legion Go finner det selv (M2 → Oppdater). Første installasjon: kjør Install-DevBuild.ps1 som administrator med stien til .msix-filen. Se README."

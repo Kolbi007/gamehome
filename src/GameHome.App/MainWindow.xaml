@@ -321,6 +321,12 @@
                         <TextBlock x:Name="MenuAccountsHint" FontSize="13" Foreground="#A0A7B0" />
                     </StackPanel>
                 </Button>
+                <Button x:Name="MenuUpdateChannelButton" Click="MenuUpdateChannelButton_Click" HorizontalAlignment="Stretch" Height="48">
+                    <StackPanel Spacing="1">
+                        <TextBlock x:Name="MenuUpdateChannelText" FontSize="17" />
+                        <TextBlock Text="Trykk for å bytte mellom Stable og Beta" FontSize="12" Foreground="#A0A7B0" />
+                    </StackPanel>
+                </Button>
                 <Button x:Name="MenuUpdateButton" Click="MenuUpdateButton_Click" HorizontalAlignment="Stretch" Height="64" Visibility="Collapsed"
                         Style="{StaticResource AccentButtonStyle}">
                     <StackPanel Spacing="2">
