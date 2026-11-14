@@ -165,8 +165,8 @@ if ((Test-Path $powerFile) -and (Test-Path $profileFile)) {
 
     # M2 (B5) skal bare åpne GameHome-menyen. HCs standardoppsett for Legion Go sender også R1 på kontrolleren fra M2;
     # da tar GameHome forgrunnen mens R1 er nede, og spillet får aldri slippet (2026-11-05: R1 hang i WoW etter menyen).
-    $m2 = '("B5":\s*\{\s*"\$type":\s*"[^"]*",\s*"\$values":\s*)\[[^\[\]]*?ButtonActions[^\[\]]*\]'
-    if ($gameProfile -match $m2) {
+    $m2 = '("B5":\s*\{\s*"\$type":\s*"[^"]*",\s*"\$values":\s*)\[(?:[^\[\]]+|(?<o>\[)|(?<-o>\]))*(?(o)(?!))\]'
+    if ($gameProfile -match $m2 -and $Matches[0] -match 'ButtonActions') {
         $gameProfile = [regex]::Replace($gameProfile, $m2, '${1}[]')
         Write-Host 'M2 sender ikke lenger en kontrollerknapp i spillet (bare GameHome-menyen).'
     }

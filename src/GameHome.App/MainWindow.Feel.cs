@@ -221,11 +221,12 @@ public sealed partial class MainWindow
         }
 
         object? slide = null;
+        var deckCount = _attractDeck.Count;
         while (slide is null && _attractDeck.TryDequeue(out var next))
         {
             slide = next switch
             {
-                Game game when game.Id != _heroGameId && ArtFor(game).Hero is { } hero && File.Exists(hero) => game,
+                Game game when (game.Id != _heroGameId || deckCount <= 1) && ArtFor(game).Hero is { } hero && File.Exists(hero) => game,
                 SteamLibraryApp app when app.Hero is { } appHero && File.Exists(appHero) => app,
                 _ => null,
             };
@@ -248,8 +249,10 @@ public sealed partial class MainWindow
             {
                 FadeTo(HeroInfo, 0, 450);
                 await Task.Delay(470);
-                if (_lastUserInput != inputBefore || SessionActive || AnyOverlayOpen)
+                if (_lastUserInput != inputBefore || SessionActive || AnyOverlayOpen || !_windowActive)
                 {
+                    _attracting = false;
+                    FadeTo(HeroInfo, 1, 200);
                     return;
                 }
             }

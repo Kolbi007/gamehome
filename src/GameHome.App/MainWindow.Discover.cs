@@ -64,14 +64,15 @@ public sealed partial class MainWindow
     {
         _attractSuggestion = app;
         _heroGameId = null;
-        _heroLogoPath = app.Logo;
+        var logo = app.Logo is { } file && File.Exists(file) ? file : null;
+        _heroLogoPath = logo;
         HeroLogo.Source = null;
-        if (app.Logo is { } logo)
+        if (logo is not null)
         {
             _ = LoadTileImageAsync(HeroLogo, logo, Px(520));
         }
 
-        HeroTitle.Text = app.Logo is null ? app.Name : "";
+        HeroTitle.Text = logo is null ? app.Name : "";
         HeroFacts.Text = IsFamilyShared(app) ? "Ikke installert · familiedeling" : "Ikke installert · i Steam-biblioteket ditt";
         SetHints(HeroHints, ("A", "Installer"), ("B", "Tilbake"));
         if (app.Hero is { } hero && !string.Equals(_ambientPath, hero, StringComparison.OrdinalIgnoreCase))
