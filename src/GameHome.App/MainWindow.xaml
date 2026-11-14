@@ -499,10 +499,13 @@
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <TextBlock Text="Innstillinger og strøm" FontFamily="{StaticResource GhFontDisplay}" FontSize="{StaticResource GhSizeTitle}" FontWeight="SemiBold"
                                        Foreground="{StaticResource GhTextPrimaryBrush}" VerticalAlignment="Center" />
-                            <Button x:Name="PowerCancelButton" Grid.Column="1" Content="Lukk" Click="PowerCancel_Click" Width="112" Height="52" FontSize="18" />
+                            <TextBlock x:Name="PowerClockText" Grid.Column="1" FontSize="{StaticResource GhSizeBody}" Foreground="{StaticResource GhTextSecondaryBrush}"
+                                       VerticalAlignment="Center" Margin="0,0,8,0" />
+                            <Button x:Name="PowerCancelButton" Grid.Column="2" Content="Lukk" Click="PowerCancel_Click" Width="112" Height="52" FontSize="18" />
                         </Grid>
                         <TextBlock x:Name="PowerText" FontSize="{StaticResource GhSizeCaption}" Foreground="{StaticResource GhTextSecondaryBrush}" TextWrapping="Wrap" />
                         <Grid ColumnSpacing="28">

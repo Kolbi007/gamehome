@@ -94,6 +94,7 @@ public sealed partial class MainWindow : Window
     private readonly List<string> _events = [];
     private readonly DispatcherQueueTimer _gamepadTimer;
     private readonly DispatcherQueueTimer _metricsTimer;
+    private readonly DispatcherQueueTimer _clockTimer;
     private readonly HotkeyListener _hotkeys;
     private readonly List<HidReportListener> _hidListeners = [];
 
@@ -171,9 +172,12 @@ public sealed partial class MainWindow : Window
         _metricsTimer.Tick += (_, _) =>
         {
             UpdateMemory();
-            UpdateClock();
             _ = RefreshHostStatusAsync(); // Høyst hvert 10. sekund, bare mens Home er aktiv og ingen økt kjører.
         };
+
+        _clockTimer = DispatcherQueue.CreateTimer();
+        _clockTimer.Interval = TimeSpan.FromSeconds(15);
+        _clockTimer.Tick += (_, _) => UpdateClock();
 
         _hotkeys = new HotkeyListener(WinRT.Interop.WindowNative.GetWindowHandle(this));
         _hotkeys.Pressed += OnSessionHotkey;
@@ -224,7 +228,9 @@ public sealed partial class MainWindow : Window
 
     private void UpdateClock()
     {
-        ClockText.Text = DateTime.Now.ToString("HH:mm", CultureInfo.InvariantCulture);
+        var time = DateTime.Now.ToString("HH:mm", CultureInfo.InvariantCulture);
+        ClockText.Text = time;
+        PowerClockText.Text = time;
         BatteryTopText.Text = BatteryShort();
     }
 
@@ -5031,6 +5037,7 @@ public sealed partial class MainWindow : Window
 
     private void PowerMenuButton_Click(object sender, RoutedEventArgs e)
     {
+        UpdateClock();
         _powerFromSession = SessionPanel.Visibility == Visibility.Visible;
         if (_powerFromSession)
         {
@@ -5233,6 +5240,9 @@ public sealed partial class MainWindow : Window
 
     private void StopEverything()
     {
+        _clockTimer.Stop();
+        _metricsTimer.Stop();
+        _gamepadTimer.Stop();
         StopHidCapture();
         _hotkeys.UnregisterAll();
         DisposeVibepollo();
@@ -5251,6 +5261,7 @@ public sealed partial class MainWindow : Window
         if (state == WindowActivationState.Deactivated)
         {
             _metricsTimer.Stop();
+            _clockTimer.Stop();
             StopAttractTimer();
             StopAmbientAnimation();
             StopTrailer();
@@ -5297,6 +5308,8 @@ public sealed partial class MainWindow : Window
         }
 
         _windowActive = true;
+        UpdateClock();
+        _clockTimer.Start();
         if (LoadingPanel.Visibility == Visibility.Visible && _loadingCovered)
         {
             HideLoading("GameHome aktiv igjen");
@@ -5373,6 +5386,12 @@ public sealed partial class MainWindow : Window
         {
             CheckHandheldCompanion();
         }
+
+        _previousButtons = GamepadButtons.None;
+        _previousStick = null;
+        _previousLeftTrigger = false;
+        _previousRightTrigger = false;
+        _log.Write("kontroller", $"Polling startet ({Gamepad.Gamepads.Count} tilkoblet, økt {(SessionActive ? "aktiv" : "ingen")})");
     }
 
     private static GamepadReading Combined(IReadOnlyList<Gamepad> gamepads)
