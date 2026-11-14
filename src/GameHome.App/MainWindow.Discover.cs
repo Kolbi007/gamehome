@@ -19,22 +19,56 @@ public sealed partial class MainWindow
 {
     private IReadOnlyList<SteamLibraryApp>? _steamLocal;
     private bool _steamLocalLoading;
+    private CancellationTokenSource? _steamLocalLoadCancellation;
     private SteamLibraryApp? _attractSuggestion;
 
     /// <summary>Leser Steams lokale bibliotek én gang per kjøring, i bakgrunnen.</summary>
     private async void LoadSteamLocalLibrary()
     {
-        if (_steamLocal is not null || _steamLocalLoading || SteamClient.FindRoot() is not { } root)
+        if (SessionActive || _steamLocal is not null || _steamLocalLoading || SteamClient.FindRoot() is not { } root)
         {
             return;
         }
 
         _steamLocalLoading = true;
-        var apps = await Task.Run(() => SteamLocalLibrary.Read(root));
-        _steamLocal = apps;
-        _steamLocalLoading = false;
-        _log.Write("steam", $"Steam-biblioteket på maskinen: {apps.Count} spill (også familiedelte)");
+        var cancellation = new CancellationTokenSource();
+        _steamLocalLoadCancellation = cancellation;
+        try
+        {
+            var apps = await Task.Run(() => SteamLocalLibrary.ReadAsync(root, cancellation.Token));
+            if (SessionActive || cancellation.IsCancellationRequested)
+            {
+                return;
+            }
+
+            _steamLocal = apps;
+            _log.Write("steam", $"Steam-biblioteket på maskinen: {apps.Count} spill (også familiedelte)");
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            // A game session started while the local Steam cache was being read.
+        }
+        catch (Exception ex)
+        {
+            _log.Write("steam", $"Kunne ikke lese lokalt Steam-bibliotek: {ex.GetType().Name}: {ex.Message}");
+        }
+        finally
+        {
+            _steamLocalLoading = false;
+            if (ReferenceEquals(_steamLocalLoadCancellation, cancellation))
+            {
+                _steamLocalLoadCancellation = null;
+            }
+
+            cancellation.Dispose();
+            if (_steamLocal is null && !SessionActive && _windowActive)
+            {
+                LoadSteamLocalLibrary();
+            }
+        }
     }
+
+    private void CancelSteamLocalLibraryLoad() => _steamLocalLoadCancellation?.Cancel();
 
     private HashSet<string> InstalledSteamIds() =>
     [
@@ -60,25 +94,19 @@ public sealed partial class MainWindow
         _ownedGames is { } owned && owned.All(o => o.AppId != app.AppId);
 
     /// <summary>Visningsmodus: viser et Steam-spill som ikke er installert. A installerer det.</summary>
-    private bool ShowAttractSuggestion()
+    private void ShowAttractSuggestion(SteamLibraryApp app)
     {
-        var candidates = NotInstalledSteamGames().Where(a => a.Hero is not null).ToList();
-        if (candidates.Count == 0)
-        {
-            return false;
-        }
-
-        var app = candidates[Random.Shared.Next(candidates.Count)];
         _attractSuggestion = app;
         _heroGameId = null;
-        _heroLogoPath = app.Logo;
+        var logo = app.Logo is { } file && File.Exists(file) ? file : null;
+        _heroLogoPath = logo;
         HeroLogo.Source = null;
-        if (app.Logo is { } logo)
+        if (logo is not null)
         {
             _ = LoadTileImageAsync(HeroLogo, logo, Px(520));
         }
 
-        HeroTitle.Text = app.Logo is null ? app.Name : "";
+        HeroTitle.Text = logo is null ? app.Name : "";
         HeroFacts.Text = IsFamilyShared(app) ? "Ikke installert · familiedeling" : "Ikke installert · i Steam-biblioteket ditt";
         SetHints(HeroHints, ("A", "Installer"), ("B", "Tilbake"));
         if (app.Hero is { } hero && !string.Equals(_ambientPath, hero, StringComparison.OrdinalIgnoreCase))
@@ -86,8 +114,6 @@ public sealed partial class MainWindow
             _ambientPath = hero;
             _ = LoadAmbientAsync(hero, sharp: true);
         }
-
-        return true;
     }
 
     /// <summary>A på et forslag i visningsmodus: Steam viser installasjonen, fremdriften kommer i Home.</summary>
