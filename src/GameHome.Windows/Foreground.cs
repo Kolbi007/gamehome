@@ -93,6 +93,22 @@ public static class Foreground
         return 0;
     }
 
+    /// <summary>Første synlige toppnivåvindu prosessen eier, uansett vindusklasse.</summary>
+    public static nint FindVisibleWindow(int processId)
+    {
+        nint window = 0;
+        while ((window = NativeMethods.FindWindowExW(0, window, null, null)) != 0)
+        {
+            if (NativeMethods.GetWindowThreadProcessId(window, out var owner) != 0 && owner == processId
+                && NativeMethods.IsWindowVisible(window))
+            {
+                return window;
+            }
+        }
+
+        return 0;
+    }
+
     /// <summary>Navnet på prosessen som eier forgrunnsvinduet, for loggen. Null hvis det ikke kan leses.</summary>
     public static string? CurrentProcessName()
     {

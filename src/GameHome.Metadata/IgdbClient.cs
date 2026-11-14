@@ -33,6 +33,9 @@ public sealed record IgdbGame(
 /// <summary>Gjennomsnittlig tid å fullføre fra IGDB, i sekunder, og antall innsendinger. Null betyr at tallet mangler.</summary>
 public sealed record IgdbTimeToBeat(long GameId, int? HastilySeconds, int? NormallySeconds, int? CompletelySeconds, int? Count);
 
+/// <summary>YouTube-video knyttet direkte til en IGDB-spilloppføring.</summary>
+public sealed record IgdbGameVideo(string Name, string VideoId);
+
 /// <summary>
 /// IGDB (offisielt, Twitch-nøkkel fra brukeren, ADR 0003): søk, oppslag fra Steam-appid, detaljer, bilder, vurderinger
 /// og tid å fullføre.
@@ -122,6 +125,35 @@ public sealed class IgdbClient : IDisposable
             + gameId.ToString(CultureInfo.InvariantCulture) + ";";
         var json = await PostAsync("game_time_to_beats", query, ct).ConfigureAwait(false);
         return json is null ? null : ParseTimeToBeat(json);
+    }
+
+    /// <summary>YouTube-videoer som IGDB knytter direkte til spillet.</summary>
+    public async Task<IReadOnlyList<IgdbGameVideo>> GetVideosAsync(long gameId, CancellationToken ct = default)
+    {
+        var query = "fields name,video_id; where game = " + gameId.ToString(CultureInfo.InvariantCulture) + "; limit 20;";
+        var json = await PostAsync("game_videos", query, ct).ConfigureAwait(false);
+        return json is null ? [] : ParseGameVideos(json);
+    }
+
+    /// <summary>Leser kun gyldige ellevesifrede YouTube-ID-er fra IGDB-svar.</summary>
+    public static IReadOnlyList<IgdbGameVideo> ParseGameVideos(string json)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            if (document.RootElement.ValueKind != JsonValueKind.Array)
+            {
+                return [];
+            }
+
+            return [.. document.RootElement.EnumerateArray()
+                .Select(e => new IgdbGameVideo(JsonRead.Text(e, "name") ?? string.Empty, JsonRead.Text(e, "video_id") ?? string.Empty))
+                .Where(v => v.VideoId.Length == 11 && v.VideoId.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_'))];
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
     }
 
     /// <summary>

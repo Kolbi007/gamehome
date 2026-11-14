@@ -10,11 +10,12 @@ public sealed record AvailableRelease(Version Version, string Tag, string AssetN
 
 /// <summary>
 /// Leser svaret fra GitHubs offentlige API for utgivelser (<c>GET /repos/{eier}/{repo}/releases</c>) og finner den
-/// nyeste utgivelsen med en MSIX for gitt arkitektur. Taggen <c>vX.Y.Z</c> gir pakkeversjonen X.Y.Z.0 (se ci.yml).
+/// nyeste utgivelsen med en MSIX for gitt arkitektur. Stable ignorerer prereleases; Beta inkluderer begge kanaler.
+/// Taggen <c>vX.Y.Z</c> gir pakkeversjonen X.Y.Z.0 (se ci.yml).
 /// </summary>
 public static class ReleaseFeed
 {
-    public static AvailableRelease? Newest(string json, string architecture)
+    public static AvailableRelease? Newest(string json, string architecture, bool includePrerelease = true)
     {
         ArgumentNullException.ThrowIfNull(json);
         ArgumentException.ThrowIfNullOrEmpty(architecture);
@@ -28,6 +29,12 @@ public static class ReleaseFeed
         foreach (var release in document.RootElement.EnumerateArray())
         {
             if (release.TryGetProperty("draft", out var draft) && draft.ValueKind == JsonValueKind.True)
+            {
+                continue;
+            }
+
+            if (!includePrerelease && release.TryGetProperty("prerelease", out var prerelease)
+                && prerelease.ValueKind == JsonValueKind.True)
             {
                 continue;
             }

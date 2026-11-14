@@ -30,12 +30,12 @@ public sealed partial class MainWindow
         HomeMenuCard.Visibility = Visibility.Visible;
         StreamDebugPanel.Visibility = Visibility.Collapsed;
         SessionHero.Source = null;
+        HomeMenuStatus.Visibility = Visibility.Collapsed;
         if (FeaturedGame(out _) is { } featured && ArtFor(featured).Hero is { } hero && File.Exists(hero))
         {
             _ = LoadTileImageAsync(SessionHero, hero, 1280); // Et spill i bakgrunnen, så menyen ikke står tom.
         }
         SessionLogo.Source = null;
-        HomeMenuStatus.Visibility = Visibility.Collapsed;
         HomeMenuDetail.Text = $"{_library.VisibleGames.Count} spill · ingen spill kjører";
         CheckHandheldCompanion();
         MenuRestoreScreenButton.Visibility = Vibepollo is null ? Visibility.Collapsed : Visibility.Visible;
@@ -47,8 +47,7 @@ public sealed partial class MainWindow
         PerformanceStatus.Visibility = Visibility.Collapsed;
         SessionPanel.Visibility = Visibility.Visible;
         SetHomeEnabled(false);
-        (MenuUpdateButton.Visibility == Visibility.Visible ? MenuUpdateButton : MenuAccountsButton).Focus(FocusState.Keyboard);
-        _ = CheckForUpdateAsync(manual: false, fromMenu: true);
+        MenuAccountsButton.Focus(FocusState.Keyboard);
         _log.Write("meny", $"GameHome-menyen vist via {via}");
     }
 

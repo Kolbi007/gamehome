@@ -94,6 +94,7 @@ public sealed partial class MainWindow : Window
     private readonly List<string> _events = [];
     private readonly DispatcherQueueTimer _gamepadTimer;
     private readonly DispatcherQueueTimer _metricsTimer;
+    private readonly DispatcherQueueTimer _clockTimer;
     private readonly HotkeyListener _hotkeys;
     private readonly List<HidReportListener> _hidListeners = [];
 
@@ -104,6 +105,8 @@ public sealed partial class MainWindow : Window
     private DispatcherQueueTimer? _firstSteamSync;
     private DispatcherQueueTimer? _loadingTimer;
     private DispatcherQueueTimer? _streamCover;
+    private DispatcherQueueTimer? _wowStartupCover;
+    private DateTime _wowStartupCoverStarted;
     private DateTime _loadingShown;
     private bool _waking;
     private bool _lastWakeNoNetwork;
@@ -134,6 +137,7 @@ public sealed partial class MainWindow : Window
     {
         _log = log;
         InitializeComponent();
+        RefreshUpdateChannelButton();
         _log.Write("start", "XAML lastet");
         ExtendsContentIntoTitleBar = true;
 
@@ -170,9 +174,12 @@ public sealed partial class MainWindow : Window
         _metricsTimer.Tick += (_, _) =>
         {
             UpdateMemory();
-            UpdateClock();
             _ = RefreshHostStatusAsync(); // Høyst hvert 10. sekund, bare mens Home er aktiv og ingen økt kjører.
         };
+
+        _clockTimer = DispatcherQueue.CreateTimer();
+        _clockTimer.Interval = TimeSpan.FromSeconds(15);
+        _clockTimer.Tick += (_, _) => UpdateClock();
 
         _hotkeys = new HotkeyListener(WinRT.Interop.WindowNative.GetWindowHandle(this));
         _hotkeys.Pressed += OnSessionHotkey;
@@ -223,7 +230,9 @@ public sealed partial class MainWindow : Window
 
     private void UpdateClock()
     {
-        ClockText.Text = DateTime.Now.ToString("HH:mm", CultureInfo.InvariantCulture);
+        var time = DateTime.Now.ToString("HH:mm", CultureInfo.InvariantCulture);
+        ClockText.Text = time;
+        PowerClockText.Text = time;
         BatteryTopText.Text = BatteryShort();
     }
 
@@ -2728,6 +2737,7 @@ public sealed partial class MainWindow : Window
                 await SignalGameHomeStreamAsync(streamHost?.Name);
             }
 
+            StartWowStartupCover(game, action);
             _session = (IForegroundSession)await runner.LaunchAsync(action, Profile.Default, CancellationToken.None);
             _sessionRunnerId = action.RunnerId;
         }
@@ -3321,6 +3331,55 @@ public sealed partial class MainWindow : Window
         _log.Write("laster", "Tar lang tid; viser Vent og Tilbake til Home");
     }
 
+    /// <summary>
+    /// For WoW Forever lokalt på Legion Go beholdes GameHomes lasteskjerm foran Battle.net mens spillet starter.
+    /// Etter 20 sekunder uten spillvindu vises Battle.net så eventuell innlogging eller feil kan håndteres.
+    /// </summary>
+    private void StartWowStartupCover(Game game, PlayAction action)
+    {
+        if (!string.Equals(action.RunnerId, BattleNetRunner.Id, StringComparison.Ordinal)
+            || !string.Equals(action.Target, "WoWF", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        EndWowStartupCover("ny WoW-start");
+        _wowStartupCoverStarted = DateTime.UtcNow;
+        Foreground.SetTopmost(WinRT.Interop.WindowNative.GetWindowHandle(this), true);
+
+        _wowStartupCover = DispatcherQueue.CreateTimer();
+        _wowStartupCover.Interval = TimeSpan.FromMilliseconds(250);
+        _wowStartupCover.Tick += (_, _) =>
+        {
+            if (_sessionGame?.Id == game.Id && _session is IForegroundSession foreground && foreground.MainWindowHandle != 0)
+            {
+                EndWowStartupCover("WoW-vinduet åpnet");
+                HideLoading("WoW-vinduet åpnet");
+            }
+            else if (DateTime.UtcNow - _wowStartupCoverStarted >= BattleNetRunner.WowStartupGracePeriod)
+            {
+                BattleNetRunner.ShowLauncherForAttention();
+                EndWowStartupCover("20 sekunder uten WoW-vindu");
+                HideLoading("20 sekunder uten WoW-vindu; viser Battle.net");
+            }
+        };
+        _wowStartupCover.Start();
+        _log.Write("laster", $"WoW Forever: splash foran Battle.net i opptil {BattleNetRunner.WowStartupGracePeriod.TotalSeconds:F0} sekunder");
+    }
+
+    private void EndWowStartupCover(string reason)
+    {
+        if (_wowStartupCover is null)
+        {
+            return;
+        }
+
+        _wowStartupCover.Stop();
+        _wowStartupCover = null;
+        Foreground.SetTopmost(WinRT.Interop.WindowNative.GetWindowHandle(this), false);
+        _log.Write("laster", $"WoW-startsplash avsluttet: {reason}");
+    }
+
     // ---- Lasteskjerm over Moonlight til streamen viser bilde ----
 
     /// <summary>
@@ -3433,6 +3492,7 @@ public sealed partial class MainWindow : Window
 
     private void HideLoading(string why)
     {
+        EndWowStartupCover(why);
         if (_streamCover is not null)
         {
             EndStreamCover(why);
@@ -5030,6 +5090,7 @@ public sealed partial class MainWindow : Window
 
     private void PowerMenuButton_Click(object sender, RoutedEventArgs e)
     {
+        UpdateClock();
         _powerFromSession = SessionPanel.Visibility == Visibility.Visible;
         if (_powerFromSession)
         {
@@ -5040,6 +5101,12 @@ public sealed partial class MainWindow : Window
         PowerText.Text = game is null
             ? "Windows lukker programmene normalt ved omstart og avslutning."
             : $"{game} kjører. Dvale setter det på pause. Omstart og avslutning avslutter spillet, og ulagret fremgang kan gå tapt.";
+        RefreshUpdateChannelButton();
+        UpdateChannelButton.IsEnabled = !SessionActive;
+        UpdateCheckButton.IsEnabled = !SessionActive;
+        UpdateButton.IsEnabled = !SessionActive;
+        PowerAccountsButton.IsEnabled = !SessionActive;
+        PowerDebugButton.IsEnabled = !SessionActive;
         PowerPanel.Visibility = Visibility.Visible;
         SetHomeEnabled(false);
         PowerCancelButton.Focus(FocusState.Keyboard);
@@ -5087,6 +5154,29 @@ public sealed partial class MainWindow : Window
     {
         _log.Write("strøm", "Strømmenyen avbrutt");
         ClosePowerMenu(restoreSession: true);
+    }
+
+    private void PowerAccountsButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (SessionActive)
+        {
+            return;
+        }
+
+        ClosePowerMenu(restoreSession: false);
+        ShowMenu("innstillinger: kontoer");
+        MenuAccountsButton_Click(sender, e);
+    }
+
+    private void PowerDebugButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (SessionActive)
+        {
+            return;
+        }
+
+        ClosePowerMenu(restoreSession: false);
+        DebugTile_Click(sender, e);
     }
 
     private void ClosePowerMenu(bool restoreSession)
@@ -5203,6 +5293,9 @@ public sealed partial class MainWindow : Window
 
     private void StopEverything()
     {
+        _clockTimer.Stop();
+        _metricsTimer.Stop();
+        _gamepadTimer.Stop();
         StopHidCapture();
         _hotkeys.UnregisterAll();
         DisposeVibepollo();
@@ -5221,6 +5314,7 @@ public sealed partial class MainWindow : Window
         if (state == WindowActivationState.Deactivated)
         {
             _metricsTimer.Stop();
+            _clockTimer.Stop();
             StopAttractTimer();
             StopAmbientAnimation();
             StopTrailer();
@@ -5267,7 +5361,9 @@ public sealed partial class MainWindow : Window
         }
 
         _windowActive = true;
-        if (LoadingPanel.Visibility == Visibility.Visible && _loadingCovered)
+        UpdateClock();
+        _clockTimer.Start();
+        if (LoadingPanel.Visibility == Visibility.Visible && _loadingCovered && _wowStartupCover is null)
         {
             HideLoading("GameHome aktiv igjen");
         }
@@ -5343,6 +5439,12 @@ public sealed partial class MainWindow : Window
         {
             CheckHandheldCompanion();
         }
+
+        _previousButtons = GamepadButtons.None;
+        _previousStick = null;
+        _previousLeftTrigger = false;
+        _previousRightTrigger = false;
+        _log.Write("kontroller", $"Polling startet ({Gamepad.Gamepads.Count} tilkoblet, økt {(SessionActive ? "aktiv" : "ingen")})");
     }
 
     private static GamepadReading Combined(IReadOnlyList<Gamepad> gamepads)
