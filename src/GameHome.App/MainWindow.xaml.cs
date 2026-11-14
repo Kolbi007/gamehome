@@ -5041,6 +5041,12 @@ public sealed partial class MainWindow : Window
         PowerText.Text = game is null
             ? "Windows lukker programmene normalt ved omstart og avslutning."
             : $"{game} kjører. Dvale setter det på pause. Omstart og avslutning avslutter spillet, og ulagret fremgang kan gå tapt.";
+        RefreshUpdateChannelButton();
+        UpdateChannelButton.IsEnabled = !SessionActive;
+        UpdateCheckButton.IsEnabled = !SessionActive;
+        UpdateButton.IsEnabled = !SessionActive;
+        PowerAccountsButton.IsEnabled = !SessionActive;
+        PowerDebugButton.IsEnabled = !SessionActive;
         PowerPanel.Visibility = Visibility.Visible;
         SetHomeEnabled(false);
         PowerCancelButton.Focus(FocusState.Keyboard);
@@ -5088,6 +5094,29 @@ public sealed partial class MainWindow : Window
     {
         _log.Write("strøm", "Strømmenyen avbrutt");
         ClosePowerMenu(restoreSession: true);
+    }
+
+    private void PowerAccountsButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (SessionActive)
+        {
+            return;
+        }
+
+        ClosePowerMenu(restoreSession: false);
+        ShowMenu("innstillinger: kontoer");
+        MenuAccountsButton_Click(sender, e);
+    }
+
+    private void PowerDebugButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (SessionActive)
+        {
+            return;
+        }
+
+        ClosePowerMenu(restoreSession: false);
+        DebugTile_Click(sender, e);
     }
 
     private void ClosePowerMenu(bool restoreSession)
