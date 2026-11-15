@@ -59,6 +59,37 @@ public class GameDetailsTests
         finally
         {
             File.Delete(path);
+            File.Delete(path + ".bak");
+        }
+    }
+
+    [Theory]
+    [InlineData("{truncated")]
+    [InlineData("{\"game\":null}")]
+    public void Corrupt_metadata_recovers_the_previous_valid_copy(string invalid)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"gamehome-details-{Guid.NewGuid():N}.json");
+        var first = new GameDetails("first", null, null, null, [], null, "test", DateTime.UnixEpoch);
+        try
+        {
+            GameDetailsStore.Save(path, new() { ["game"] = first });
+            GameDetailsStore.Save(path, new() { ["game"] = first with { Description = "newer" } });
+            File.WriteAllText(path, invalid);
+
+            var recovered = GameDetailsStore.Load(path);
+            Assert.Equal("first", recovered["game"].Description);
+            var preservedBackup = File.ReadAllText(path + ".bak");
+
+            recovered["game"] = first with { Description = "repaired" };
+            GameDetailsStore.Save(path, recovered);
+
+            Assert.Equal(preservedBackup, File.ReadAllText(path + ".bak"));
+            Assert.Equal("repaired", GameDetailsStore.Load(path)["game"].Description);
+        }
+        finally
+        {
+            File.Delete(path);
+            File.Delete(path + ".bak");
         }
     }
 
