@@ -511,7 +511,7 @@
                                         <Button Tag="sleep" Click="PowerOption_Click" Content="Dvale" Style="{StaticResource SettingsRow}" />
                                         <Button Tag="restart" Click="PowerOption_Click" Content="Start på nytt" Style="{StaticResource SettingsRow}" />
                                         <Button Tag="shutdown" Click="PowerOption_Click" Content="Slå av" Style="{StaticResource SettingsRow}" />
-                                        <Button Tag="exit" Click="PowerOption_Click" Content="Avslutt GameHome" Style="{StaticResource SettingsRow}" />
+                                        <Button x:Name="SettingsExitButton" Tag="exit" Click="PowerOption_Click" Content="Avslutt GameHome" Style="{StaticResource SettingsRow}" />
                                     </StackPanel>
                                 </StackPanel>
                             </Grid>

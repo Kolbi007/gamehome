@@ -137,6 +137,7 @@ public sealed partial class MainWindow : Window
     {
         _log = log;
         InitializeComponent();
+        ConfigureNavigationOverlays();
         RefreshUpdateChannelButton();
         _log.Write("start", "XAML lastet");
         ExtendsContentIntoTitleBar = true;
@@ -3564,7 +3565,7 @@ public sealed partial class MainWindow : Window
 
         if (PowerPanel.Visibility == Visibility.Visible)
         {
-            var resume = SessionActive && MessagePanel.Visibility != Visibility.Visible;
+            var resume = SessionActive && ActiveNavigationOverlay() == PowerPanel;
             GoBack();
             if (resume && PowerPanel.Visibility == Visibility.Visible)
             {
@@ -5452,21 +5453,24 @@ public sealed partial class MainWindow : Window
 
         _log.Write("input", $"Kontroller: {string.Join(", ", names)}");
 
-        RestoreSettingsFocus();
-        var focusScope = MessagePanel.Visibility == Visibility.Visible ? MessagePanel
-            : KeyEntryPanel.Visibility == Visibility.Visible ? KeyEntryPanel
-            : PowerPanel.Visibility == Visibility.Visible ? PowerPanel
-            : Root.XamlRoot.Content;
+        if (Root.XamlRoot is not { } root)
+        {
+            return;
+        }
+
+        var overlay = ActiveNavigationOverlay();
+        var focusScope = overlay ?? Root;
+        var focusRecovered = RestoreOverlayFocus(overlay, root);
         var direction = DPadDirection(pressed) ?? (stickMoved ? stick : null);
         if (direction is { } dir && FocusManager.TryMoveFocus(dir, new FindNextElementOptions { SearchRoot = focusScope }))
         {
             MenuSounds.Move();
         }
 
-        var focusedButton = FocusManager.GetFocusedElement(Root.XamlRoot) as Button;
+        var focusedButton = FocusManager.GetFocusedElement(root) as Button;
 
-        if (pressed.HasFlag(GamepadButtons.A) && focusedButton is { IsEnabled: true } &&
-            (PowerPanel.Visibility != Visibility.Visible || IsWithinSettingsScope(focusedButton, focusScope)))
+        if (pressed.HasFlag(GamepadButtons.A) && !focusRecovered && focusedButton is { IsEnabled: true } &&
+            IsWithinFocusScope(focusedButton, focusScope))
         {
             MenuSounds.Select();
             Pulse();
@@ -5475,9 +5479,9 @@ public sealed partial class MainWindow : Window
         }
 
         // Y på en spillflis: om spillet. ☰ (Start/Menu): valg for spillet.
-        var libraryOnTop = LibraryPanel.Visibility == Visibility.Visible && !PanelOverLibraryOpen;
+        var libraryOnTop = overlay == LibraryPanel;
         var onTile = focusedButton is not null
-            && (libraryOnTop ? LibraryGrid.Children.Contains(focusedButton) : !AnyOverlayOpen && GameTiles.Children.Contains(focusedButton));
+            && (libraryOnTop ? LibraryGrid.Children.Contains(focusedButton) : overlay is null && GameTiles.Children.Contains(focusedButton));
         var tileGame = onTile && focusedButton is { Tag: string id } ? _library.Find(id) : null;
 
         // Biblioteket: LB/RB bytter fane, X bytter sortering.
@@ -5530,8 +5534,7 @@ public sealed partial class MainWindow : Window
         }
 
         // ☰ i «Om spillet» går rett til valgene.
-        if (pressed.HasFlag(GamepadButtons.Menu) && DetailsPanel.Visibility == Visibility.Visible && _detailsGame is { } detailsGame
-            && MessagePanel.Visibility != Visibility.Visible)
+        if (pressed.HasFlag(GamepadButtons.Menu) && overlay == DetailsPanel && _detailsGame is { } detailsGame)
         {
             CloseDetails(focusHome: false);
             ShowOptions(detailsGame);
@@ -5543,76 +5546,6 @@ public sealed partial class MainWindow : Window
         {
             MenuSounds.Back();
             GoBack();
-        }
-    }
-
-    /// <summary>B på kontrolleren og Escape på tastaturet: lukk det øverste panelet, eller gå tilbake til spillet.</summary>
-    private void GoBack()
-    {
-        if (MessagePanel.Visibility == Visibility.Visible)
-        {
-            CloseMessage(_messageCancel);
-        }
-        else if (KeyEntryPanel.Visibility == Visibility.Visible)
-        {
-            CloseKeyEntry();
-        }
-        else if (ArtPanel.Visibility == Visibility.Visible)
-        {
-            CloseArtPicker();
-        }
-        else if (FindPanel.Visibility == Visibility.Visible)
-        {
-            CloseFind();
-        }
-        else if (NoticePanel.Visibility == Visibility.Visible)
-        {
-            CloseNotices();
-        }
-        else if (OptionsPanel.Visibility == Visibility.Visible)
-        {
-            CloseOptions();
-        }
-        else if (DetailsPanel.Visibility == Visibility.Visible)
-        {
-            CloseDetails();
-        }
-        else if (AccountsPanel.Visibility == Visibility.Visible)
-        {
-            CloseAccounts();
-        }
-        else if (LibraryPanel.Visibility == Visibility.Visible)
-        {
-            CloseLibrary();
-        }
-        else if (DebugPanel.Visibility == Visibility.Visible)
-        {
-            CloseDebug();
-        }
-        else if (HostPanel.Visibility == Visibility.Visible)
-        {
-            CloseHostPanel();
-        }
-        else if (PowerPanel.Visibility == Visibility.Visible)
-        {
-            BackFromSettings();
-        }
-        else if (LoadingPanel.Visibility == Visibility.Visible)
-        {
-            HideLoading("B");
-            FocusHome(_focusGameId);
-        }
-        else if (SessionPanel.Visibility == Visibility.Visible)
-        {
-            // B går tilbake til spillet, som på Steam Deck og Switch; uten spill lukkes GameHome-menyen.
-            if (SessionActive)
-            {
-                ResumeButton_Click(ResumeButton, new RoutedEventArgs());
-            }
-            else
-            {
-                HideSessionPanel();
-            }
         }
     }
 

@@ -200,7 +200,7 @@ public sealed partial class MainWindow
 
     private void BackFromSettings()
     {
-        if (IsWithinSettingsScope(FocusManager.GetFocusedElement(Root.XamlRoot) as DependencyObject, SettingsDetail))
+        if (IsWithinFocusScope(FocusManager.GetFocusedElement(Root.XamlRoot) as DependencyObject, SettingsDetail))
         {
             BackFromSettingsCategory();
             return;
@@ -218,13 +218,13 @@ public sealed partial class MainWindow
 
     private void RestoreSettingsFocus()
     {
-        if (PowerPanel.Visibility != Visibility.Visible || !SettingsSurface.IsEnabled || Root.XamlRoot is not { } root)
+        if (ActiveNavigationOverlay() != PowerPanel || !SettingsSurface.IsEnabled || Root.XamlRoot is not { } root)
         {
             return;
         }
 
         var focused = FocusManager.GetFocusedElement(root) as DependencyObject;
-        if (focused is Control { IsEnabled: true } && IsWithinSettingsScope(focused, PowerPanel))
+        if (focused is Control { IsEnabled: true } && IsWithinFocusScope(focused, PowerPanel))
         {
             return;
         }
@@ -234,19 +234,6 @@ public sealed partial class MainWindow
         {
             _log.Write("input", "Kontrollerfokus gjenopprettet i Innstillinger og strøm");
         }
-    }
-
-    private static bool IsWithinSettingsScope(DependencyObject? element, DependencyObject scope)
-    {
-        for (; element is not null; element = VisualTreeHelper.GetParent(element))
-        {
-            if (element == scope)
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private void PowerCancel_Click(object sender, RoutedEventArgs e) => ClosePowerMenu(restoreOpener: true);
