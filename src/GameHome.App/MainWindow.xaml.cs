@@ -156,6 +156,7 @@ public sealed partial class MainWindow : Window
 
         Root.PreviewKeyDown += OnPreviewKeyDown;
         Root.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(OnKeyDown), handledEventsToo: true);
+        Root.AddHandler(UIElement.KeyUpEvent, new KeyEventHandler(OnGamepadKeyUp), handledEventsToo: true);
         SetStaticHints();
         Root.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(OnPointerPressed), handledEventsToo: true);
         Activated += OnWindowActivated;
@@ -5205,11 +5206,15 @@ public sealed partial class MainWindow : Window
     // ---- Fokus, input og målinger ----
 
     private static readonly TimeSpan BackgroundGamepadInterval = TimeSpan.FromMilliseconds(250);
+    private GamepadButtons _xamlOwnedButtons;
+    private FocusNavigationDirection? _xamlOwnedStick;
 
     private void OnWindowActivated(object sender, WindowActivatedEventArgs args) => OnActivationChanged(args.WindowActivationState);
 
     private void OnActivationChanged(WindowActivationState state)
     {
+        _xamlOwnedButtons = GamepadButtons.None;
+        _xamlOwnedStick = null;
         if (state == WindowActivationState.Deactivated)
         {
             _metricsTimer.Stop();
@@ -5391,13 +5396,17 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        var reading = Combined(gamepads);
+        ProcessGamepadReading(Combined(gamepads));
+    }
+
+    private void ProcessGamepadReading(GamepadReading reading)
+    {
         AdaptPollRate();
-        var pressed = reading.Buttons & ~_previousButtons;
+        var pressed = reading.Buttons & ~_previousButtons & ~_xamlOwnedButtons;
         _previousButtons = reading.Buttons;
 
         var stick = StickDirection(reading.LeftThumbstickX, reading.LeftThumbstickY);
-        var stickMoved = stick is not null && stick != _previousStick;
+        var stickMoved = stick is not null && stick != _previousStick && stick != _xamlOwnedStick;
         _previousStick = stick;
 
         // Avtrekkerne (L2/R2) er analoge verdier 0–1, ikke knapper.
@@ -5644,37 +5653,67 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        var key = e.OriginalKey;
-        var button = key switch
+        var button = ButtonForGamepadKey(e.OriginalKey);
+        if (button == GamepadButtons.A && FocusManager.GetFocusedElement(Root.XamlRoot) is not Button)
         {
-            VirtualKey.GamepadA when FocusManager.GetFocusedElement(Root.XamlRoot) is Button => GamepadButtons.A,
-            VirtualKey.GamepadB => GamepadButtons.B,
-            VirtualKey.GamepadDPadUp => GamepadButtons.DPadUp,
-            VirtualKey.GamepadDPadDown => GamepadButtons.DPadDown,
-            VirtualKey.GamepadDPadLeft => GamepadButtons.DPadLeft,
-            VirtualKey.GamepadDPadRight => GamepadButtons.DPadRight,
-            _ => GamepadButtons.None,
-        };
-        var stick = key switch
-        {
-            VirtualKey.GamepadLeftThumbstickUp => FocusNavigationDirection.Up,
-            VirtualKey.GamepadLeftThumbstickDown => FocusNavigationDirection.Down,
-            VirtualKey.GamepadLeftThumbstickLeft => FocusNavigationDirection.Left,
-            VirtualKey.GamepadLeftThumbstickRight => FocusNavigationDirection.Right,
-            _ => (FocusNavigationDirection?)null,
-        };
+            return;
+        }
+
+        var stick = StickForGamepadKey(e.OriginalKey);
         var gamepads = Gamepad.Gamepads;
         if (gamepads.Count == 0 || (button == GamepadButtons.None && stick is null))
         {
             return;
         }
 
-        // Suppress only the key that the polling path can currently see.
+        // An unmatched WinUI press keeps ownership through KeyUp. A later sample of the same press only updates held state.
+        if ((_xamlOwnedButtons & button) != 0 || (stick is not null && stick == _xamlOwnedStick))
+        {
+            return;
+        }
+
         var reading = Combined(gamepads);
-        e.Handled = (button != GamepadButtons.None && ((_previousButtons | reading.Buttons) & button) != 0)
-            || (stick is not null && (stick == _previousStick ||
-                stick == StickDirection(reading.LeftThumbstickX, reading.LeftThumbstickY)));
+        if (((_previousButtons | reading.Buttons) & button) != 0
+            || (stick is not null && (stick == _previousStick || stick == StickDirection(reading.LeftThumbstickX, reading.LeftThumbstickY))))
+        {
+            e.Handled = true;
+            // Consume this exact sample now so a short press cannot disappear before the timer tick.
+            ProcessGamepadReading(reading);
+            return;
+        }
+
+        _xamlOwnedButtons |= button;
+        _xamlOwnedStick = stick ?? _xamlOwnedStick;
     }
+
+    private void OnGamepadKeyUp(object sender, KeyRoutedEventArgs e)
+    {
+        _xamlOwnedButtons &= ~ButtonForGamepadKey(e.OriginalKey);
+        if (StickForGamepadKey(e.OriginalKey) == _xamlOwnedStick)
+        {
+            _xamlOwnedStick = null;
+        }
+    }
+
+    private static GamepadButtons ButtonForGamepadKey(VirtualKey key) => key switch
+    {
+        VirtualKey.GamepadA => GamepadButtons.A,
+        VirtualKey.GamepadB => GamepadButtons.B,
+        VirtualKey.GamepadDPadUp => GamepadButtons.DPadUp,
+        VirtualKey.GamepadDPadDown => GamepadButtons.DPadDown,
+        VirtualKey.GamepadDPadLeft => GamepadButtons.DPadLeft,
+        VirtualKey.GamepadDPadRight => GamepadButtons.DPadRight,
+        _ => GamepadButtons.None,
+    };
+
+    private static FocusNavigationDirection? StickForGamepadKey(VirtualKey key) => key switch
+    {
+        VirtualKey.GamepadLeftThumbstickUp => FocusNavigationDirection.Up,
+        VirtualKey.GamepadLeftThumbstickDown => FocusNavigationDirection.Down,
+        VirtualKey.GamepadLeftThumbstickLeft => FocusNavigationDirection.Left,
+        VirtualKey.GamepadLeftThumbstickRight => FocusNavigationDirection.Right,
+        _ => null,
+    };
 
     private void OnKeyDown(object sender, KeyRoutedEventArgs e)
     {
@@ -5688,7 +5727,11 @@ public sealed partial class MainWindow : Window
         NoteUserInput();
         if (e.Key == VirtualKey.Escape || e.OriginalKey == VirtualKey.GamepadB)
         {
-            GoBack();
+            if (!isGamepadKey || !e.KeyStatus.WasKeyDown)
+            {
+                GoBack();
+            }
+
             e.Handled = true;
         }
     }
