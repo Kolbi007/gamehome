@@ -83,7 +83,7 @@ public sealed partial class MainWindow
     private DispatcherQueueTimer? _rumbleTimer;
 
     /// <summary>
-    /// Et kort, svakt dunk i kontrolleren (via Handheld Companions virtuelle kontroller) når noe velges eller et spill
+    /// Et kort, svakt dunk i kontrolleren når noe velges eller et spill
     /// starter. Følger av/på for menylyder.
     /// </summary>
     private void Pulse(double strength = 0.18, int milliseconds = 45)

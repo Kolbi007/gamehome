@@ -3,10 +3,10 @@
 #
 # Røyktest av GameHome på Legion Go, kjørt i brukerens skrivebordsøkt (ikke over SSH direkte: SSH ser ikke skrivebordet).
 # Bruker samme veier som brukeren: hurtigtaster med SendInput og knappetrykk med UI Automation. Leser forgrunnsvindu,
-# skjermmodus, Handheld Companions vinduer og GameHome-loggen.
+# skjermmodus og GameHome-loggen.
 #
 # Tester ikke det som krever fysiske knapper (at HC gjør M2/Legion om til hurtigtaster), kontrollernavigasjon i Home
-# eller at TDP faktisk endres. Tvangsavslutter aldri et spill; svarer ikke spillet på «Avslutt», meldes det som feil.
+# eller Lenovo Quick Menu. Tvangsavslutter aldri et spill; svarer ikke spillet på «Avslutt», meldes det som feil.
 #
 # Eksempel (fra utviklermaskinen): scripts/Invoke-LegionGoTest.ps1, eller på Legion Go:
 #   powershell -ExecutionPolicy Bypass -File Test-LegionGo.ps1 -Game Broforce
@@ -16,7 +16,7 @@ param(
     [string] $Report = (Join-Path $env:TEMP 'gamehome-test.txt'),
 
     # Bytter Hz og oppløsning under testen. Av som standard: raske skjermbytter ga frosset, utsmurt skjerm på Legion Go
-    # (2026-11-05) og kan ha fått Handheld Companion til å krasje.
+    # (2026-11-05).
     [switch] $DisplayModes
 )
 
@@ -47,7 +47,7 @@ public static class GhTest {
         return string.Join("|", r);
     }
     public static void Tap(byte key) { keybd_event(key, (byte)MapVirtualKey(key, 0), 0, IntPtr.Zero); Thread.Sleep(60); keybd_event(key, (byte)MapVirtualKey(key, 0), 2, IntPtr.Zero); }
-    // Ctrl+Alt+Shift+<tast>, holdt 60 ms (som GameHome og HC trenger).
+    // Ctrl+Alt+Shift+<tast>, holdt 60 ms (for GameHomes hurtigtaster).
     public static void Chord(byte key) {
         byte[] k = { 0xA2, 0xA4, 0xA0, key };
         foreach (var v in k) keybd_event(v, (byte)MapVirtualKey(v, 0), 0, IntPtr.Zero);
@@ -98,7 +98,7 @@ function GameHomeInFront { $p = Get-Process GameHome -ErrorAction SilentlyContin
 function ForegroundName {
     $p = Get-Process -Id ([GhTest]::ForegroundPid()) -ErrorAction SilentlyContinue
     if (-not $p) { return 'ukjent' }
-    $hint = switch ($p.ProcessName) { 'SearchHost' { ' (startmenyen eller søk)' } 'StartMenuExperienceHost' { ' (startmenyen)' } 'HandheldCompanion' { ' (HC-vinduet)' } default { '' } }
+    $hint = switch ($p.ProcessName) { 'SearchHost' { ' (startmenyen eller søk)' } 'StartMenuExperienceHost' { ' (startmenyen)' } default { '' } }
     "$($p.ProcessName)$hint"
 }
 # Skjermtastaturet: synlighet (IFrameworkInputPane) og av/på (ITipInvocation), som i GameHome.
@@ -126,11 +126,6 @@ try {
     $gh = Get-Process GameHome -ErrorAction SilentlyContinue
     Check ([bool]$gh) 'GameHome kjører'
     if (-not $gh) { throw 'GameHome kjører ikke' }
-    $hc = Get-Process HandheldCompanion -ErrorAction SilentlyContinue
-    Check ([bool]$hc) 'Handheld Companion kjører'
-    $hotkeys = Get-ChildItem (Join-Path $env:LOCALAPPDATA 'HandheldCompanion\hotkeys') -Filter 'HOTKEY_USER*.json' -ErrorAction SilentlyContinue |
-        ForEach-Object { (Get-Content $_.FullName -Raw | ConvertFrom-Json).Name } | Where-Object { $_ -like 'GameHome*' }
-    Check (@($hotkeys).Count -eq 5) "HC har GameHome-hurtigtastene ($(@($hotkeys) -join ', '))"
     Note "Skjerm før test: $originalMode"
 
     # Låst skjerm: hurtigtaster og forgrunn virker ikke, og testen ville startet et spill ingen ser.
@@ -235,16 +230,6 @@ try {
         PressId 'BluetoothToggle'
         Check (Wait-Until { (NameOf 'BluetoothToggle') -eq $bt } 6) "Bluetooth tilbake ($(NameOf 'BluetoothToggle'))"
     } else { Note "Bluetooth: «$bt»" }
-    # TDP: GameHome sender HCs hurtigtast, HC endrer verdien (ADR 0011). Én watt opp og tilbake.
-    $tdp = NameOf 'TdpValue'
-    if ($tdp -match '^(\d+) W$') {
-        $w = [int]$Matches[1]; $first = if ($w -ge 30) { 'TdpDown' } else { 'TdpUp' }; $second = if ($first -eq 'TdpUp') { 'TdpDown' } else { 'TdpUp' }
-        PressId $first
-        Check (Wait-Until { (NameOf 'TdpValue') -ne $tdp } 4) "TDP endres via Handheld Companion ($tdp → $(NameOf 'TdpValue'))"
-        PressId $second
-        Check (Wait-Until { (NameOf 'TdpValue') -eq $tdp } 4) "TDP tilbake ($(NameOf 'TdpValue'))"
-    } else { Fail "TDP vises ikke («$tdp»); er Set-HandheldCompanion.ps1 kjørt?" }
-
     [GhTest]::Chord(0x7B)
     Check (Wait-Until { -not (Find 'MenuAccountsButton') } 5) 'M2 en gang til lukker menyen'
 
@@ -265,6 +250,10 @@ try {
     # Spill som kan startes både her og fra PC-en, spør først; «Spill her» er førstevalget.
     if ((Wait-Until { Find 'MessagePrimary' } 3) -and ($primary = Find 'MessagePrimary')) { Note "Melding: «$($primary.Current.Name)» trykkes"; Press $primary }
     $isWoW = $Game -like 'World of Warcraft*'
+    # This path assumes the device owner already signed in to Battle.net.
+    if ($isWoW -and (Wait-Until { (Find 'MessagePrimary').Current.Name -eq 'Jeg er logget inn' } 3)) {
+        Press (Find 'MessagePrimary')
+    }
     $started = Wait-Until {
         $foregroundPid = [GhTest]::ForegroundPid()
         if ((GameHomeInFront) -or $foregroundPid -in $before) { return $false }
@@ -309,16 +298,6 @@ $ghDuring = Get-Process GameHome; Note "GameHome under spill: $([int]($ghDuring.
     } else { Fail "Fant ikke knappen «$target»" }
 
     }
-    # ---- QuickTools (TDP) ----
-    if ($hc -and ($b = Find 'QuickToolsButton')) {
-        Press $b
-        Check (Wait-Until { [GhTest]::VisibleTitles($hc.Id) -match 'QuickTools' } 4) '«Mer i Handheld Companion» åpner QuickTools i HC'
-        if ([GhTest]::VisibleTitles($hc.Id) -match 'QuickTools') {
-            [GhTest]::Chord(0x78) # F9: lukker QuickTools igjen
-            Start-Sleep 1
-        }
-    } else { Fail 'Fant ikke QuickTools-knappen (eller HC kjører ikke)' }
-
     # ---- Tilbake til spillet ----
     if (-not (Find 'ResumeButton')) { [GhTest]::Chord(0x7B); Start-Sleep 2 }
     if ($b = Find 'ResumeButton') {

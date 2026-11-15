@@ -50,7 +50,7 @@ public sealed partial class MainWindow : Window
         (3, HotkeyModifiers.Control | HotkeyModifiers.Shift, 0x7B, "Ctrl+Shift+F12"),
     ];
 
-    // Alltid registrert (ikke bare under spill): Legion-knappen til venstre via Handheld Companion. Uten spill hentes Home fram,
+    // Alltid registrert: valgfri Home-hurtigtast. Uten spill hentes Home fram,
     // under spill åpnes menyen som med M2.
     private static readonly (int Id, HotkeyModifiers Modifiers, uint Key, string Name) HomeHotkey =
         (4, HotkeyModifiers.Control | HotkeyModifiers.Alt | HotkeyModifiers.Shift, 0x7A, "Ctrl+Alt+Shift+F11 (Home)");
@@ -2202,7 +2202,6 @@ public sealed partial class MainWindow : Window
         var hasBoth = actions.Any(a => a.IsRemote) && actions.Any(a => !a.IsRemote);
         OptionDefaultMode.Visibility = hasBoth ? Visibility.Visible : Visibility.Collapsed;
         OptionDefaultMode.Content = DefaultModeText(game);
-        OptionPowerProfileText.Text = HandheldCompanionStatus(game);
         OptionPin.Content = PinText(game);
         ShowDisplayOption(game);
         ShowSource(game);
@@ -2359,29 +2358,6 @@ public sealed partial class MainWindow : Window
         OptionsStatus.Text = _details.ContainsKey(game.Id) ? "Info er oppdatert. Trykk Y på spillet for å se den." : "Fant ingen info på Steam Store.";
     }
 
-    /// <summary>
-    /// Handheld Companion har egne profiler per spill (strøm/TDP) i %LOCALAPPDATA%\HandheldCompanion. GameHome skriver
-    /// ikke dit før formatet er sjekket på Legion Go med HC installert (docs/roadmap.md, hypotese).
-    /// </summary>
-    private static string HandheldCompanionStatus(Game game)
-    {
-        _ = game;
-        var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HandheldCompanion");
-        if (!Directory.Exists(root))
-        {
-            return "Krever Handheld Companion, som ikke er installert på denne maskinen.";
-        }
-
-        var profiles = Directory.Exists(Path.Combine(root, "powerprofiles"))
-            ? Directory.GetFiles(Path.Combine(root, "powerprofiles"), "*.json").Length
-            : 0;
-        return string.Create(CultureInfo.InvariantCulture,
-            $"Handheld Companion funnet ({profiles} strømprofiler). Valg per spill kommer i neste runde.");
-    }
-
-    private void OptionPowerProfile_Click(object sender, RoutedEventArgs e) =>
-        OptionsStatus.Text = OptionPowerProfileText.Text;
-
     private void OptionRemove_Click(object sender, RoutedEventArgs e)
     {
         if (_optionsGame is { } game)
@@ -2511,36 +2487,6 @@ public sealed partial class MainWindow : Window
         _log.Write("butikk", "Butikkklienter: " + (lines.Count == 0 ? "ingen" : string.Join("; ", lines)));
     }
 
-    // ---- Legion Space: tar forgrunnen fra Moonlight og spill mens den kjører (også i bakgrunnen) ----
-    // GameHome lukker den aldri selv: tvangslukking 2026-11-04 etterlot kontrollerne uten data til Legion Space startet igjen.
-
-    private const string LegionSpaceNotice = "legionspace";
-
-    private const string LegionSpaceAdvice =
-        "Avslutt den fra oppgavelinjen: trykk ^ nederst til høyre, hold på Legion Space-ikonet og velg Avslutt. Å lukke vinduet er ikke nok.";
-
-    /// <summary>Viser eller fjerner varselet om Legion Space. Gir true hvis den kjører.</summary>
-    private bool CheckLegionSpace(string when)
-    {
-        var running = LegionSpace.IsRunning();
-        if (running)
-        {
-            if (!_notices.Exists(n => n.Key == LegionSpaceNotice))
-            {
-                _log.Write("legion", $"Legion Space kjører i bakgrunnen ({when})");
-            }
-
-            AddNotice(LegionSpaceNotice, null, "Legion Space kjører i bakgrunnen og kan ta forgrunnen fra spill og strøm. " + LegionSpaceAdvice);
-        }
-        else if (_notices.RemoveAll(n => n.Key == LegionSpaceNotice) > 0)
-        {
-            _log.Write("legion", $"Legion Space er avsluttet ({when})");
-            UpdateNoticeButton();
-        }
-
-        return running;
-    }
-
     // ---- M2-reserve: tastaturkrok under spill som slår av hurtigtaster (Assassin's Creed Rogue, 2026-11-02) ----
     // Fokusproblemene 2.–4. november skyldtes Legion Space, ikke kroken; de andre fokusbryterne er fjernet.
 
@@ -2620,9 +2566,7 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private bool _launching;
 
-    private bool _startDespiteLegionSpace;
-
-    private async Task LaunchAsync(Game game, PlayAction? chosen = null)
+    private async Task LaunchAsync(Game game, PlayAction? chosen = null, bool battleNetConfirmed = false)
     {
         StopTrailer();
         // Ett trykk, én start: ekstra trykk mens noe starter eller avsluttes, ignoreres (0.1.87.0 startet Mega Man tre ganger).
@@ -2632,26 +2576,12 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        // Legion Space i bakgrunnen tar forgrunnen fra spillet og strømmen; be brukeren avslutte den (GameHome gjør det aldri selv).
-        if (!_startDespiteLegionSpace && CheckLegionSpace("spillstart"))
-        {
-            ShowMessage("Legion Space kjører", "Legion Space kan ta forgrunnen og kontrolleren fra spillet. " + LegionSpaceAdvice + " Velg så spillet igjen.",
-                "Start likevel", () =>
-                {
-                    _startDespiteLegionSpace = true;
-                    _ = LaunchAsync(game, chosen);
-                },
-                "Avbryt", () => FocusHome(game.Id));
-            return;
-        }
-
-        _startDespiteLegionSpace = false;
         _launching = true;
         try
         {
             CancelUpdateOperations();
             CancelStoreScan();
-            await LaunchCoreAsync(game, chosen);
+            await LaunchCoreAsync(game, chosen, battleNetConfirmed);
         }
         catch (Exception ex)
         {
@@ -2666,7 +2596,7 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async Task LaunchCoreAsync(Game game, PlayAction? chosen)
+    private async Task LaunchCoreAsync(Game game, PlayAction? chosen, bool battleNetConfirmed)
     {
         _firstSteamSync?.Stop();
         if (SessionActive)
@@ -2721,6 +2651,12 @@ public sealed partial class MainWindow : Window
         {
             ShowMessage($"{title} kan ikke startes", $"GameHome kan ikke starte spill fra «{action.RunnerId}» ennå.",
                 "Fjern fra GameHome", () => ConfirmRemove(game), "Lukk", () => FocusHome(game.Id));
+            return;
+        }
+
+        if (action.RunnerId == BattleNetRunner.Id && !battleNetConfirmed)
+        {
+            ConfirmBattleNetSignIn(game, action);
             return;
         }
 
@@ -3763,10 +3699,6 @@ public sealed partial class MainWindow : Window
 
     // ---- Ytelse (ADR 0007) ----
 
-    /// <summary>Hurtigtasten Handheld Companion er satt opp til å åpne QuickTools med (scripts/Set-HandheldCompanion.ps1).</summary>
-    private static readonly ushort[] QuickToolsChord =
-        [Keyboard.LeftControl, Keyboard.LeftAlt, Keyboard.LeftShift, Keyboard.F9];
-
     private void FillPerformance()
     {
         RefreshRateButtons.Children.Clear();
@@ -3935,18 +3867,6 @@ public sealed partial class MainWindow : Window
                 }
             }
         }
-    }
-
-    private async void QuickToolsButton_Click(object sender, RoutedEventArgs e)
-    {
-        // Handheld Companion lytter på hurtigtasten i sin egen tastaturkrok; hvilket vindu som har forgrunnen, spiller
-        // ingen rolle.
-        var sent = await Keyboard.SendChordHeldAsync(TimeSpan.FromMilliseconds(60), QuickToolsChord);
-        _log.Write("ytelse", sent ? "QuickTools: hurtigtast sendt til Handheld Companion" : "QuickTools: Windows avslo tastetrykket");
-        PerformanceStatus.Text = sent
-            ? "Åpner Handheld Companion. Skjer ingenting, trykk høyre Legion-knapp."
-            : "Fikk ikke sendt hurtigtasten. Trykk høyre Legion-knapp.";
-        PerformanceStatus.Visibility = Visibility.Visible;
     }
 
     // ---- Feilsøking under strøm ----
@@ -4634,22 +4554,15 @@ public sealed partial class MainWindow : Window
                 Grid.SetColumn(fix, 1);
                 grid.Children.Add(fix);
             }
-            else if (notice.Key is "hc" or "update")
+            else if (notice.Key == "update")
             {
                 // Varsler som gjelder hele GameHome: knappen gjør det varselet ber om.
-                var action = new Button { Content = notice.Key == "hc" ? "Start" : "Oppdater", Height = 52, Padding = new Thickness(18, 0, 18, 0), VerticalAlignment = VerticalAlignment.Center };
-                var key = notice.Key;
+                var action = new Button { Content = "Oppdater", Height = 52, Padding = new Thickness(18, 0, 18, 0), VerticalAlignment = VerticalAlignment.Center };
                 action.Click += (_, _) =>
                 {
                     CloseNotices(focusHome: false);
-                    if (key == "hc")
-                    {
-                        StartHandheldCompanion();
-                    }
-                    else
-                    {
-                        PowerMenuButton_Click(PowerMenuButton, new RoutedEventArgs());
-                    }
+                    PowerMenuButton_Click(PowerMenuButton, new RoutedEventArgs());
+                    SettingsCategory_Click(SettingsSystemButton, new RoutedEventArgs());
                 };
                 Grid.SetColumn(action, 1);
                 grid.Children.Add(action);
@@ -5354,7 +5267,6 @@ public sealed partial class MainWindow : Window
         // Spill som fortsatt mangler bilder (for eksempel etter en nettverksfeil), prøves igjen når Home blir aktiv.
         _ = RefreshHostStatusAsync();
         RememberWifiNetwork();
-        CheckLegionSpace("Home aktiv");
         if (_firstSteamSync is not null)
         {
             _ = FetchMissingArtAsync();
@@ -5389,11 +5301,6 @@ public sealed partial class MainWindow : Window
             && FocusManager.GetFocusedElement(activeRoot) is not Button { Tag: string })
         {
             RefreshHero(force: false); // Ingen flis har fokus (for eksempel etter låst skjerm): hovedfeltet skal ikke stå tomt.
-        }
-
-        if (!SessionActive)
-        {
-            CheckHandheldCompanion();
         }
 
         var gamepads = Gamepad.Gamepads;
@@ -5449,8 +5356,6 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        // Alle kontrollere slås sammen: med Handheld Companion finnes både den fysiske (skjult av HidHide, sender ingenting
-        // til GameHome) og den virtuelle, og rekkefølgen er ikke fast (målt 2026-11-05: Home reagerte ikke på kontrolleren).
         var reading = Combined(gamepads);
         AdaptPollRate();
         var pressed = reading.Buttons & ~_previousButtons;

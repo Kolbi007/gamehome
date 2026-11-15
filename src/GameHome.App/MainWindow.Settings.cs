@@ -185,8 +185,6 @@ public sealed partial class MainWindow
 
     private void RefreshSettingsTools()
     {
-        SettingsStartHcButton.Visibility = File.Exists(HandheldCompanionExe) && !HandheldCompanionRunning()
-            ? Visibility.Visible : Visibility.Collapsed;
         SettingsRestoreScreenButton.Visibility = Vibepollo is null ? Visibility.Collapsed : Visibility.Visible;
     }
 
