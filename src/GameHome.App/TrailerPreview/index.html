@@ -1,0 +1,57 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="referrer" content="strict-origin-when-cross-origin">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>YouTube trailer</title>
+    <style>
+        html, body, iframe { margin: 0; width: 100%; height: 100%; border: 0; overflow: hidden; }
+    </style>
+</head>
+<body>
+    <script>
+        const videoId = new URLSearchParams(location.search).get("video");
+        const report = message => window.chrome.webview.postMessage(message);
+        let player;
+
+        function onYouTubeIframeAPIReady() {
+            if (!videoId || !/^[A-Za-z0-9_-]{11}$/.test(videoId)) {
+                report("invalid-video");
+                return;
+            }
+
+            const embed = new URL("https://www.youtube.com/embed/" + videoId);
+            embed.search = new URLSearchParams({
+                enablejsapi: "1", origin: location.origin, playsinline: "1", fs: "0"
+            });
+            const iframe = document.createElement("iframe");
+            iframe.id = "trailer";
+            iframe.title = "YouTube trailer";
+            iframe.allow = "autoplay; encrypted-media; picture-in-picture";
+            iframe.referrerPolicy = "strict-origin-when-cross-origin";
+            iframe.src = embed.href;
+            document.body.append(iframe);
+            player = new YT.Player(iframe.id, { events: {
+                onReady: () => report("ready"),
+                onStateChange: event => {
+                    if (event.data === YT.PlayerState.PLAYING) report("playing");
+                    if (event.data === YT.PlayerState.ENDED) report("ended");
+                },
+                onError: event => report("error:" + event.data),
+                onAutoplayBlocked: () => report("autoplay-blocked")
+            } });
+        }
+
+        window.startPreview = () => requestAnimationFrame(() => {
+            player.mute();
+            player.playVideo();
+        });
+        const api = document.createElement("script");
+        api.src = "https://www.youtube.com/iframe_api";
+        api.onerror = () => report("api-unavailable");
+        document.head.append(api);
+    </script>
+</body>
+</html>

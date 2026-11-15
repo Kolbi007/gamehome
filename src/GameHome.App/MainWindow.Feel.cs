@@ -210,7 +210,7 @@ public sealed partial class MainWindow
     /// </summary>
     private async void AttractTick()
     {
-        if (!_slideshowEnabled || !_windowActive || SessionActive || AnyOverlayOpen || _attractSwitching || DateTime.UtcNow - _lastUserInput < AttractAfter
+        if (!_slideshowEnabled || !_windowActive || SessionActive || AnyOverlayOpen || _attractSwitching || _trailerPlaying || DateTime.UtcNow - _lastUserInput < AttractAfter
             || DateTime.UtcNow - _lastAttractSwitch < AttractEvery)
         {
             return;
@@ -244,6 +244,7 @@ public sealed partial class MainWindow
         StopTrailer();
         var inputBefore = _lastUserInput;
         _attractSwitching = true;
+        _attracting = true;
         _lastAttractSwitch = DateTime.UtcNow;
         try
         {
@@ -257,7 +258,6 @@ public sealed partial class MainWindow
                 return;
             }
 
-            _attracting = true;
             if (slide is Game game)
             {
                 _attractSuggestion = null;

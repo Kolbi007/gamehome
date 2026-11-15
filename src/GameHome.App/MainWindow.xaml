@@ -38,7 +38,7 @@
             </Rectangle.Fill>
         </Rectangle>
 
-        <Grid x:Name="Surface" Padding="{StaticResource GhPageMargin}" RowSpacing="12">
+        <Grid x:Name="Surface" Padding="{StaticResource GhPageMargin}" RowSpacing="12" SizeChanged="TrailerSurfaceSizeChanged">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
@@ -103,6 +103,9 @@
                            Foreground="{StaticResource GhTextSecondaryBrush}" TextTrimming="CharacterEllipsis" />
                 <StackPanel x:Name="HeroHints" Orientation="Horizontal" Spacing="22" />
             </StackPanel>
+
+            <Border x:Name="YouTubePreviewSlot" Grid.Row="1" HorizontalAlignment="Right" VerticalAlignment="Center"
+                    Width="360" Height="203" />
 
             <!-- Spillflisene lages i koden (ikke ItemsSource; se ADR 0005 om AOT). Plass rundt så flisen i fokus kan forstørres. -->
             <ScrollViewer x:Name="GameTilesScroll" Grid.Row="2" HorizontalScrollMode="Enabled" HorizontalScrollBarVisibility="Hidden"
@@ -474,7 +477,7 @@
                                         </Button>
                                         <Button x:Name="SettingsSlideshowButton" Click="SettingsSlideshow_Click" Style="{StaticResource SettingsRow}" />
                                         <Button x:Name="SettingsTrailersButton" Click="SettingsTrailers_Click" Style="{StaticResource SettingsRow}" />
-                                        <TextBlock Text="Trailere spilles uten lyd når enheten lader og Windows-animasjoner er på."
+                                        <TextBlock Text="Trailere spilles uten lyd på lader med Windows-animasjoner på. Avspilling kan laste inn YouTube."
                                                    TextWrapping="Wrap" Foreground="{StaticResource GhTextSecondaryBrush}" />
                                     </StackPanel>
                                     <StackPanel x:Name="SettingsAccounts" Spacing="10" Visibility="Collapsed">

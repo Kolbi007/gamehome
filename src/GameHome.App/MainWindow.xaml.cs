@@ -248,6 +248,10 @@ public sealed partial class MainWindow : Window
         var battery = BatteryShort();
         PowerClockText.Text = $"{battery} · {time}";
         BatteryTopText.Text = battery;
+        if (_trailerLifetime is not null && !TrailersAllowed)
+        {
+            StopTrailer();
+        }
     }
 
     /// <summary>Legger økten til spillets spilletid (målt av GameHome, lagres bare lokalt).</summary>
@@ -547,7 +551,23 @@ public sealed partial class MainWindow : Window
             RememberTile(game.Id);
             OnTileFocused(tile, game.Id);
         };
-        tile.LostFocus += (_, _) => OnTileUnfocused(tile);
+        tile.LostFocus += (_, _) =>
+        {
+            OnTileUnfocused(tile);
+            if (ReferenceEquals(_trailerTile, tile))
+            {
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    if (ReferenceEquals(_trailerTile, tile)
+                        && Root.XamlRoot is { } root
+                        && FocusManager.GetFocusedElement(root) is { } focused
+                        && !ReferenceEquals(focused, tile) && !ReferenceEquals(focused, _youTubePreview))
+                    {
+                        StopTrailer();
+                    }
+                });
+            }
+        };
         return tile;
     }
 
@@ -582,6 +602,8 @@ public sealed partial class MainWindow : Window
         if (!inLibrary)
         {
             UpdateHero(game);
+            ShowAmbientFor(game);
+            ScheduleTrailer(game, tile);
         }
 
         if (TileImageFor(game) is not { } image)
@@ -591,13 +613,6 @@ public sealed partial class MainWindow : Window
         }
 
         _ = ApplyFocusColorsAsync(tile, gameId, image);
-        if (inLibrary)
-        {
-            return; // Bakgrunnen bak Home synes ikke mens biblioteket er åpent.
-        }
-
-        ShowAmbientFor(game);
-        ScheduleTrailer(game);
     }
 
     private static void OnTileUnfocused(Button tile)
@@ -675,6 +690,7 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        StopAmbientAnimation();
         var incoming = _ambientFrontIsA ? AmbientImageB : AmbientImage;
         var outgoing = _ambientFrontIsA ? AmbientImage : AmbientImageB;
         _ambientFrontIsA = !_ambientFrontIsA;
@@ -686,7 +702,6 @@ public sealed partial class MainWindow : Window
         // I lysbildeserien: lang krysstoning og en langsom zoom (Ken Burns) på det nye bildet. Begge er Opacity- og
         // RenderTransform-animasjoner som kjører i komposisjonstråden, ikke på UI-tråden.
         var slide = _attracting;
-        StopAmbientAnimation();
         var ease = new Microsoft.UI.Xaml.Media.Animation.SineEase { EasingMode = Microsoft.UI.Xaml.Media.Animation.EasingMode.EaseInOut };
         var duration = new Duration(TimeSpan.FromMilliseconds(slide ? 1600 : 380));
         var story = new Microsoft.UI.Xaml.Media.Animation.Storyboard();
@@ -709,22 +724,24 @@ public sealed partial class MainWindow : Window
                 story.Children.Add(drift);
             }
         }
-        void Fade(Image target, double to)
+        void Fade(Image target, double from, double to)
         {
-            var animation = new Microsoft.UI.Xaml.Media.Animation.DoubleAnimation { To = to, Duration = duration, EasingFunction = ease };
+            var animation = new Microsoft.UI.Xaml.Media.Animation.DoubleAnimation { From = from, To = to, Duration = duration, EasingFunction = ease };
             Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTarget(animation, target);
             Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTargetProperty(animation, "Opacity");
             story.Children.Add(animation);
         }
 
-        incoming.Opacity = 0;
-        Fade(incoming, sharp ? 0.9 : 0.5);
-        Fade(outgoing, 0);
+        var previousOpacity = outgoing.Opacity;
+        incoming.Opacity = sharp ? 0.9 : 0.5;
+        outgoing.Opacity = 0;
+        Fade(incoming, 0, incoming.Opacity);
+        Fade(outgoing, previousOpacity, 0);
         story.Begin();
 
         // Det gamle bildet slippes når krysstoningen er ferdig (zoomen på det nye kan fortsatt pågå).
         await Task.Delay(duration.TimeSpan + TimeSpan.FromMilliseconds(50));
-        if ((_ambientFrontIsA ? AmbientImage : AmbientImageB) != outgoing)
+        if (_ambientStoryboard == story)
         {
             outgoing.Source = null; // Ikke hvis et nyere bytte allerede har gjort det til det fremste bildet.
         }
@@ -5167,6 +5184,7 @@ public sealed partial class MainWindow : Window
 
     private void StopEverything()
     {
+        StopTrailer();
         CancelUpdateOperations(shuttingDown: true);
         _firstSteamSync?.Stop();
         CancelStoreScan();
