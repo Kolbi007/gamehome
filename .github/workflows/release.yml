@@ -53,24 +53,23 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: dist
-
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
 
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+
       - name: Prepare release notes
-        id: notes
         shell: pwsh
         env:
           REPOSITORY: ${{ github.repository }}
           TAG: ${{ needs.version.outputs.tag }}
           PREVIOUS_TAG: ${{ needs.version.outputs.previous_tag }}
           TARGET_COMMIT: ${{ github.sha }}
-        run: ./scripts/New-ReleaseNotes.ps1 -Repository $env:REPOSITORY -Tag $env:TAG -PreviousTag $env:PREVIOUS_TAG -Subjects (git log "$($env:PREVIOUS_TAG)..$($env:TARGET_COMMIT)" --no-merges --pretty=format:'%s' -- . ':!docs' ':!README.md')
+        run: ./scripts/New-ReleaseNotes.ps1 -Repository $env:REPOSITORY -Tag $env:TAG -PreviousTag $env:PREVIOUS_TAG -TargetCommit $env:TARGET_COMMIT
 
       - name: Create release
         env:
