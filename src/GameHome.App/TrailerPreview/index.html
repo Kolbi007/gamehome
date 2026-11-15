@@ -24,7 +24,8 @@
 
             const embed = new URL("https://www.youtube.com/embed/" + videoId);
             embed.search = new URLSearchParams({
-                enablejsapi: "1", origin: location.origin, playsinline: "1", fs: "0"
+                enablejsapi: "1", origin: location.origin, playsinline: "1",
+                controls: "0", disablekb: "1", fs: "0"
             });
             const iframe = document.createElement("iframe");
             iframe.id = "trailer";
@@ -34,8 +35,9 @@
             iframe.src = embed.href;
             document.body.append(iframe);
             player = new YT.Player(iframe.id, { events: {
-                onReady: () => report("ready"),
+                onReady: event => runPlayerAction(() => event.target.cueVideoById(videoId)),
                 onStateChange: event => {
+                    if (event.data === YT.PlayerState.CUED) report("cued");
                     if (event.data === YT.PlayerState.PLAYING) report("playing");
                     if (event.data === YT.PlayerState.ENDED) report("ended");
                 },
@@ -44,10 +46,15 @@
             } });
         }
 
-        window.startPreview = () => requestAnimationFrame(() => {
+        function runPlayerAction(action) {
+            try { action(); }
+            catch { report("player-script-error"); }
+        }
+
+        window.startPreview = () => requestAnimationFrame(() => runPlayerAction(() => {
             player.mute();
             player.playVideo();
-        });
+        }));
         const api = document.createElement("script");
         api.src = "https://www.youtube.com/iframe_api";
         api.onerror = () => report("api-unavailable");
