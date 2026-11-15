@@ -1,60 +1,26 @@
 # GameHome
 
-**Your Legion Go. Your entire game library. One home screen.**
+**Give your Legion Go a home screen that feels like a console.**
 
-Pick up your Lenovo Legion Go, grab the controls, and pick a game. Play it locally, stream it from your gaming PC, jump into your PS5, or fire up a retro favorite. GameHome brings it all together in a controller-first, full-screen launcher built for Windows 11.
+Open GameHome, browse your games with the built-in controls, and press A to play. The game you run on the train can be the same tile you use to stream from your gaming PC at home. When you're done, GameHome takes you back to that game in your library.
 
-[Get GameHome](https://github.com/Kolbi007/gamehome/releases) · [See what's in development](docs/roadmap.md#stabilisering-2026-11-15) · [Build from source](#build-from-source)
+[**Download GameHome for Legion Go**](https://github.com/Kolbi007/gamehome/releases) · [How to install](#install-on-your-legion-go)
 
-## One game. More ways to play.
+## Make it your game room
 
-Got the same game installed on your Legion Go and your gaming PC? GameHome can put both launch options on the same tile. Choose **Play here** when you're out, switch to **Stream** when you're home, or save your preferred way to play. When the session ends, GameHome brings you back to the game you picked.
-
-| What you want to play | How GameHome gets you there |
-| --- | --- |
-| **PC games on your Legion Go** | Bring in installed games from Steam, Xbox / PC Game Pass, Epic Games Store, GOG and Battle.net, or add a Windows executable yourself. |
-| **Games on your gaming PC** | Pick a title and launch straight into its Moonlight stream from a paired host such as Vibepollo. Disconnect and pick up the running game later, or end it from GameHome. |
-| **Your PS5** | Open your console's home screen in full-screen Remote Play through a paired chiaki-ng setup. |
-| **Retro favorites** | Browse your own ROMs alongside your PC games and launch them through RetroArch with the matching core installed. |
-
-## Made for the Legion Go
-
-- **A home screen you can drive with the controls.** Browse an artwork-rich library, jump back into recent games, or open a title for its details and play options. With the right sources set up, GameHome can fill in covers, logos, backgrounds and trailers.
-- **Quick controls while you play.** With Handheld Companion configured, the Legion Go's M2 button opens GameHome's session menu. Resume your game or reach brightness, volume, refresh rate and resolution controls. TDP adjustments go through Handheld Companion.
-- **Display settings that follow the game.** Save a resolution and refresh rate for individual titles and restore your usual display settings when you return to Home.
-- **A home for Windows Xbox mode.** Use GameHome as a standalone full-screen launcher or try the experimental Gaming Home integration on compatible Windows Full Screen Experience setups.
+- **Play the PC games you already have.** GameHome finds installed games from Steam, Xbox and PC Game Pass, Epic Games Store, GOG, and Battle.net. You can add other PC games yourself.
+- **Bring your gaming PC to the couch.** Pair Moonlight with your gaming PC and start a stream right from the game you want to play. You can disconnect and pick up the running game again later.
+- **Jump into your PS5 or revisit a classic.** Open your PS5 home screen through Remote Play with chiaki-ng, or give your own retro games a spot in your library and play them with RetroArch. Each needs its own one-time setup.
+- **Adjust your Legion Go mid-game.** With Handheld Companion set up, press the rear M2 button to bring up GameHome's controls for things like brightness and volume. GameHome can remember screen settings for each game, so you only have to dial them in once.
 
 ## Install on your Legion Go
 
-1. Open [GitHub Releases](https://github.com/Kolbi007/gamehome/releases) and download the **x64** MSIX, `GameHome-Dev.cer` and `Install-DevBuild.ps1` from the same release. Keep the three files together.
-2. Open PowerShell as administrator in that folder and run the installer with the downloaded MSIX filename. The script trusts the GameHome development certificate and installs the package.
+GameHome is currently available as an early preview for Windows 11, version 24H2 or newer. The first install needs one extra step in Windows to approve the certificate GameHome uses to sign its downloads.
 
-   ```powershell
-   .\Install-DevBuild.ps1 -MsixPath ".\<downloaded-file>.msix" -CerPath ".\GameHome-Dev.cer"
-   ```
+1. **Download two files.** On the [GameHome download page](https://github.com/Kolbi007/gamehome/releases), open **Assets** under the newest release. Download the file ending in **`_x64.msix`** (the app) and **`GameHome-Dev.cer`** (the certificate).
+2. **Approve the certificate once.** In your Downloads folder, open **`GameHome-Dev.cer`** and choose **Install Certificate**. Choose **Local Machine**, select **Next**, and approve the Windows administrator prompt. Choose **Place all certificates in the following store**, then **Browse** and **Trusted People**. Select **OK**, **Next**, and **Finish**.
+3. **Install and play.** Open the **`_x64.msix`** file, choose **Install**, and launch **GameHome** from the Windows Start menu.
 
-3. Open **GameHome** from Start. Local discovery uses the stores already installed on your device. Set up Moonlight and its host, chiaki-ng, RetroArch, or Handheld Companion for the features you want to use.
+To get new preview versions, open the power menu in the top-right corner of GameHome and select **Beta**. When an update appears in that menu, select it and confirm the update in Windows.
 
-Choose **Stable** for official releases or **Beta** to also receive prereleases. Both channels are available in GameHome's power menu. GameHome checks while Home is idle and hands the downloaded update to Windows App Installer for confirmation.
-
-GameHome is in active development. The [stabilization roadmap](docs/roadmap.md#stabilisering-2026-11-15) tracks the remaining Legion Go validation work.
-
-## Build from source
-
-Install the [.NET SDK version pinned by this repo](global.json). Visual Studio is optional.
-
-```sh
-# Platform-neutral tests on Windows, macOS or Linux
-dotnet test --project tests/GameHome.Core.Tests
-
-# Build an x64 test MSIX on Windows
-dotnet publish src/GameHome.App -c Release -r win-x64 -p:Platform=x64 -p:GenerateAppxPackageOnBuild=true
-```
-
-[GitHub Actions](https://github.com/Kolbi007/gamehome/actions) builds x64 and ARM64 test packages for pull requests. Look for `gamehome-msix-x64` and `gamehome-msix-arm64` in the workflow artifacts.
-
-See [the architecture notes](docs/architecture.md) for the library, launchers and Windows integration.
-
-## License
-
-GameHome is licensed under [GPL-3.0-or-later](LICENSE). See [Third-Party Notices](THIRD-PARTY-NOTICES.md) for dependency details. External game artwork and metadata remain subject to their providers' terms.
+[Report a problem or share an idea](https://github.com/Kolbi007/gamehome/issues) · [Open-source license](LICENSE) · [Third-party notices](THIRD-PARTY-NOTICES.md)
