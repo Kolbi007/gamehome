@@ -2,6 +2,8 @@
 
 [GitHub issue #58](https://github.com/Kolbi007/gamehome/issues/58) is the primary backlog for reports, acceptance criteria and task status. This file is the repository entry point. Keep status and PR links on the issue.
 
+[GitHub issue #65](https://github.com/Kolbi007/gamehome/issues/65) tracks the subsequent technical review, implementation safeguards and physical test protocol.
+
 | Priority | Confirmed user report | Acceptance on Legion Go |
 | --- | --- | --- |
 | P0-A | After updating to Beta 0.2.26, the built-in controller stopped navigating menus. Touch still works. | D-pad and left stick move focus, A selects and B goes back after a fresh install, upgrade, sleep and return from a game. |

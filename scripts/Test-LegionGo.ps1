@@ -181,6 +181,21 @@ try {
                 [GhTest]::Tap(0x1B) # Escape
                 Check (Wait-Until { $AE::FocusedElement.Current.AutomationId -eq 'SettingsAppearanceButton' } 3) 'Escape returnerer fokus til kategorien'
             }
+            if (($category = Find 'SettingsPowerButton') -and -not (Find 'MessagePrimary')) {
+                Press $category
+                if ($exitOption = Find 'SettingsExitButton') {
+                    Press $exitOption # Opens the confirmation. The test only cancels it.
+                    if (Wait-Until { $AE::FocusedElement.Current.AutomationId -eq 'MessageSecondary' } 3) {
+                        Pass 'Bekreftelsen over Innstillinger har fokus på Avbryt'
+                    } else {
+                        Fail 'Bekreftelsen over Innstillinger tok ikke fokus på Avbryt'
+                    }
+                    if ((GameHomeInFront) -and (Find 'MessageSecondary')) {
+                        [GhTest]::Tap(0x1B)
+                        Check (Wait-Until { (-not (Find 'MessageSecondary')) -and $AE::FocusedElement.Current.AutomationId -eq 'SettingsExitButton' } 3) 'Escape lukker bare bekreftelsen og gir fokus tilbake til Innstillinger'
+                    }
+                }
+            }
         } finally {
             if ($close = Find 'PowerCancelButton') { Press $close }
         }
