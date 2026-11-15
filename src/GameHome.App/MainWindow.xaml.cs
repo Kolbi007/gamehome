@@ -158,6 +158,15 @@ public sealed partial class MainWindow : Window
         Root.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(OnKeyDown), handledEventsToo: true);
         Root.Loaded += (_, _) =>
         {
+            // Start the fallback even when WinUI never sends the first Activated event.
+            EnsureActiveIfForeground("XAML lastet");
+            if (!_gamepadTimer.IsRunning && !_pickerOpen && !SessionActive)
+            {
+                _gamepadTimer.Interval = BackgroundGamepadInterval;
+                _gamepadTimer.Start();
+                _log.Write("kontroller", "Startet kontrollerlesing fra XAML-oppstart mens vinduet venter på forgrunnen");
+            }
+
             PlayIntro();
             ShowSetupIfFirstRun();
         };
@@ -5175,6 +5184,8 @@ public sealed partial class MainWindow : Window
 
     // ---- Fokus, input og målinger ----
 
+    private static readonly TimeSpan BackgroundGamepadInterval = TimeSpan.FromMilliseconds(250);
+
     private void OnWindowActivated(object sender, WindowActivatedEventArgs args) => OnActivationChanged(args.WindowActivationState);
 
     private void OnActivationChanged(WindowActivationState state)
@@ -5196,7 +5207,11 @@ public sealed partial class MainWindow : Window
             var keepListening = !SessionActive && !_pickerOpen;
             if (keepListening)
             {
-                _gamepadTimer.Interval = TimeSpan.FromMilliseconds(250); // Sjelden og billig: bare en avlesning, ingen tråd.
+                _gamepadTimer.Interval = BackgroundGamepadInterval;
+                if (!_gamepadTimer.IsRunning)
+                {
+                    _gamepadTimer.Start();
+                }
             }
             else
             {
