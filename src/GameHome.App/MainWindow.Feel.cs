@@ -210,7 +210,7 @@ public sealed partial class MainWindow
     /// </summary>
     private async void AttractTick()
     {
-        if (!_windowActive || SessionActive || AnyOverlayOpen || _attractSwitching || DateTime.UtcNow - _lastUserInput < AttractAfter
+        if (!_slideshowEnabled || !_windowActive || SessionActive || AnyOverlayOpen || _attractSwitching || DateTime.UtcNow - _lastUserInput < AttractAfter
             || DateTime.UtcNow - _lastAttractSwitch < AttractEvery)
         {
             return;
@@ -299,7 +299,7 @@ public sealed partial class MainWindow
 
     private bool _attractSwitching;
 
-    private bool CanContinueAttract() => _windowActive && _attracting && !SessionActive && !AnyOverlayOpen;
+    private bool CanContinueAttract() => _slideshowEnabled && _windowActive && _attracting && !SessionActive && !AnyOverlayOpen;
 
     private void FillAttractDeck()
     {

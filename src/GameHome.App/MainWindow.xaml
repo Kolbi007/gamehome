@@ -352,7 +352,8 @@
 
             <!-- Ytelse: sidepanel til venstre. Skjerm styres av GameHome; TDP og resten i Handheld Companion (ADR 0007). -->
             <Border Grid.Column="0" Background="{StaticResource GhSurfaceBrush}" Padding="28,36,28,24">
-                <ScrollViewer VerticalScrollBarVisibility="Hidden">
+                <ScrollViewer VerticalScrollBarVisibility="Hidden" HorizontalScrollMode="Disabled">
+                    <Grid x:Name="SessionPerformanceHost">
                     <StackPanel x:Name="PerformancePanel" Spacing="10">
                         <TextBlock Text="Ytelse" FontSize="24" FontWeight="SemiBold" Foreground="White" />
                         <TextBlock x:Name="BatteryText" FontSize="15" Foreground="#C8CDD3" />
@@ -360,9 +361,9 @@
                         <TextBlock Text="TDP" FontSize="14" Foreground="#A0A7B0" Margin="0,10,0,0" />
                         <Grid ColumnSpacing="8">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="104" />
-                                <ColumnDefinition Width="104" />
-                                <ColumnDefinition Width="104" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
                             <Button x:Name="TdpDown" Content="−" Click="TdpStep_Click" Tag="-" Height="52" HorizontalAlignment="Stretch" FontSize="20"
                                     AutomationProperties.Name="TDP ned" />
@@ -375,9 +376,9 @@
                         <TextBlock Text="Lysstyrke" FontSize="14" Foreground="#A0A7B0" Margin="0,10,0,0" />
                         <Grid ColumnSpacing="8">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="104" />
-                                <ColumnDefinition Width="104" />
-                                <ColumnDefinition Width="104" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
                             <Button x:Name="BrightnessDown" Content="−" Click="BrightnessStep_Click" Tag="-10" Height="52" HorizontalAlignment="Stretch" FontSize="20"
                                     AutomationProperties.Name="Lysstyrke ned" />
@@ -389,9 +390,9 @@
                         <TextBlock Text="Volum" FontSize="14" Foreground="#A0A7B0" Margin="0,10,0,0" />
                         <Grid ColumnSpacing="8">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="104" />
-                                <ColumnDefinition Width="104" />
-                                <ColumnDefinition Width="104" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
                             <Button x:Name="VolumeDown" Content="−" Click="VolumeStep_Click" Tag="-10" Height="52" HorizontalAlignment="Stretch" FontSize="20"
                                     AutomationProperties.Name="Volum ned" />
@@ -401,14 +402,14 @@
                                     AutomationProperties.Name="Volum opp" />
                         </Grid>
                         <TextBlock Text="Oppdateringsfrekvens" FontSize="14" Foreground="#A0A7B0" Margin="0,10,0,0" />
-                        <StackPanel x:Name="RefreshRateButtons" Orientation="Horizontal" Spacing="8" />
+                        <Grid x:Name="RefreshRateButtons" ColumnSpacing="8" />
                         <TextBlock Text="Oppløsning" FontSize="14" Foreground="#A0A7B0" Margin="0,10,0,0" />
-                        <StackPanel x:Name="ResolutionButtons" Orientation="Horizontal" Spacing="8" />
+                        <Grid x:Name="ResolutionButtons" ColumnSpacing="8" />
                         <TextBlock Text="Trådløst" FontSize="14" Foreground="#A0A7B0" Margin="0,10,0,0" />
                         <Grid ColumnSpacing="8">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="160" />
-                                <ColumnDefinition Width="160" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
                             <Button x:Name="WifiToggle" Content="Wi-Fi" Click="WifiToggle_Click" Height="52" HorizontalAlignment="Stretch" FontSize="16" />
                             <Button x:Name="BluetoothToggle" Grid.Column="1" Content="Bluetooth" Click="BluetoothToggle_Click" Height="52" HorizontalAlignment="Stretch" FontSize="16" />
@@ -435,8 +436,123 @@
                             <TextBlock x:Name="DebugStatusText" FontSize="14" Foreground="#C8CDD3" TextWrapping="Wrap" Visibility="Collapsed" />
                         </StackPanel>
                     </StackPanel>
+                    </Grid>
                 </ScrollViewer>
             </Border>
+        </Grid>
+
+        <!-- Innstillinger og strøm: den samme menyen fra Home og en aktiv økt. -->
+        <Grid x:Name="PowerPanel" Background="{StaticResource GhScrimBrush}" Visibility="Collapsed">
+            <ContentControl x:Name="SettingsSurface" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" IsTabStop="False">
+                <Border x:Name="PowerCard" HorizontalAlignment="Stretch" VerticalAlignment="Center" MaxWidth="940" MaxHeight="760"
+                        Margin="16" Padding="24" SizeChanged="SettingsSizeChanged"
+                        Background="{StaticResource GhBaseBrush}" BorderBrush="{StaticResource GhSurfaceBrush}" BorderThickness="1" CornerRadius="18">
+                    <Grid RowSpacing="16">
+                        <Grid.Resources>
+                            <Style x:Key="SettingsRow" TargetType="Button">
+                                <Setter Property="HorizontalAlignment" Value="Stretch" />
+                                <Setter Property="HorizontalContentAlignment" Value="Left" />
+                                <Setter Property="MinHeight" Value="56" />
+                                <Setter Property="Padding" Value="16,10" />
+                                <Setter Property="FontSize" Value="18" />
+                                <Setter Property="CornerRadius" Value="8" />
+                                <Setter Property="Background" Value="{StaticResource GhSurfaceBrush}" />
+                            </Style>
+                        </Grid.Resources>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <Grid ColumnSpacing="12" RowSpacing="8">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Innstillinger og strøm" FontFamily="{StaticResource GhFontDisplay}" FontSize="{StaticResource GhSizeTitle}"
+                                       FontWeight="SemiBold" TextWrapping="Wrap" VerticalAlignment="Center" AutomationProperties.HeadingLevel="Level1" />
+                            <TextBlock x:Name="PowerClockText" Grid.Row="1" Foreground="{StaticResource GhTextSecondaryBrush}" TextWrapping="Wrap" />
+                            <Button x:Name="PowerCancelButton" Grid.Column="1" Grid.RowSpan="2" Content="Lukk" Click="PowerCancel_Click"
+                                    MinWidth="80" MinHeight="56" FontSize="18" />
+                        </Grid>
+                        <ScrollViewer x:Name="SettingsScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled">
+                            <Grid x:Name="SettingsBody" ColumnSpacing="24" XYFocusKeyboardNavigation="Enabled">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition x:Name="SettingsNavColumn" Width="2*" />
+                                    <ColumnDefinition x:Name="SettingsDetailColumn" Width="3*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel x:Name="SettingsNav" Spacing="10">
+                                    <Button x:Name="SettingsQuickButton" Content="Hurtigvalg" Tag="Quick" Click="SettingsCategory_Click" Style="{StaticResource SettingsRow}" />
+                                    <Button x:Name="SettingsAppearanceButton" Content="Utseende og lyd" Tag="Appearance" Click="SettingsCategory_Click" Style="{StaticResource SettingsRow}" />
+                                    <Button x:Name="SettingsAccountsButton" Content="Kontoer og kilder" Tag="Accounts" Click="SettingsCategory_Click" Style="{StaticResource SettingsRow}" />
+                                    <Button x:Name="SettingsSystemButton" Content="System" Tag="System" Click="SettingsCategory_Click" Style="{StaticResource SettingsRow}" />
+                                    <Button x:Name="SettingsPowerButton" Content="Strøm" Tag="Power" Click="SettingsCategory_Click" Style="{StaticResource SettingsRow}" />
+                                </StackPanel>
+                                <StackPanel x:Name="SettingsDetail" Grid.Column="1" Spacing="12">
+                                    <TextBlock x:Name="SettingsHeading" FontSize="22" FontWeight="SemiBold" TextWrapping="Wrap"
+                                               AutomationProperties.HeadingLevel="Level2" />
+                                    <Border x:Name="SettingsQuickHost" />
+                                    <StackPanel x:Name="SettingsAppearance" Spacing="10" Visibility="Collapsed">
+                                        <Button x:Name="SoundToggleButton" Click="SoundToggle_Click" Style="{StaticResource SettingsRow}">
+                                            <TextBlock x:Name="SoundToggleText" Text="Menylyder: på" />
+                                        </Button>
+                                        <Button x:Name="SettingsSlideshowButton" Click="SettingsSlideshow_Click" Style="{StaticResource SettingsRow}" />
+                                        <Button x:Name="SettingsTrailersButton" Click="SettingsTrailers_Click" Style="{StaticResource SettingsRow}" />
+                                        <TextBlock Text="Trailere spilles uten lyd når enheten lader og Windows-animasjoner er på."
+                                                   TextWrapping="Wrap" Foreground="{StaticResource GhTextSecondaryBrush}" />
+                                    </StackPanel>
+                                    <StackPanel x:Name="SettingsAccounts" Spacing="10" Visibility="Collapsed">
+                                        <StackPanel x:Name="SettingsAccountRows" Spacing="8" />
+                                        <Button Click="MenuArtButton_Click" Style="{StaticResource SettingsRow}">
+                                            <TextBlock Text="Hent manglende bilder og info" TextWrapping="Wrap" />
+                                        </Button>
+                                        <Button Content="Legg til spill" Click="SettingsAddGame_Click" Style="{StaticResource SettingsRow}" />
+                                        <TextBlock x:Name="SettingsAccountStatus" TextWrapping="Wrap" Foreground="{StaticResource GhTextSecondaryBrush}" Visibility="Collapsed" />
+                                    </StackPanel>
+                                    <StackPanel x:Name="SettingsSystem" Spacing="10" Visibility="Collapsed">
+                                        <TextBlock x:Name="SettingsVersionText" Foreground="{StaticResource GhTextSecondaryBrush}" />
+                                        <Button x:Name="UpdateChannelButton" Click="UpdateChannelButton_Click" Style="{StaticResource SettingsRow}"
+                                                ToolTipService.ToolTip="Bytt mellom Stable og Beta">
+                                            <TextBlock x:Name="UpdateChannelText" />
+                                        </Button>
+                                        <Button x:Name="UpdateCheckButton" Click="UpdateCheckButton_Click" Content="Se etter oppdateringer" Style="{StaticResource SettingsRow}" />
+                                        <Button x:Name="UpdateButton" Click="UpdateButton_Click" Visibility="Collapsed" HorizontalAlignment="Stretch"
+                                                MinHeight="56" FontSize="18" Style="{StaticResource AccentButtonStyle}">
+                                            <TextBlock x:Name="UpdateText" />
+                                        </Button>
+                                        <TextBlock x:Name="UpdateStatus" Foreground="{StaticResource GhTextSecondaryBrush}" TextWrapping="Wrap" Visibility="Collapsed" />
+                                        <Button x:Name="PowerDebugButton" Click="PowerDebugButton_Click" Content="Feilsøking" Style="{StaticResource SettingsRow}" />
+                                        <Button x:Name="SettingsStartHcButton" Click="MenuStartHcButton_Click" Content="Start Handheld Companion"
+                                                Style="{StaticResource SettingsRow}" Visibility="Collapsed" />
+                                        <Button x:Name="SettingsRestoreScreenButton" Click="RestorePcScreen_Click" Style="{StaticResource SettingsRow}" Visibility="Collapsed">
+                                            <TextBlock Text="Gjenopprett skjermen på gaming-PC-en" TextWrapping="Wrap" />
+                                        </Button>
+                                        <TextBlock x:Name="SettingsSystemStatus" TextWrapping="Wrap" Foreground="{StaticResource GhTextSecondaryBrush}" Visibility="Collapsed" />
+                                    </StackPanel>
+                                    <StackPanel x:Name="SettingsPower" Spacing="10" Visibility="Collapsed">
+                                        <TextBlock x:Name="PowerText" Foreground="{StaticResource GhTextSecondaryBrush}" TextWrapping="Wrap" />
+                                        <Button Tag="sleep" Click="PowerOption_Click" Content="Dvale" Style="{StaticResource SettingsRow}" />
+                                        <Button Tag="restart" Click="PowerOption_Click" Content="Start på nytt" Style="{StaticResource SettingsRow}" />
+                                        <Button Tag="shutdown" Click="PowerOption_Click" Content="Slå av" Style="{StaticResource SettingsRow}" />
+                                        <Button Tag="exit" Click="PowerOption_Click" Content="Avslutt GameHome" Style="{StaticResource SettingsRow}" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Grid>
+                        </ScrollViewer>
+                        <StackPanel Grid.Row="2" Spacing="8">
+                            <TextBlock x:Name="SettingsSessionHint" Text="Flere innstillinger blir tilgjengelige når spillet er avsluttet."
+                                       TextWrapping="Wrap" Foreground="{StaticResource GhTextSecondaryBrush}" Visibility="Collapsed" />
+                            <StackPanel x:Name="SettingsHints" Orientation="Horizontal" Spacing="18" />
+                            <Button x:Name="SettingsBackButton" Content="Tilbake" Click="SettingsBack_Click" MinHeight="56" Visibility="Collapsed" />
+                        </StackPanel>
+                    </Grid>
+                </Border>
+            </ContentControl>
         </Grid>
 
         <!-- Kontoer og kilder: status for alt GameHome henter fra eller styrer, og hva som mangler. -->
@@ -452,8 +568,8 @@
 
         <!-- Legg inn en nøkkel: øverst, så skjermtastaturet (nedre halvdel) ikke dekker feltene; nøkkelen går rett til Windows' sikre lager. -->
         <Grid x:Name="KeyEntryPanel" Background="{StaticResource GhScrimBrush}" Visibility="Collapsed">
-            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,48,0,0" Width="680" Spacing="10">
-                <TextBlock x:Name="KeyEntryTitle" FontFamily="{StaticResource GhFontDisplay}" FontSize="{StaticResource GhSizeTitle}" FontWeight="SemiBold"
+            <StackPanel HorizontalAlignment="Stretch" VerticalAlignment="Top" Margin="20,48,20,0" MaxWidth="680" Spacing="10">
+                <TextBlock x:Name="KeyEntryTitle" FontFamily="{StaticResource GhFontDisplay}" FontSize="{StaticResource GhSizeTitle}" FontWeight="SemiBold" TextWrapping="Wrap"
                            Foreground="{StaticResource GhTextPrimaryBrush}" />
                 <TextBlock x:Name="KeyEntryHelp" FontSize="16" Foreground="#C8CDD3" TextWrapping="Wrap" />
                 <TextBlock x:Name="KeyEntryLabel1" FontSize="15" Foreground="#A0A7B0" Margin="0,4,0,0" />
@@ -489,84 +605,6 @@
                 </ScrollViewer>
                 <Button x:Name="HostCloseButton" Grid.Row="3" Content="Lukk" Click="HostCloseButton_Click" HorizontalAlignment="Stretch" Height="64" FontSize="20" />
             </Grid>
-        </Grid>
-
-        <!-- Innstillinger og strømvalg. Strøm er adskilt fra appinnstillinger; Lukk har fokus som trygg standard. -->
-        <Grid x:Name="PowerPanel" Background="{StaticResource GhScrimBrush}" Visibility="Collapsed">
-            <Border HorizontalAlignment="Center" VerticalAlignment="Center" Width="940" MaxHeight="720" Padding="28"
-                    Background="{StaticResource GhBaseBrush}" BorderBrush="{StaticResource GhSurfaceBrush}" BorderThickness="1" CornerRadius="18">
-                <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="660">
-                    <StackPanel Spacing="18">
-                        <Grid ColumnSpacing="20">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Text="Innstillinger og strøm" FontFamily="{StaticResource GhFontDisplay}" FontSize="{StaticResource GhSizeTitle}" FontWeight="SemiBold"
-                                       Foreground="{StaticResource GhTextPrimaryBrush}" VerticalAlignment="Center" />
-                            <TextBlock x:Name="PowerClockText" Grid.Column="1" FontSize="{StaticResource GhSizeBody}" Foreground="{StaticResource GhTextSecondaryBrush}"
-                                       VerticalAlignment="Center" Margin="0,0,8,0" />
-                            <Button x:Name="PowerCancelButton" Grid.Column="2" Content="Lukk" Click="PowerCancel_Click" Width="112" Height="52" FontSize="18" />
-                        </Grid>
-                        <TextBlock x:Name="PowerText" FontSize="{StaticResource GhSizeCaption}" Foreground="{StaticResource GhTextSecondaryBrush}" TextWrapping="Wrap" />
-                        <Grid ColumnSpacing="28">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <StackPanel Spacing="10">
-                                <TextBlock Text="GameHome" FontSize="22" FontWeight="SemiBold" Foreground="{StaticResource GhTextPrimaryBrush}" Margin="0,0,0,4" />
-                                <Button x:Name="UpdateChannelButton" Click="UpdateChannelButton_Click" HorizontalAlignment="Stretch" Height="56" FontSize="18"
-                                        ToolTipService.ToolTip="Bytt mellom Stable og Beta">
-                                    <TextBlock x:Name="UpdateChannelText" />
-                                </Button>
-                                <Button x:Name="UpdateCheckButton" Click="UpdateCheckButton_Click" Content="Se etter oppdateringer" HorizontalAlignment="Stretch" Height="56" FontSize="18" />
-                                <Button x:Name="UpdateButton" Click="UpdateButton_Click" Visibility="Collapsed" HorizontalAlignment="Stretch" Height="56" FontSize="18"
-                                        Style="{StaticResource AccentButtonStyle}">
-                                    <TextBlock x:Name="UpdateText" />
-                                </Button>
-                                <TextBlock x:Name="UpdateStatus" FontSize="15" Foreground="{StaticResource GhTextSecondaryBrush}" TextWrapping="Wrap" Visibility="Collapsed" />
-                                <Button x:Name="SoundToggleButton" Click="SoundToggle_Click" HorizontalAlignment="Stretch" Height="56" FontSize="18">
-                                    <StackPanel Orientation="Horizontal" Spacing="12">
-                                        <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE767;" FontSize="20" />
-                                        <TextBlock x:Name="SoundToggleText" Text="Menylyder: på" />
-                                    </StackPanel>
-                                </Button>
-                                <Button x:Name="PowerAccountsButton" Click="PowerAccountsButton_Click" Content="Kontoer og kilder" HorizontalAlignment="Stretch" Height="56" FontSize="18" />
-                                <Button x:Name="PowerDebugButton" Click="PowerDebugButton_Click" Content="Feilsøking" HorizontalAlignment="Stretch" Height="56" FontSize="18" />
-                            </StackPanel>
-                            <StackPanel Grid.Column="1" Spacing="10">
-                                <TextBlock Text="Strøm" FontSize="22" FontWeight="SemiBold" Foreground="{StaticResource GhTextPrimaryBrush}" Margin="0,0,0,4" />
-                                <Button Tag="sleep" Click="PowerOption_Click" HorizontalAlignment="Stretch" Height="56" FontSize="18">
-                                    <StackPanel Orientation="Horizontal" Spacing="12">
-                                        <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE708;" FontSize="20" />
-                                        <TextBlock Text="Dvale" />
-                                    </StackPanel>
-                                </Button>
-                                <Button Tag="restart" Click="PowerOption_Click" HorizontalAlignment="Stretch" Height="56" FontSize="18">
-                                    <StackPanel Orientation="Horizontal" Spacing="12">
-                                        <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE72C;" FontSize="20" />
-                                        <TextBlock Text="Start på nytt" />
-                                    </StackPanel>
-                                </Button>
-                                <Button Tag="shutdown" Click="PowerOption_Click" HorizontalAlignment="Stretch" Height="56" FontSize="18">
-                                    <StackPanel Orientation="Horizontal" Spacing="12">
-                                        <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE7E8;" FontSize="20" />
-                                        <TextBlock Text="Slå av" />
-                                    </StackPanel>
-                                </Button>
-                                <Button Tag="exit" Click="PowerOption_Click" HorizontalAlignment="Stretch" Height="56" FontSize="18">
-                                    <StackPanel Orientation="Horizontal" Spacing="12">
-                                        <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE8BB;" FontSize="20" />
-                                        <TextBlock Text="Avslutt GameHome" />
-                                    </StackPanel>
-                                </Button>
-                            </StackPanel>
-                        </Grid>
-                    </StackPanel>
-                </ScrollViewer>
-            </Border>
         </Grid>
 
         <!--

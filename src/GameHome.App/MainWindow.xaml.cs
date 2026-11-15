@@ -203,6 +203,7 @@ public sealed partial class MainWindow : Window
         _details = GameDetailsStore.Load(DetailsPath);
         MenuSounds.Enabled = ApplicationData.Current.LocalSettings.Values[SoundSetting] is not false;
         SoundToggleText.Text = MenuSounds.Enabled ? "Menylyder: på" : "Menylyder: av";
+        LoadSettings();
         UpdateClock();
         ShowM2Fallback();
         ShowSteamCloseSetting();
@@ -235,8 +236,9 @@ public sealed partial class MainWindow : Window
     {
         var time = DateTime.Now.ToString("HH:mm", CultureInfo.InvariantCulture);
         ClockText.Text = time;
-        PowerClockText.Text = time;
-        BatteryTopText.Text = BatteryShort();
+        var battery = BatteryShort();
+        PowerClockText.Text = $"{battery} · {time}";
+        BatteryTopText.Text = battery;
     }
 
     /// <summary>Legger økten til spillets spilletid (målt av GameHome, lagres bare lokalt).</summary>
@@ -2870,6 +2872,7 @@ public sealed partial class MainWindow : Window
         session.Dispose();
         _session = null;
         _sessionGame = null;
+        CloseSettingsIfGameEnded();
         SessionPanel.Visibility = Visibility.Collapsed;
         SetHomeEnabled(true);
         RefreshTileTexts();
@@ -3636,6 +3639,21 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        if (PowerPanel.Visibility == Visibility.Visible)
+        {
+            var resume = SessionActive && MessagePanel.Visibility != Visibility.Visible;
+            GoBack();
+            if (resume && PowerPanel.Visibility == Visibility.Visible)
+            {
+                ClosePowerMenu(restoreOpener: true);
+            }
+            if (resume)
+            {
+                ResumeButton_Click(ResumeButton, new RoutedEventArgs());
+            }
+            return;
+        }
+
         // M2 en gang til uten spill lukker GameHome-menyen igjen.
         if (!SessionActive && SessionPanel.Visibility == Visibility.Visible)
         {
@@ -3793,7 +3811,9 @@ public sealed partial class MainWindow : Window
     private void FillPerformance()
     {
         RefreshRateButtons.Children.Clear();
+        RefreshRateButtons.ColumnDefinitions.Clear();
         ResolutionButtons.Children.Clear();
+        ResolutionButtons.ColumnDefinitions.Clear();
         if (Display.Current() is not { } current)
         {
             return;
@@ -3803,7 +3823,7 @@ public sealed partial class MainWindow : Window
         foreach (var hz in modes.Where(m => m.Width == current.Width && m.Height == current.Height)
                      .Select(m => m.Hz).Distinct().Order().TakeLast(4))
         {
-            RefreshRateButtons.Children.Add(PerformanceButton($"{hz} Hz", hz == current.Hz,
+            AddPerformanceButton(RefreshRateButtons, PerformanceButton($"{hz} Hz", hz == current.Hz,
                 new DisplayMode(current.Width, current.Height, hz)));
         }
 
@@ -3813,7 +3833,7 @@ public sealed partial class MainWindow : Window
             var hz = modes.Any(m => m.Width == size.Width && m.Height == size.Height && m.Hz == current.Hz)
                 ? current.Hz
                 : modes.Where(m => m.Width == size.Width && m.Height == size.Height).Max(m => m.Hz);
-            ResolutionButtons.Children.Add(PerformanceButton(
+            AddPerformanceButton(ResolutionButtons, PerformanceButton(
                 string.Create(CultureInfo.InvariantCulture, $"{size.Width}×{size.Height}"),
                 size.Width == current.Width && size.Height == current.Height,
                 new DisplayMode(size.Width, size.Height, hz)));
@@ -3866,14 +3886,21 @@ public sealed partial class MainWindow : Window
         button.Foreground = text;
     }
 
+    private static void AddPerformanceButton(Grid row, Button button)
+    {
+        Grid.SetColumn(button, row.ColumnDefinitions.Count);
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.Children.Add(button);
+    }
+
     private Button PerformanceButton(string label, bool selected, DisplayMode target)
     {
-        // Tre knapper i bredden skal få plass i sidepanelet (344 px innenfor margen).
         var button = new Button
         {
             Content = label,
-            Height = 52,
-            Width = 104,
+            MinHeight = 52,
+            MinWidth = 0,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
             Padding = new Thickness(4, 0, 4, 0),
             FontSize = 16,
             Tag = target,
@@ -3924,7 +3951,8 @@ public sealed partial class MainWindow : Window
         {
             await Task.Delay(1500);
             var window = WinRT.Interop.WindowNative.GetWindowHandle(this);
-            if (SessionPanel.Visibility == Visibility.Visible && !Foreground.IsForeground(window))
+            if ((SessionPanel.Visibility == Visibility.Visible || (PowerPanel.Visibility == Visibility.Visible
+                    && SettingsQuickHost.Visibility == Visibility.Visible)) && !Foreground.IsForeground(window))
             {
                 Activate();
                 var back = Foreground.Bring(window);
@@ -4103,7 +4131,8 @@ public sealed partial class MainWindow : Window
     private void CloseMessage(Action? then)
     {
         MessagePanel.Visibility = Visibility.Collapsed;
-        SetHomeEnabled(SessionPanel.Visibility != Visibility.Visible && HostPanel.Visibility != Visibility.Visible);
+        SetHomeEnabled(SessionPanel.Visibility != Visibility.Visible && HostPanel.Visibility != Visibility.Visible
+            && PowerPanel.Visibility != Visibility.Visible);
         _messagePrimary = null;
         _messageSecondary = null;
         _messageCancel = null;
@@ -5161,123 +5190,6 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    // ---- Strømvalg: ett ikon åpner menyen; valget i menyen er bekreftelsen ----
-
-    private bool _powerFromSession;
-    private bool _debugFromPowerPanel;
-
-    private void PowerMenuButton_Click(object sender, RoutedEventArgs e)
-    {
-        UpdateClock();
-        _powerFromSession = SessionPanel.Visibility == Visibility.Visible;
-        if (_powerFromSession)
-        {
-            SessionPanel.Visibility = Visibility.Collapsed;
-        }
-
-        var game = SessionActive && _sessionGame is not null ? GameLibrary.DisplayTitle(_sessionGame) : null;
-        PowerText.Text = game is null
-            ? "Windows lukker programmene normalt ved omstart og avslutning."
-            : $"{game} kjører. Dvale setter det på pause. Omstart og avslutning avslutter spillet, og ulagret fremgang kan gå tapt.";
-        RefreshUpdateChannelButton();
-        UpdateChannelButton.IsEnabled = !SessionActive;
-        UpdateCheckButton.IsEnabled = !SessionActive;
-        UpdateButton.IsEnabled = !SessionActive && !_updateDownloading;
-        PowerAccountsButton.IsEnabled = !SessionActive;
-        PowerDebugButton.IsEnabled = !SessionActive;
-        PowerPanel.Visibility = Visibility.Visible;
-        SetHomeEnabled(false);
-        PowerCancelButton.Focus(FocusState.Keyboard);
-        _log.Write("strøm", $"Strømmenyen åpnet via {_lastSource}");
-    }
-
-    private void PowerOption_Click(object sender, RoutedEventArgs e)
-    {
-        var tag = (sender as Button)?.Tag as string;
-
-        // Avslutter bare GameHome. Et spill som kjører, fortsetter; Windows starter GameHome igjen som hjem i Xbox mode.
-        if (tag == "exit")
-        {
-            _log.Write("strøm", "Avslutt GameHome valgt");
-            StopEverything();
-            Application.Current.Exit();
-            return;
-        }
-
-        // Ukjente valg gjør ingenting; bare de tre kjente kan slå av eller starte på nytt.
-        PowerAction? choice = tag switch
-        {
-            "sleep" => PowerAction.Sleep,
-            "restart" => PowerAction.Restart,
-            "shutdown" => PowerAction.Shutdown,
-            _ => null,
-        };
-        if (choice is not { } action)
-        {
-            _log.Write("strøm", $"Ukjent strømvalg «{tag}» ignorert");
-            ClosePowerMenu(restoreSession: true);
-            return;
-        }
-        _log.Write("strøm", $"{action} valgt");
-        ClosePowerMenu(restoreSession: false);
-
-        if (Power.Run(action) is { } error)
-        {
-            _log.Write("strøm", $"{action} feilet: {error}");
-            ShowMessage("Det gikk ikke", error, "Lukk", () => FocusHome(_focusGameId), "Tilbake", () => FocusHome(_focusGameId));
-        }
-    }
-
-    private void PowerCancel_Click(object sender, RoutedEventArgs e)
-    {
-        _log.Write("strøm", "Strømmenyen avbrutt");
-        ClosePowerMenu(restoreSession: true);
-    }
-
-    private void PowerAccountsButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (SessionActive)
-        {
-            return;
-        }
-
-        ClosePowerMenu(restoreSession: false);
-        ShowMenu("innstillinger: kontoer");
-        MenuAccountsButton_Click(sender, e);
-    }
-
-    private void PowerDebugButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (SessionActive)
-        {
-            return;
-        }
-
-        _debugFromPowerPanel = true;
-        ClosePowerMenu(restoreSession: false);
-        DebugTile_Click(sender, e);
-    }
-
-    private void ClosePowerMenu(bool restoreSession)
-    {
-        PowerPanel.Visibility = Visibility.Collapsed;
-        if (restoreSession && _powerFromSession && SessionActive)
-        {
-            ShowSessionPanel("strømmenyen lukket");
-            return;
-        }
-
-        SetHomeEnabled(true);
-        if (restoreSession)
-        {
-            PowerMenuButton.Focus(FocusState.Keyboard);
-        }
-        else
-        {
-            FocusHome(_focusGameId);
-        }
-    }
-
     // ---- Legion-knapp via Lenovos HID-kanaler (diagnostikk) ----
 
     private void HidTile_Click(object sender, RoutedEventArgs e)
@@ -5777,8 +5689,7 @@ public sealed partial class MainWindow : Window
         }
         else if (PowerPanel.Visibility == Visibility.Visible)
         {
-            _log.Write("strøm", "Strømmenyen lukket med B");
-            ClosePowerMenu(restoreSession: true);
+            BackFromSettings();
         }
         else if (LoadingPanel.Visibility == Visibility.Visible)
         {
