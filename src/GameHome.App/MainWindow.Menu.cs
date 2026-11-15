@@ -109,6 +109,11 @@ public sealed partial class MainWindow
         }
 
         HomeMenuStatus.Visibility = Visibility.Visible;
+        if (PowerPanel.Visibility == Visibility.Visible)
+        {
+            ShowSettingsStatus(SettingsSystemStatus, HomeMenuStatus.Text);
+            RefreshSettingsTools();
+        }
     }
 
     /// <summary>En rad i «Kontoer og kilder». <paramref name="Key"/> sier hva knappen på raden gjør (se AccountAction).</summary>
@@ -139,7 +144,15 @@ public sealed partial class MainWindow
 
     private void MenuAccountsButton_Click(object sender, RoutedEventArgs e)
     {
-        AccountRows.Children.Clear();
+        PopulateAccountRows(AccountRows);
+        AccountsPanel.Visibility = Visibility.Visible;
+        AccountsCloseButton.Focus(FocusState.Keyboard);
+        _log.Write("meny", "Kontoer og kilder vist");
+    }
+
+    private void PopulateAccountRows(StackPanel rows)
+    {
+        rows.Children.Clear();
         foreach (var account in AccountStatuses())
         {
             var row = new Grid { ColumnSpacing = 14, Padding = new Thickness(14, 10, 14, 10), CornerRadius = new CornerRadius(8),
@@ -154,8 +167,8 @@ public sealed partial class MainWindow
                 Foreground = new SolidColorBrush(account.Ok ? Microsoft.UI.ColorHelper.FromArgb(0xFF, 0x6C, 0xCB, 0x5F) : Microsoft.UI.ColorHelper.FromArgb(0xFF, 0xFC, 0xC2, 0x3D)),
                 VerticalAlignment = VerticalAlignment.Center,
             };
-            var text = new StackPanel { Spacing = 2 };
-            text.Children.Add(new TextBlock { Text = account.Name, FontSize = 17, Foreground = new SolidColorBrush(Microsoft.UI.Colors.White) });
+            var text = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
+            text.Children.Add(new TextBlock { Text = account.Name, FontSize = 17, TextWrapping = TextWrapping.Wrap });
             text.Children.Add(new TextBlock { Text = account.Detail, FontSize = 14, TextWrapping = TextWrapping.Wrap,
                 Foreground = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(0xFF, 0xA0, 0xA7, 0xB0)) });
             Grid.SetColumn(text, 1);
@@ -164,18 +177,21 @@ public sealed partial class MainWindow
             if (AccountActionLabel(account) is { } actionLabel)
             {
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                var action = new Button { Content = actionLabel, Height = 44, Padding = new Thickness(16, 0, 16, 0), VerticalAlignment = VerticalAlignment.Center, Tag = account.Key };
+                var action = new Button { Content = actionLabel,
+                    MinHeight = 56, MaxWidth = 132, Padding = new Thickness(10, 0, 10, 0),
+                    VerticalAlignment = VerticalAlignment.Center, Tag = account.Key };
+                if (rows == SettingsAccountRows)
+                {
+                    action.Content = new TextBlock { Text = actionLabel, TextWrapping = TextWrapping.Wrap };
+                    Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(action, $"{account.Name}: {actionLabel}");
+                }
                 action.Click += AccountAction_Click;
                 Grid.SetColumn(action, 2);
                 row.Children.Add(action);
             }
 
-            AccountRows.Children.Add(row);
+            rows.Children.Add(row);
         }
-
-        AccountsPanel.Visibility = Visibility.Visible;
-        AccountsCloseButton.Focus(FocusState.Keyboard);
-        _log.Write("meny", "Kontoer og kilder vist");
     }
 
 
@@ -208,6 +224,10 @@ public sealed partial class MainWindow
             HomeMenuStatus.Text = text;
             HomeMenuStatus.Visibility = Visibility.Visible;
             LastInput.Text = text;
+            if (PowerPanel.Visibility == Visibility.Visible)
+            {
+                ShowSettingsStatus(SettingsSystemStatus, text);
+            }
         }
 
         Show($"Gjenoppretter skjermen på {HostLabel} …");
@@ -255,8 +275,10 @@ public sealed partial class MainWindow
         _artGapTried.Clear();
         HomeMenuStatus.Text = "Henter bilder …";
         HomeMenuStatus.Visibility = Visibility.Visible;
+        ShowSettingsStatus(SettingsAccountStatus, HomeMenuStatus.Text);
         await FetchMissingArtAsync();
         HomeMenuStatus.Text = "Ferdig. Det som ikke ble funnet, ligger i varslene øverst i Home.";
+        ShowSettingsStatus(SettingsAccountStatus, HomeMenuStatus.Text);
         _log.Write("meny", "Henting av manglende bilder startet fra menyen");
     }
 }

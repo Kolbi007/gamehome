@@ -29,7 +29,7 @@ public sealed partial class MainWindow
     private string? _trailerGameId;
 
     private bool TrailersAllowed =>
-        !OnBattery && !SessionActive && _windowActive && new global::Windows.UI.ViewManagement.UISettings().AnimationsEnabled;
+        _trailersEnabled && !OnBattery && !SessionActive && _windowActive && new global::Windows.UI.ViewManagement.UISettings().AnimationsEnabled;
 
     /// <summary>Kalles når en flis i Home får fokus: traileren starter hvis fokus blir værende.</summary>
     private void ScheduleTrailer(Game game)

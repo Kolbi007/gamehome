@@ -83,6 +83,10 @@ public sealed partial class MainWindow
                 "Client ID", "Client Secret"),
             _ => ("Vibepollo-nøkkel", "Lag en API-nøkkel i Vibepollo på gaming-PC-en (Innstillinger → API-nøkler).", "API-nøkkel", ""),
         };
+        if (PowerPanel.Visibility == Visibility.Visible)
+        {
+            SettingsSurface.IsEnabled = false;
+        }
         KeyEntryPanel.Visibility = Visibility.Visible;
         KeyEntryBox1.Focus(FocusState.Programmatic);
         ShowTouchKeyboard();
@@ -110,7 +114,15 @@ public sealed partial class MainWindow
         _ = TouchKeyboard.HideAsync();
         KeyEntryBox1.Password = "";
         KeyEntryBox2.Password = "";
-        if (AccountsPanel.Visibility == Visibility.Visible)
+        if (PowerPanel.Visibility == Visibility.Visible)
+        {
+            SettingsSurface.IsEnabled = true;
+            PopulateAccountRows(SettingsAccountRows);
+            var action = SettingsAccountRows.Children.OfType<Grid>().SelectMany(row => row.Children.OfType<Button>())
+                .FirstOrDefault(button => Equals(button.Tag, _keyEntryKind));
+            (action ?? SettingsAccountsButton).Focus(FocusState.Keyboard);
+        }
+        else if (AccountsPanel.Visibility == Visibility.Visible)
         {
             MenuAccountsButton_Click(this, new RoutedEventArgs()); // Oppdater statusen.
         }
