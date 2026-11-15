@@ -143,6 +143,16 @@ try {
         if ($b = Find $id) { Note "Lukker åpent panel ($id)"; Press $b; Start-Sleep 1 }
     }
 
+    # Check before the shortcut can reactivate GameHome and mask a cold-start failure.
+    if (GameHomeInFront) {
+        Check (Wait-Until {
+            $bootLog = Get-Content -LiteralPath $logFile -Encoding UTF8
+            $lastStartup = $bootLog | Select-String -SimpleMatch '[start] Vindu klart' | Select-Object -Last 1
+            $lastPolling = $bootLog | Select-String -SimpleMatch '[kontroller] Polling startet' | Select-Object -Last 1
+            $lastStartup -and $lastPolling -and $lastPolling.LineNumber -gt $lastStartup.LineNumber
+        } 5) 'GameHome leser kontrolleren mens Home er i forgrunnen før en hurtigtast brukes'
+    }
+
     # ---- Home-hurtigtasten uten spill ----
     if (-not (Find 'ResumeButton')) {
         [GhTest]::ShowWindow($gh.MainWindowHandle, 6) | Out-Null # SW_MINIMIZE
