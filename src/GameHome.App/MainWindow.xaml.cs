@@ -2594,7 +2594,7 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private bool _launching;
 
-    private async Task LaunchAsync(Game game, PlayAction? chosen = null, bool battleNetConfirmed = false)
+    private async Task LaunchAsync(Game game, PlayAction? chosen = null)
     {
         StopTrailer();
         // Ett trykk, én start: ekstra trykk mens noe starter eller avsluttes, ignoreres (0.1.87.0 startet Mega Man tre ganger).
@@ -2609,7 +2609,7 @@ public sealed partial class MainWindow : Window
         {
             CancelUpdateOperations();
             CancelStoreScan();
-            await LaunchCoreAsync(game, chosen, battleNetConfirmed);
+            await LaunchCoreAsync(game, chosen);
         }
         catch (Exception ex)
         {
@@ -2624,7 +2624,7 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async Task LaunchCoreAsync(Game game, PlayAction? chosen, bool battleNetConfirmed)
+    private async Task LaunchCoreAsync(Game game, PlayAction? chosen)
     {
         _firstSteamSync?.Stop();
         if (SessionActive)
@@ -2679,12 +2679,6 @@ public sealed partial class MainWindow : Window
         {
             ShowMessage($"{title} kan ikke startes", $"GameHome kan ikke starte spill fra «{action.RunnerId}» ennå.",
                 "Fjern fra GameHome", () => ConfirmRemove(game), "Lukk", () => FocusHome(game.Id));
-            return;
-        }
-
-        if (action.RunnerId == BattleNetRunner.Id && !battleNetConfirmed)
-        {
-            ConfirmBattleNetSignIn(game, action);
             return;
         }
 
@@ -2749,7 +2743,11 @@ public sealed partial class MainWindow : Window
             HideLoading("start feilet");
             _ = RestoreDisplayAfterGame();
             _log.Write("økt", $"Kunne ikke starte «{title}»: {ex.Failure}: {ex.Message}");
-            if (ex.Failure == LaunchFailure.FileMissing)
+            if (ex.Failure == LaunchFailure.LauncherNeedsAttention && action.RunnerId == BattleNetRunner.Id)
+            {
+                ShowBattleNetRecovery(game, action, ex.Message);
+            }
+            else if (ex.Failure == LaunchFailure.FileMissing)
             {
                 ShowMessage($"Finner ikke {title}", $"Filen finnes ikke lenger:\n{action.Target}",
                     "Fjern fra GameHome", () => ConfirmRemove(game), "Lukk", () => FocusHome(game.Id));
@@ -3280,6 +3278,7 @@ public sealed partial class MainWindow : Window
         {
             GameLibrary.SteamRunnerId => "Starter via Steam …",
             GameLibrary.MoonlightRunnerId => $"Kobler til {HostLabel} …",
+            BattleNetRunner.Id => "Battle.net starter spillet. Sjekk Battle.net hvis du må logge inn eller oppdatere.",
             _ => "Starter …",
         };
         LoadingChoices.Visibility = Visibility.Collapsed;

@@ -10,11 +10,11 @@ namespace GameHome.App;
 
 public sealed partial class MainWindow
 {
-    private void ConfirmBattleNetSignIn(Game game, PlayAction action, string? error = null)
+    private void ShowBattleNetRecovery(Game game, PlayAction action, string? error = null)
     {
-        ShowMessage("Logg inn i Battle.net",
-            error ?? "Sjekk at riktig konto er logget inn og at spillet er klart i Battle.net. Gå tilbake til GameHome når du er klar.",
-            "Jeg er logget inn", () => _ = LaunchAsync(game, action, battleNetConfirmed: true),
+        ShowMessage("Sjekk Battle.net",
+            error ?? "Fullfør eventuell innlogging eller oppdatering i Battle.net. Velg «Prøv igjen» når spillet er klart.",
+            "Prøv igjen", () => _ = LaunchAsync(game, action),
             "Åpne Battle.net", () => OpenBattleNetForSignIn(game, action),
             onCancel: () => FocusHome(game.Id));
         MessageSecondary.Focus(Microsoft.UI.Xaml.FocusState.Keyboard);
@@ -32,12 +32,12 @@ public sealed partial class MainWindow
         try
         {
             using var launcher = Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
-            ConfirmBattleNetSignIn(game, action);
+            ShowBattleNetRecovery(game, action);
         }
         catch (Win32Exception ex)
         {
             _log.Write("battlenet", $"Kunne ikke åpne Battle.net (Windows-feil {ex.NativeErrorCode})");
-            ConfirmBattleNetSignIn(game, action, "Windows kunne ikke åpne Battle.net. Åpne appen fra Start-menyen og sjekk innloggingen.");
+            ShowBattleNetRecovery(game, action, "Windows kunne ikke åpne Battle.net. Åpne appen fra Start-menyen og sjekk innloggingen.");
         }
     }
 }

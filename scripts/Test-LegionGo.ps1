@@ -258,12 +258,14 @@ try {
     Press $tile
     Start-Sleep 1
     # Spill som kan startes både her og fra PC-en, spør først; «Spill her» er førstevalget.
-    if ((Wait-Until { Find 'MessagePrimary' } 3) -and ($primary = Find 'MessagePrimary')) { Note "Melding: «$($primary.Current.Name)» trykkes"; Press $primary }
-    $isWoW = $Game -like 'World of Warcraft*'
-    # This path assumes the device owner already signed in to Battle.net.
-    if ($isWoW -and (Wait-Until { (Find 'MessagePrimary').Current.Name -eq 'Jeg er logget inn' } 3)) {
-        Press (Find 'MessagePrimary')
+    if ((Wait-Until { Find 'MessagePrimary' } 3) -and ($primary = Find 'MessagePrimary')) {
+        if ($primary.Current.Name -ne 'Spill her') {
+            throw "Uventet valg ved spillstart: $($primary.Current.Name)"
+        }
+        Press $primary
     }
+    $isWoW = $Game -like 'World of Warcraft*'
+    # The signed-out/MFA path is a separate manual test in the official launcher.
     $started = Wait-Until {
         $foregroundPid = [GhTest]::ForegroundPid()
         if ((GameHomeInFront) -or $foregroundPid -in $before) { return $false }

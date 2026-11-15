@@ -155,8 +155,8 @@ public sealed class BattleNetRunner : IRunner
             await Task.Delay(500, ct);
         }
 
-        throw new LaunchException(LaunchFailure.StartFailed,
-            "Battle.net åpnet ikke spillvinduet innen to minutter. Fullfør eventuell innlogging eller oppdatering i Battle.net, og prøv igjen.");
+        throw new LaunchException(LaunchFailure.LauncherNeedsAttention,
+            "Spillvinduet åpnet ikke innen to minutter. Sjekk Battle.net for innlogging, oppdatering eller en feilmelding før du prøver igjen.");
     }
 
     private static void Exec(string launcher, string code)
