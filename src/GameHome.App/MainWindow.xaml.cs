@@ -156,20 +156,6 @@ public sealed partial class MainWindow : Window
 
         Root.PreviewKeyDown += OnPreviewKeyDown;
         Root.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(OnKeyDown), handledEventsToo: true);
-        Root.Loaded += (_, _) =>
-        {
-            // Start the fallback even when WinUI never sends the first Activated event.
-            EnsureActiveIfForeground("XAML lastet");
-            if (!_gamepadTimer.IsRunning && !_pickerOpen && !SessionActive)
-            {
-                _gamepadTimer.Interval = BackgroundGamepadInterval;
-                _gamepadTimer.Start();
-                _log.Write("kontroller", "Startet kontrollerlesing fra XAML-oppstart mens vinduet venter på forgrunnen");
-            }
-
-            PlayIntro();
-            ShowSetupIfFirstRun();
-        };
         SetStaticHints();
         Root.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(OnPointerPressed), handledEventsToo: true);
         Activated += OnWindowActivated;
@@ -225,6 +211,22 @@ public sealed partial class MainWindow : Window
 
         var variant = RuntimeFeature.IsDynamicCodeSupported ? "JIT" : "Native AOT";
         _log.Write("start", $"Vindu klart (versjon {versionText}, {variant})");
+        Root.Loaded += OnRootLoaded;
+    }
+
+    private void OnRootLoaded(object sender, RoutedEventArgs e)
+    {
+        // Start the fallback even when WinUI never sends the first Activated event.
+        EnsureActiveIfForeground("XAML lastet");
+        if (!_gamepadTimer.IsRunning && !_pickerOpen && !SessionActive)
+        {
+            _gamepadTimer.Interval = BackgroundGamepadInterval;
+            _gamepadTimer.Start();
+            _log.Write("kontroller", "Startet kontrollerlesing fra XAML-oppstart mens vinduet venter på forgrunnen");
+        }
+
+        PlayIntro();
+        ShowSetupIfFirstRun();
     }
 
     private bool SessionActive => _session is not null && !_session.Completion.IsCompleted;
