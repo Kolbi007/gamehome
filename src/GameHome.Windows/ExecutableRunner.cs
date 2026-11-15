@@ -276,7 +276,7 @@ public sealed class LocalProcessSession : IForegroundSession
         try
         {
             return !string.IsNullOrEmpty(_directory)
-                && candidate.MainModule?.FileName is { } path && path.StartsWith(_directory, StringComparison.OrdinalIgnoreCase);
+                && candidate.MainModule?.FileName is { } path && ExecutableLocation.IsInDirectory(_directory, path);
         }
         catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or NotSupportedException)
         {
@@ -375,8 +375,7 @@ public sealed class LocalProcessSession : IForegroundSession
 
             try
             {
-                var path = candidate.MainModule?.FileName;
-                if (path is not null && path.StartsWith(_directory, StringComparison.OrdinalIgnoreCase)
+                if (IsFromGameFolder(candidate)
                     && candidate.StartTime.ToUniversalTime() >= _started)
                 {
                     return candidate;
