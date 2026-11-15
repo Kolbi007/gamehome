@@ -45,6 +45,9 @@ jobs:
           global-json-file: global.json
       - name: Test
         run: dotnet test --project tests/GameHome.Core.Tests -c Release
+      - name: Test release versions
+        shell: pwsh
+        run: ./scripts/Test-ReleaseVersion.ps1
 
   # Windows: hele løsningen og signert test-MSIX for Legion Go.
   windows:
@@ -105,6 +108,7 @@ jobs:
           DEV_CERT_PASSWORD: ${{ secrets.DEV_CERT_PASSWORD }}
         run: |
           if (-not $env:DEV_CERT_PFX_BASE64) {
+            if ('${{ inputs.version }}') { throw 'A versioned release/test package requires the signing certificate.' }
             Write-Host '::warning::DEV_CERT_PFX_BASE64 mangler; MSIX bygges usignert.'
             "thumbprint=" >> $env:GITHUB_OUTPUT
             exit 0

@@ -16,9 +16,9 @@ Mål: gjøre gjeldende implementering trygg å bruke og utgi. Statusene er **pla
 | 1 | Datagjenoppretting: validert JSON-backup, versjonskontroll og bevaring av brukerens overstyringer | Implementert og enhetstestet; skrivebeskyttet økt hvis ingen trygg kopi finnes. Ikke testet Legion Go |
 | 2 | Kildehelse: isolerte kildefeil, varsler og bevaring av spill ved ufullstendige skanninger | Implementert for rapporterte feil og Xbox-pakkelesing. Andre parseres stille feil gjenstår; ikke testet Legion Go |
 | 3 | Avbrytbarhet: avbryt langvarig skanning og oppstart/oppdateringsarbeid uten fastlåst Home | Skannerunden kanselleres ved spillstart; gamle resultater forkastes. Allerede påbegynte synkrone kall kan fullføres. Metadata og oppdateringer gjenstår |
-| 4 | Avgrensede operasjoner: tidsgrenser, begrenset parallellitet og maks datamengder for skanning/nettverkskall | Planlagt |
+| 4 | Avgrensede operasjoner: tidsgrenser, begrenset parallellitet og maks datamengder for skanning/nettverkskall | Oppdateringsnedlasting har totalfrist, størrelseskontroll og kansellering. Host-Restore har avgrenset venting på egne arbeidere; krever separat host-installasjon. Øvrige kall gjenstår |
 | 5 | Logging: tåle diskfeil, begrense størrelse og rense personlige felt | Diskfeil og rotasjon implementert og testet; sentral personvernrensing gjenstår |
-| 6 | Versjonspolicy: garanter monoton versjonsrekkefølge for Beta og Stable, også på tvers av CI-kjøringer | Planlagt. Stable/Beta-kanalene er implementert; `run_number+1` løser bare tidligere kollisjon, ikke den generelle monotonipolicyen |
+| 6 | Versjonspolicy: nyere Beta/Stable enn tidligere utgivelser | Implementert med eksisterende tagger, serialisert release og versjonstester. For manuelt nummererte testbygg må `GAMEHOME_MIN_PACKAGE_VERSION` settes til høyeste installerte testversjon |
 | 7 | Enhetsvalidering: kjør røyktest og relevante arbeidsflyter på Legion Go for en konkret build, og loggfør build, utfall og kjente avvik | Planlagt |
 | 8 | Stable-klar: grønn CI og fysisk validering av relevant release-build på Legion Go | Planlagt |
 

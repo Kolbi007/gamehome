@@ -2649,6 +2649,7 @@ public sealed partial class MainWindow : Window
         _launching = true;
         try
         {
+            CancelUpdateOperations();
             CancelStoreScan();
             await LaunchCoreAsync(game, chosen);
         }
@@ -5022,6 +5023,7 @@ public sealed partial class MainWindow : Window
         // Vis med en gang at noe skjer: Vibepollo kan bruke over 10 s på å svare mens spillet lukkes (målt 2026-11-02).
         var other = _hostRunningApp ?? "spillet";
         _launching = true;
+        CancelUpdateOperations();
         CancelStoreScan();
         ShowLoading(game, action);
         LoadingStatus.Text = $"Avslutter {other} på {HostLabel} …";
@@ -5370,6 +5372,7 @@ public sealed partial class MainWindow : Window
 
     private void StopEverything()
     {
+        CancelUpdateOperations(shuttingDown: true);
         _firstSteamSync?.Stop();
         CancelStoreScan();
         _storeScanCancellation?.Dispose();
