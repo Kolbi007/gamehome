@@ -18,7 +18,7 @@
              hang GameHome når testen (og skjermlesere) gikk gjennom vinduet, 2026-11-05. -->
         <MediaPlayerElement x:Name="HeroVideo" Stretch="UniformToFill" HorizontalAlignment="Right" VerticalAlignment="Top" Opacity="0"
                             IsHitTestVisible="False" AreTransportControlsEnabled="False" AutomationProperties.AccessibilityView="Raw" />
-        <WebView2 x:Name="YouTubeTrailer" HorizontalAlignment="Right" VerticalAlignment="Top" Opacity="0"
+        <WebView2 x:Name="YouTubeTrailer" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Opacity="0"
                   IsHitTestVisible="False" IsTabStop="False" AutomationProperties.AccessibilityView="Raw" />
         <Rectangle x:Name="ScrimLeft" IsHitTestVisible="False">
             <Rectangle.Fill>

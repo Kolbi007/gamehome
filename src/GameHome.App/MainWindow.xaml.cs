@@ -2544,8 +2544,18 @@ public sealed partial class MainWindow : Window
     private void CloseDebug()
     {
         DebugPanel.Visibility = Visibility.Collapsed;
-        SetHomeEnabled(true);
-        DebugTile.Focus(FocusState.Keyboard);
+        if (_debugFromPowerPanel)
+        {
+            _debugFromPowerPanel = false;
+            PowerPanel.Visibility = Visibility.Visible;
+            SetHomeEnabled(false);
+            PowerDebugButton.Focus(FocusState.Keyboard);
+        }
+        else
+        {
+            SetHomeEnabled(true);
+            DebugTile.Focus(FocusState.Keyboard);
+        }
     }
 
     private void ConfirmRemove(Game game)
@@ -4585,7 +4595,7 @@ public sealed partial class MainWindow : Window
                     }
                     else
                     {
-                        ShowMenu("varsel");
+                        PowerMenuButton_Click(PowerMenuButton, new RoutedEventArgs());
                     }
                 };
                 Grid.SetColumn(action, 1);
@@ -5087,6 +5097,7 @@ public sealed partial class MainWindow : Window
     // ---- Strømvalg: ett ikon åpner menyen; valget i menyen er bekreftelsen ----
 
     private bool _powerFromSession;
+    private bool _debugFromPowerPanel;
 
     private void PowerMenuButton_Click(object sender, RoutedEventArgs e)
     {
@@ -5104,7 +5115,7 @@ public sealed partial class MainWindow : Window
         RefreshUpdateChannelButton();
         UpdateChannelButton.IsEnabled = !SessionActive;
         UpdateCheckButton.IsEnabled = !SessionActive;
-        UpdateButton.IsEnabled = !SessionActive;
+        UpdateButton.IsEnabled = !SessionActive && !_updateDownloading;
         PowerAccountsButton.IsEnabled = !SessionActive;
         PowerDebugButton.IsEnabled = !SessionActive;
         PowerPanel.Visibility = Visibility.Visible;
@@ -5175,6 +5186,7 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        _debugFromPowerPanel = true;
         ClosePowerMenu(restoreSession: false);
         DebugTile_Click(sender, e);
     }
@@ -5440,10 +5452,22 @@ public sealed partial class MainWindow : Window
             CheckHandheldCompanion();
         }
 
-        _previousButtons = GamepadButtons.None;
-        _previousStick = null;
-        _previousLeftTrigger = false;
-        _previousRightTrigger = false;
+        var gamepads = Gamepad.Gamepads;
+        if (gamepads.Count > 0)
+        {
+            var current = Combined(gamepads);
+            _previousButtons = current.Buttons;
+            _previousStick = StickDirection(current.LeftThumbstickX, current.LeftThumbstickY);
+            _previousLeftTrigger = current.LeftTrigger > TriggerThreshold;
+            _previousRightTrigger = current.RightTrigger > TriggerThreshold;
+        }
+        else
+        {
+            _previousButtons = GamepadButtons.None;
+            _previousStick = null;
+            _previousLeftTrigger = false;
+            _previousRightTrigger = false;
+        }
         _log.Write("kontroller", $"Polling startet ({Gamepad.Gamepads.Count} tilkoblet, økt {(SessionActive ? "aktiv" : "ingen")})");
     }
 

@@ -24,6 +24,7 @@ public sealed partial class MainWindow
     private static readonly TimeSpan TrailerDelay = TimeSpan.FromSeconds(3);
     private readonly Dictionary<int, string?> _trailers = [];
     private readonly Dictionary<string, string?> _youtubeTrailers = [];
+    private global::Windows.Foundation.TypedEventHandler<Microsoft.Web.WebView2.Core.CoreWebView2, Microsoft.Web.WebView2.Core.CoreWebView2WebMessageReceivedEventArgs>? _youtubeMessageHandler;
     private DispatcherQueueTimer? _trailerTimer;
     private string? _trailerGameId;
 
@@ -167,7 +168,7 @@ public sealed partial class MainWindow
                 // IGDB-søk kan returnere lignende spill; godta kun normalisert eksakt tittel.
                 var title = NormalizeTrailerTitle(GameLibrary.DisplayTitle(game));
                 match = (await igdb.SearchAsync(GameLibrary.DisplayTitle(game), 10))
-                    .FirstOrDefault(candidate => NormalizeTrailerTitle(candidate.Name) == title);
+                .FirstOrDefault(candidate => TrailerTitlesMatch(title, NormalizeTrailerTitle(candidate.Name)));
             }
 
             if (match is null)
@@ -203,10 +204,13 @@ public sealed partial class MainWindow
 
     private static string NormalizeTrailerTitle(string title)
     {
-        var normalized = title.Replace("the hedgehog", "", StringComparison.OrdinalIgnoreCase)
-            .Replace("&", " and ", StringComparison.Ordinal);
+        var normalized = title.Replace("&", " and ", StringComparison.Ordinal);
         return new string([.. normalized.Where(char.IsAsciiLetterOrDigit)]).ToLowerInvariant();
     }
+
+    private static bool TrailerTitlesMatch(string localTitle, string catalogTitle) =>
+        localTitle == catalogTitle
+        || (localTitle == "sonic3andknuckles" && catalogTitle == "sonicthehedgehog3andknuckles");
 
     private async Task PlayYouTubeTrailerAsync(Game game, string videoId)
     {
@@ -221,15 +225,82 @@ public sealed partial class MainWindow
 
             YouTubeTrailer.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
             YouTubeTrailer.CoreWebView2.Settings.IsStatusBarEnabled = false;
-            YouTubeTrailer.Source = new Uri($"https://www.youtube-nocookie.com/embed/{videoId}?autoplay=1&mute=1&controls=0&playsinline=1&rel=0");
-            FadeTo(YouTubeTrailer, 0.9, 900);
-            MakeRoomForTrailer(true);
-            _log.Write("trailer", $"YouTube-trailer for «{game.Title}» (IGDB-treff, ID {videoId})");
+            var playback = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            if (_youtubeMessageHandler is not null)
+            {
+                YouTubeTrailer.CoreWebView2.WebMessageReceived -= _youtubeMessageHandler;
+            }
+
+            _youtubeMessageHandler = (_, args) =>
+            {
+                var message = args.TryGetWebMessageAsString();
+                if (message == "playing")
+                {
+                    playback.TrySetResult(true);
+                    DispatcherQueue.TryEnqueue(() =>
+                    {
+                        if (_trailerGameId == game.Id && TrailersAllowed)
+                        {
+                            FadeTo(YouTubeTrailer, 0.9, 900);
+                            MakeRoomForTrailer(true);
+                            _log.Write("trailer", $"YouTube spiller for «{game.Title}» (IGDB ID {videoId})");
+                        }
+                    });
+                }
+                else if (message is "ended" or "error")
+                {
+                    playback.TrySetResult(false);
+                    DispatcherQueue.TryEnqueue(() =>
+                    {
+                        if (_trailerGameId == game.Id)
+                        {
+                            _log.Write("trailer", message == "ended" ? "YouTube-trailer ferdig" : "YouTube kunne ikke spille traileren");
+                            StopTrailer();
+                        }
+                    });
+                }
+            };
+            YouTubeTrailer.CoreWebView2.WebMessageReceived += _youtubeMessageHandler;
+            YouTubeTrailer.CoreWebView2.NavigateToString(YouTubeEmbedHtml(videoId));
+            var completed = await Task.WhenAny(playback.Task, Task.Delay(TimeSpan.FromSeconds(15)));
+            if (completed != playback.Task || !await playback.Task)
+            {
+                YouTubeTrailer.CoreWebView2.WebMessageReceived -= _youtubeMessageHandler;
+                _youtubeMessageHandler = null;
+                if (_trailerGameId == game.Id)
+                {
+                    _log.Write("trailer", "YouTube begynte ikke å spille innen 15 sekunder");
+                    StopTrailer();
+                }
+            }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _log.Write("trailer", $"YouTube-avspilling utilgjengelig: {ex.GetType().Name}");
         }
+    }
+
+    private static string YouTubeEmbedHtml(string videoId)
+    {
+        var safeId = System.Net.WebUtility.HtmlEncode(videoId);
+        return """
+            <!doctype html>
+            <html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+            <style>
+            html,body,#player{margin:0;width:100%;height:100%;overflow:hidden;background:#121110}
+            #player{position:absolute;left:50%;top:50%;width:max(100vw,177.78vh);height:max(56.25vw,100vh);transform:translate(-50%,-50%)}
+            iframe{border:0}
+            </style></head><body><div id="player"></div>
+            <script>
+            function onYouTubeIframeAPIReady(){
+              new YT.Player('player',{videoId:'__VIDEO_ID__',width:'100%',height:'100%',
+                playerVars:{autoplay:1,mute:1,controls:0,playsinline:1,rel:0},
+                events:{onStateChange:e=>{if(e.data===1)chrome.webview.postMessage('playing');if(e.data===0)chrome.webview.postMessage('ended')},
+                  onError:()=>chrome.webview.postMessage('error')}
+              });
+            }
+            </script><script src="https://www.youtube.com/iframe_api"></script></body></html>
+            """.Replace("__VIDEO_ID__", safeId, StringComparison.Ordinal);
     }
 
 
@@ -264,6 +335,8 @@ public sealed partial class MainWindow
     {
         _trailerTimer?.Stop();
         _trailerGameId = null;
+        CancelFade(HeroVideo);
+        CancelFade(YouTubeTrailer);
         if (HeroVideo.MediaPlayer is { } player)
         {
             HeroVideo.SetMediaPlayer(null);
@@ -272,11 +345,24 @@ public sealed partial class MainWindow
         }
 
         YouTubeTrailer.Opacity = 0;
+        if (_youtubeMessageHandler is not null && YouTubeTrailer.CoreWebView2 is { } core)
+        {
+            core.WebMessageReceived -= _youtubeMessageHandler;
+            _youtubeMessageHandler = null;
+        }
         YouTubeTrailer.CoreWebView2?.Stop();
-        YouTubeTrailer.Source = null;
+        YouTubeTrailer.CoreWebView2?.Navigate("about:blank");
 
         HeroVideo.Opacity = 0;
         MakeRoomForTrailer(false);
+    }
+
+    private void CancelFade(UIElement element)
+    {
+        if (_fadeStories.Remove(element, out var story))
+        {
+            story.Stop();
+        }
     }
 
     private bool _roomForTrailer;

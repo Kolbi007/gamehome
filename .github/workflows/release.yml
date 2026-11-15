@@ -64,4 +64,4 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "GameHome $TAG" \
             "${release_args[@]}" \
-            --notes "Bygg fra main. GameHome på Legion Go finner det selv (M2 → Oppdater). Første installasjon: kjør Install-DevBuild.ps1 som administrator med stien til .msix-filen. Se README."
+            --notes "Bygg fra main. GameHome på Legion Go finner det selv (strømmenyen øverst til høyre → Oppdater). Første installasjon: kjør Install-DevBuild.ps1 som administrator med stien til .msix-filen. Se README."

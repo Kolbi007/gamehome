@@ -9,8 +9,8 @@ namespace GameHome.Sources.Updates;
 public sealed record AvailableRelease(Version Version, string Tag, string AssetName, Uri AssetUrl, long Size);
 
 /// <summary>
-/// Leser svaret fra GitHubs offentlige API for utgivelser (<c>GET /repos/{eier}/{repo}/releases</c>) og finner den
-/// nyeste utgivelsen med en MSIX for gitt arkitektur. Stable ignorerer prereleases; Beta inkluderer begge kanaler.
+/// Leser et objekt fra GitHubs <c>/releases/latest</c> eller en liste fra <c>/releases</c>, og finner nyeste utgivelse
+/// med en MSIX for gitt arkitektur. Stable bruker objekt-endepunktet; Beta inkluderer prereleases fra en liste.
 /// Taggen <c>vX.Y.Z</c> gir pakkeversjonen X.Y.Z.0 (se ci.yml).
 /// </summary>
 public static class ReleaseFeed
@@ -20,13 +20,17 @@ public static class ReleaseFeed
         ArgumentNullException.ThrowIfNull(json);
         ArgumentException.ThrowIfNullOrEmpty(architecture);
         using var document = JsonDocument.Parse(json);
-        if (document.RootElement.ValueKind != JsonValueKind.Array)
+        var root = document.RootElement;
+        if (root.ValueKind is not (JsonValueKind.Array or JsonValueKind.Object))
         {
             return null;
         }
 
         AvailableRelease? best = null;
-        foreach (var release in document.RootElement.EnumerateArray())
+        IEnumerable<JsonElement> releases = root.ValueKind == JsonValueKind.Array
+            ? root.EnumerateArray().ToArray()
+            : new[] { root };
+        foreach (var release in releases)
         {
             if (release.TryGetProperty("draft", out var draft) && draft.ValueKind == JsonValueKind.True)
             {
@@ -39,8 +43,13 @@ public static class ReleaseFeed
                 continue;
             }
 
-            if (!release.TryGetProperty("tag_name", out var tagElement) || tagElement.GetString() is not { } tag
-                || ParseTag(tag) is not { } version)
+            if (!release.TryGetProperty("tag_name", out var tagElement) || tagElement.GetString() is not { } tag)
+            {
+                continue;
+            }
+
+            var version = ParseTag(tag);
+            if (version is null)
             {
                 continue;
             }

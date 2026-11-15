@@ -17,7 +17,9 @@ namespace GameHome.App;
 /// </summary>
 public sealed partial class MainWindow
 {
-    private const string ReleasesUrl = "https://api.github.com/repos/Kolbi007/gamehome/releases?per_page=10";
+    // Beta may use prereleases; Stable uses GitHub's dedicated latest non-prerelease endpoint below.
+    private const string ReleasesUrl = "https://api.github.com/repos/Kolbi007/gamehome/releases?per_page=100";
+    private const string LatestStableReleaseUrl = "https://api.github.com/repos/Kolbi007/gamehome/releases/latest";
     private const string LastUpdateCheckSetting = "update.lastCheck";
     private const string UpdateChannelSetting = "update.channel";
     private static readonly TimeSpan UpdateCheckInterval = TimeSpan.FromHours(6);
@@ -25,6 +27,8 @@ public sealed partial class MainWindow
     private static readonly HttpClient UpdateHttp = CreateUpdateHttp();
     private AvailableRelease? _update;
     private bool _updateChecking;
+    private bool _manualUpdateCheckQueued;
+    private bool _updateDownloading;
 
     private static bool BetaChannel => ApplicationData.Current.LocalSettings.Values[UpdateChannelSetting] as string == "beta";
 
@@ -79,8 +83,14 @@ public sealed partial class MainWindow
     /// <summary>Bakgrunnssjekk høyst hver 6. time; når menyen åpnes, høyst hvert 10. minutt; <paramref name="manual"/> alltid.</summary>
     private async Task CheckForUpdateAsync(bool manual, bool fromMenu = false)
     {
-        if (SessionActive || _updateChecking)
+        if (SessionActive)
         {
+            return;
+        }
+
+        if (_updateChecking)
+        {
+            _manualUpdateCheckQueued |= manual;
             return;
         }
 
@@ -95,7 +105,7 @@ public sealed partial class MainWindow
         try
         {
             settings[LastUpdateCheckSetting] = DateTime.UtcNow.ToBinary();
-            var json = await UpdateHttp.GetStringAsync(new Uri(ReleasesUrl));
+            var json = await UpdateHttp.GetStringAsync(new Uri(BetaChannel ? ReleasesUrl : LatestStableReleaseUrl));
             var newest = ReleaseFeed.Newest(json, Architecture, includePrerelease: BetaChannel);
             var installed = InstalledVersion;
             if (newest is null || newest.Version <= installed)
@@ -127,6 +137,11 @@ public sealed partial class MainWindow
         finally
         {
             _updateChecking = false;
+            if (_manualUpdateCheckQueued && !SessionActive)
+            {
+                _manualUpdateCheckQueued = false;
+                await CheckForUpdateAsync(manual: true, fromMenu: true);
+            }
         }
     }
 
@@ -134,11 +149,12 @@ public sealed partial class MainWindow
 
     private async void UpdateButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_update is not { } update || SessionActive)
+        if (_update is not { } update || SessionActive || _updateDownloading)
         {
             return;
         }
 
+        _updateDownloading = true;
         UpdateButton.IsEnabled = false;
         UpdateStatus.Visibility = Visibility.Visible;
         try
@@ -184,7 +200,8 @@ public sealed partial class MainWindow
         }
         finally
         {
-            UpdateButton.IsEnabled = true;
+            _updateDownloading = false;
+            UpdateButton.IsEnabled = !SessionActive;
         }
     }
 }
