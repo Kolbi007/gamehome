@@ -203,7 +203,7 @@ public sealed partial class MainWindow
 
     private bool DismissYouTubeTrailer()
     {
-        if (_youTubePreview is null)
+        if (_youTubePreview is null || AnyOverlayOpen)
         {
             return false;
         }
