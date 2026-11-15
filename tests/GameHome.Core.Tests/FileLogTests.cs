@@ -52,6 +52,35 @@ public sealed class FileLogTests : IDisposable
     }
 
     [Fact]
+    public void Sensitive_diagnostics_are_redacted_before_disk_and_event()
+    {
+        var path = Path.Combine(_directory, "log.txt");
+        var log = new FileLog(path);
+        string? observed = null;
+        log.Written += (_, line) => observed = line;
+
+        log.Write("test", """
+            versjon 0.2.29.0; Forbindelse 192.0.2.21:47984, [2001:db8::3] og 192.0.2.22.
+            Authorization: Bearer sampleBearer
+            {"client_secret":"sample secret","username":"exampleuser"}
+            konto person@example.invalid fra «C:\Users\Person\One Game\p.txt»
+            https://remote.invalid/status?temporary_code=sampleQuery
+            """);
+
+        var persisted = File.ReadAllText(path);
+        Assert.Equal(observed + Environment.NewLine, persisted);
+        Assert.Contains("versjon 0.2.29.0", persisted);
+        Assert.Contains("[ip]:47984", persisted);
+        Assert.Contains("[path]", persisted);
+        Assert.Contains("https://remote.invalid/status?[redacted]", persisted);
+        foreach (var privateValue in new[] { "192.0.2.21", "192.0.2.22", "2001:db8::3", "sampleBearer", "sample secret", "exampleuser",
+            "person@example.invalid", @"C:\Users\Person", "sampleQuery" })
+        {
+            Assert.DoesNotContain(privateValue, persisted);
+        }
+    }
+
+    [Fact]
     public void Oversized_message_is_bounded()
     {
         var path = Path.Combine(_directory, "log.txt");

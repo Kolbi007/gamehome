@@ -27,11 +27,12 @@ public sealed class FileLog
 
     public void Write(string category, string message)
     {
-        if (message.Length > MaximumMessageCharacters)
+        var shortened = message.Length > MaximumMessageCharacters;
+        message = LogRedaction.Apply(shortened ? message[..MaximumMessageCharacters] : message);
+        if (shortened)
         {
-            message = message[..MaximumMessageCharacters] + " [avkortet]";
+            message += " [avkortet]";
         }
-
         var line = string.Create(CultureInfo.InvariantCulture, $"{DateTimeOffset.Now:HH:mm:ss.fff} [{category}] {message}");
         lock (_gate)
         {

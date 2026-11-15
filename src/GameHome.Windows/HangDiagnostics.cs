@@ -24,8 +24,8 @@ public static unsafe partial class HangDiagnostics
         try
         {
             using var file = new FileStream(path, FileMode.Create, FileAccess.ReadWrite, FileShare.None);
-            const uint type = 0x00000000 /* Normal */ | 0x00000020 /* WithUnloadedModules */ | 0x00001000 /* WithThreadInfo */
-                | 0x00000100 /* WithProcessThreadData */;
+            const uint type = 0x00000008 /* FilterMemory */ | 0x00000080 /* FilterModulePaths */
+                | 0x00000400 /* WithoutOptionalData */ | 0x00001000 /* WithThreadInfo */;
             return MiniDumpWriteDump(GetCurrentProcess(), (uint)Environment.ProcessId, file.SafeFileHandle.DangerousGetHandle(), type, 0, 0, 0);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
