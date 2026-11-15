@@ -5222,8 +5222,8 @@ public sealed partial class MainWindow : Window
                 MemoryTrim.Trim(); // Home ligger bak noe annet: gi minnet tilbake (bilder lastes inn igjen ved behov).
             }
 
-            // Uten spill eller filvelger fortsetter kontrollerlesingen sakte: noe annet (et varsel, en systemmeny) kan
-            // ta fokus mens Home står fremme, og da skal første trykk hente Home tilbake, ikke kreve berøring.
+            // Uten spill eller filvelger sjekker den langsomme timeren om Windows har gitt Home tilbake forgrunnen
+            // uten å sende aktiveringsbeskjed. Kontrollerinput til andre vinduer skal bli der.
             var keepListening = !SessionActive && !_pickerOpen;
             if (keepListening)
             {
@@ -5239,7 +5239,7 @@ public sealed partial class MainWindow : Window
             }
 
             _log.Write("fokus", $"Mistet fokus til {Foreground.CurrentProcessName() ?? "ukjent"}"
-                + (keepListening ? " (lytter på kontrolleren for å hente Home tilbake)" : " (kontrollerlesing og målinger stoppet)"));
+                + (keepListening ? " (venter på at Windows returnerer forgrunnen)" : " (kontrollerlesing og målinger stoppet)"));
 
             // Lasteskjermen blir liggende bak det som tok forgrunnen. Steam tar den ofte først med et lite vindu, og
             // spillet tegner seg over lasteskjermen når det er klart. Den skjules når GameHome blir aktiv igjen.
@@ -5383,6 +5383,10 @@ public sealed partial class MainWindow : Window
         if (!_windowActive)
         {
             EnsureActiveIfForeground("kontrollerløkken");
+            if (!_windowActive)
+            {
+                return;
+            }
         }
 
         var gamepads = Gamepad.Gamepads;
@@ -5413,16 +5417,9 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        // Home står fremme, men noe annet har fokus: første trykk henter Home tilbake (og brukes ikke til noe annet).
-        if (!_windowActive)
+        // Windows kan ha flyttet forgrunnen før WinUI rekker å varsle oss, for eksempel da Quick Menu åpnes.
+        if (!Foreground.IsForeground(WinRT.Interop.WindowNative.GetWindowHandle(this)))
         {
-            if (SessionActive || _pickerOpen)
-            {
-                _gamepadTimer.Stop();
-                return;
-            }
-
-            BringToFront($"kontroller ({Foreground.CurrentProcessName() ?? "ukjent"} hadde fokus)");
             return;
         }
 
