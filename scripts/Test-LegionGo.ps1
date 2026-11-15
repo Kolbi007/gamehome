@@ -163,6 +163,27 @@ try {
         throw "Feil vindu ligger øverst: $(ForegroundName). Lukk eller minimer det, og kjør testen igjen."
     }
 
+    # ---- Fokus og tastaturnavigasjon i Innstillinger og strøm ----
+    if ((GameHomeInFront) -and ($settingsButton = Find 'PowerMenuButton')) {
+        try {
+            Press $settingsButton
+            Check (Wait-Until { $AE::FocusedElement.Current.AutomationId -eq 'SettingsQuickButton' } 3) 'Innstillinger starter med fokus på Hurtigvalg'
+            [GhTest]::Tap(0x28) # Ned
+            Check (Wait-Until { $AE::FocusedElement.Current.AutomationId -eq 'SettingsAppearanceButton' } 3) 'Pil ned flytter fokus til Utseende og lyd'
+            if ($AE::FocusedElement.Current.AutomationId -eq 'SettingsAppearanceButton') {
+                [GhTest]::Tap(0x0D) # Enter
+                Check (Wait-Until { $AE::FocusedElement.Current.AutomationId -eq 'SoundToggleButton' } 3) 'Enter åpner kategorien og flytter fokus inn'
+                [GhTest]::Tap(0x1B) # Escape
+                Check (Wait-Until { $AE::FocusedElement.Current.AutomationId -eq 'SettingsAppearanceButton' } 3) 'Escape returnerer fokus til kategorien'
+            }
+        } finally {
+            if ($close = Find 'PowerCancelButton') { Press $close }
+        }
+        Check (Wait-Until { $AE::FocusedElement.Current.AutomationId -eq 'PowerMenuButton' } 3) 'Lukk returnerer fokus til strømknappen'
+    } else {
+        Fail 'Fant ikke strømknappen i GameHome for menytesten'
+    }
+
     # ---- M2 uten spill: GameHome-menyen ----
     [GhTest]::Chord(0x7B) # F12
     Check (Wait-Until { Find 'MenuAccountsButton' } 5) 'M2 uten spill åpner GameHome-menyen'
@@ -243,7 +264,14 @@ try {
     Start-Sleep 1
     # Spill som kan startes både her og fra PC-en, spør først; «Spill her» er førstevalget.
     if ((Wait-Until { Find 'MessagePrimary' } 3) -and ($primary = Find 'MessagePrimary')) { Note "Melding: «$($primary.Current.Name)» trykkes"; Press $primary }
-    $started = Wait-Until { -not (GameHomeInFront) -and [GhTest]::ForegroundPid() -notin $before } 90
+    $isWoW = $Game -like 'World of Warcraft*'
+    $started = Wait-Until {
+        $foregroundPid = [GhTest]::ForegroundPid()
+        if ((GameHomeInFront) -or $foregroundPid -in $before) { return $false }
+        if (-not $isWoW) { return $true }
+        $foregroundProcess = Get-Process -Id $foregroundPid -ErrorAction SilentlyContinue
+        $foregroundProcess -and $foregroundProcess.ProcessName -like 'Wow*'
+    } 90
     Check $started "«$Game» startet og fikk forgrunnen"
     if (-not $started) { throw 'Spillet startet ikke' }
     $gameProcess = Get-Process -Id ([GhTest]::ForegroundPid())

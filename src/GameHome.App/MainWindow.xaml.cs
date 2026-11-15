@@ -108,8 +108,6 @@ public sealed partial class MainWindow : Window
     private DispatcherQueueTimer? _firstSteamSync;
     private DispatcherQueueTimer? _loadingTimer;
     private DispatcherQueueTimer? _streamCover;
-    private DispatcherQueueTimer? _wowStartupCover;
-    private DateTime _wowStartupCoverStarted;
     private DateTime _loadingShown;
     private bool _waking;
     private bool _lastWakeNoNetwork;
@@ -133,7 +131,6 @@ public sealed partial class MainWindow : Window
     private bool _previousRightTrigger;
     private FocusNavigationDirection? _previousStick;
     private string _lastSource = "ukjent";
-    private bool _xamlGamepadKeysSeen;
     private bool _startupLogged;
 
     public MainWindow(FileLog log)
@@ -157,6 +154,7 @@ public sealed partial class MainWindow : Window
 
         _log.Written += OnLogWritten;
 
+        Root.PreviewKeyDown += OnPreviewKeyDown;
         Root.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(OnKeyDown), handledEventsToo: true);
         Root.Loaded += (_, _) =>
         {
@@ -2779,7 +2777,6 @@ public sealed partial class MainWindow : Window
                 await SignalGameHomeStreamAsync(streamHost?.Name);
             }
 
-            StartWowStartupCover(game, action);
             _session = (IForegroundSession)await runner.LaunchAsync(action, Profile.Default, CancellationToken.None);
             _sessionRunnerId = action.RunnerId;
         }
@@ -2825,6 +2822,18 @@ public sealed partial class MainWindow : Window
         else if (session is SteamSession steam)
         {
             StartSteamCover(steam);
+        }
+
+        else if (action.RunnerId == BattleNetRunner.Id && session.MainWindowHandle is var battleNetGame && battleNetGame != 0)
+        {
+            HideLoading("Battle.net-spillvindu klart");
+            var gameHome = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            if (Foreground.IsForeground(gameHome) || Foreground.CurrentProcessName() is "Battle.net" or "Battle.net Launcher")
+            {
+                var (ok, _) = Foreground.BringGame(battleNetGame);
+                Foreground.SendToBack(gameHome);
+                _log.Write("laster", ok ? "Battle.net-spillet tok forgrunnen" : "Windows avslo forgrunnsbytte; GameHome lagt bakerst");
+            }
         }
 
         // M2 er alltid registrert (MenuHotkeyId); de andre bare under spill.
@@ -3408,55 +3417,6 @@ public sealed partial class MainWindow : Window
         _log.Write("laster", "Tar lang tid; viser Vent og Tilbake til Home");
     }
 
-    /// <summary>
-    /// For WoW Forever lokalt på Legion Go beholdes GameHomes lasteskjerm foran Battle.net mens spillet starter.
-    /// Etter 20 sekunder uten spillvindu vises Battle.net så eventuell innlogging eller feil kan håndteres.
-    /// </summary>
-    private void StartWowStartupCover(Game game, PlayAction action)
-    {
-        if (!string.Equals(action.RunnerId, BattleNetRunner.Id, StringComparison.Ordinal)
-            || !string.Equals(action.Target, "WoWF", StringComparison.OrdinalIgnoreCase))
-        {
-            return;
-        }
-
-        EndWowStartupCover("ny WoW-start");
-        _wowStartupCoverStarted = DateTime.UtcNow;
-        Foreground.SetTopmost(WinRT.Interop.WindowNative.GetWindowHandle(this), true);
-
-        _wowStartupCover = DispatcherQueue.CreateTimer();
-        _wowStartupCover.Interval = TimeSpan.FromMilliseconds(250);
-        _wowStartupCover.Tick += (_, _) =>
-        {
-            if (_sessionGame?.Id == game.Id && _session is IForegroundSession foreground && foreground.MainWindowHandle != 0)
-            {
-                EndWowStartupCover("WoW-vinduet åpnet");
-                HideLoading("WoW-vinduet åpnet");
-            }
-            else if (DateTime.UtcNow - _wowStartupCoverStarted >= BattleNetRunner.WowStartupGracePeriod)
-            {
-                BattleNetRunner.ShowLauncherForAttention();
-                EndWowStartupCover("20 sekunder uten WoW-vindu");
-                HideLoading("20 sekunder uten WoW-vindu; viser Battle.net");
-            }
-        };
-        _wowStartupCover.Start();
-        _log.Write("laster", $"WoW Forever: splash foran Battle.net i opptil {BattleNetRunner.WowStartupGracePeriod.TotalSeconds:F0} sekunder");
-    }
-
-    private void EndWowStartupCover(string reason)
-    {
-        if (_wowStartupCover is null)
-        {
-            return;
-        }
-
-        _wowStartupCover.Stop();
-        _wowStartupCover = null;
-        Foreground.SetTopmost(WinRT.Interop.WindowNative.GetWindowHandle(this), false);
-        _log.Write("laster", $"WoW-startsplash avsluttet: {reason}");
-    }
-
     // ---- Lasteskjerm over Moonlight til streamen viser bilde ----
 
     /// <summary>
@@ -3569,7 +3529,6 @@ public sealed partial class MainWindow : Window
 
     private void HideLoading(string why)
     {
-        EndWowStartupCover(why);
         if (_streamCover is not null)
         {
             EndStreamCover(why);
@@ -5359,7 +5318,7 @@ public sealed partial class MainWindow : Window
         _windowActive = true;
         UpdateClock();
         _clockTimer.Start();
-        if (LoadingPanel.Visibility == Visibility.Visible && _loadingCovered && _wowStartupCover is null)
+        if (LoadingPanel.Visibility == Visibility.Visible && _loadingCovered)
         {
             HideLoading("GameHome aktiv igjen");
         }
@@ -5420,6 +5379,7 @@ public sealed partial class MainWindow : Window
         }
         _gamepadTimer.Interval = TimeSpan.FromMilliseconds(16);
         _gamepadTimer.Start();
+        RestoreSettingsFocus();
         if (!SessionActive)
         {
             StartAttractTimer();
@@ -5552,24 +5512,26 @@ public sealed partial class MainWindow : Window
 
         _log.Write("input", $"Kontroller: {string.Join(", ", names)}");
 
+        RestoreSettingsFocus();
+        var focusScope = MessagePanel.Visibility == Visibility.Visible ? MessagePanel
+            : KeyEntryPanel.Visibility == Visibility.Visible ? KeyEntryPanel
+            : PowerPanel.Visibility == Visibility.Visible ? PowerPanel
+            : Root.XamlRoot.Content;
         var direction = DPadDirection(pressed) ?? (stickMoved ? stick : null);
-        if (direction is { } dir && FocusManager.TryMoveFocus(dir, new FindNextElementOptions { SearchRoot = Root.XamlRoot.Content }))
+        if (direction is { } dir && FocusManager.TryMoveFocus(dir, new FindNextElementOptions { SearchRoot = focusScope }))
         {
             MenuSounds.Move();
         }
 
         var focusedButton = FocusManager.GetFocusedElement(Root.XamlRoot) as Button;
 
-        // Hvis XAML selv leverer kontrollertaster, gjør knappene jobben; ellers aktiverer vi med A.
-        if (pressed.HasFlag(GamepadButtons.A) && focusedButton is not null)
+        if (pressed.HasFlag(GamepadButtons.A) && focusedButton is { IsEnabled: true } &&
+            (PowerPanel.Visibility != Visibility.Visible || IsWithinSettingsScope(focusedButton, focusScope)))
         {
             MenuSounds.Select();
             Pulse();
-            if (!_xamlGamepadKeysSeen)
-            {
-                new ButtonAutomationPeer(focusedButton).Invoke();
-                return;
-            }
+            new ButtonAutomationPeer(focusedButton).Invoke();
+            return;
         }
 
         // Y på en spillflis: om spillet. ☰ (Start/Menu): valg for spillet.
@@ -5651,6 +5613,10 @@ public sealed partial class MainWindow : Window
         {
             CloseMessage(_messageCancel);
         }
+        else if (KeyEntryPanel.Visibility == Visibility.Visible)
+        {
+            CloseKeyEntry();
+        }
         else if (ArtPanel.Visibility == Visibility.Visible)
         {
             CloseArtPicker();
@@ -5731,20 +5697,59 @@ public sealed partial class MainWindow : Window
         : x > StickThreshold ? FocusNavigationDirection.Right
         : null;
 
+    private void OnPreviewKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (!_windowActive || !_gamepadTimer.IsRunning)
+        {
+            return;
+        }
+
+        var key = e.OriginalKey;
+        var button = key switch
+        {
+            VirtualKey.GamepadA when FocusManager.GetFocusedElement(Root.XamlRoot) is Button => GamepadButtons.A,
+            VirtualKey.GamepadB => GamepadButtons.B,
+            VirtualKey.GamepadDPadUp => GamepadButtons.DPadUp,
+            VirtualKey.GamepadDPadDown => GamepadButtons.DPadDown,
+            VirtualKey.GamepadDPadLeft => GamepadButtons.DPadLeft,
+            VirtualKey.GamepadDPadRight => GamepadButtons.DPadRight,
+            _ => GamepadButtons.None,
+        };
+        var stick = key switch
+        {
+            VirtualKey.GamepadLeftThumbstickUp => FocusNavigationDirection.Up,
+            VirtualKey.GamepadLeftThumbstickDown => FocusNavigationDirection.Down,
+            VirtualKey.GamepadLeftThumbstickLeft => FocusNavigationDirection.Left,
+            VirtualKey.GamepadLeftThumbstickRight => FocusNavigationDirection.Right,
+            _ => (FocusNavigationDirection?)null,
+        };
+        var gamepads = Gamepad.Gamepads;
+        if (gamepads.Count == 0 || (button == GamepadButtons.None && stick is null))
+        {
+            return;
+        }
+
+        // Suppress only the key that the polling path can currently see.
+        var reading = Combined(gamepads);
+        e.Handled = (button != GamepadButtons.None && ((_previousButtons | reading.Buttons) & button) != 0)
+            || (stick is not null && (stick == _previousStick ||
+                stick == StickDirection(reading.LeftThumbstickX, reading.LeftThumbstickY)));
+    }
+
     private void OnKeyDown(object sender, KeyRoutedEventArgs e)
     {
-        var isGamepadKey = e.Key >= VirtualKey.GamepadA && e.Key <= VirtualKey.GamepadRightThumbstickLeft;
-        if (isGamepadKey && !_xamlGamepadKeysSeen)
+        var isGamepadKey = e.OriginalKey >= VirtualKey.GamepadA && e.OriginalKey <= VirtualKey.GamepadRightThumbstickLeft;
+        if (isGamepadKey && e.Handled)
         {
-            _xamlGamepadKeysSeen = true;
-            _log.Write("input", "XAML leverer kontrollertaster selv (innebygd ruting finnes)");
+            return;
         }
 
         _lastSource = isGamepadKey ? "kontroller (XAML)" : "tastatur";
         NoteUserInput();
-        if (e.Key == VirtualKey.Escape)
+        if (e.Key == VirtualKey.Escape || e.OriginalKey == VirtualKey.GamepadB)
         {
             GoBack();
+            e.Handled = true;
         }
     }
 
