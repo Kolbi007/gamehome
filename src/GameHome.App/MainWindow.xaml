@@ -104,8 +104,7 @@
                 <StackPanel x:Name="HeroHints" Orientation="Horizontal" Spacing="22" />
             </StackPanel>
 
-            <Border x:Name="YouTubePreviewSlot" Grid.Row="1" HorizontalAlignment="Right" VerticalAlignment="Center"
-                    Width="360" Height="203" />
+            <Border x:Name="YouTubePreviewSlot" Grid.Row="1" HorizontalAlignment="Right" VerticalAlignment="Top" />
 
             <!-- Spillflisene lages i koden (ikke ItemsSource; se ADR 0005 om AOT). Plass rundt så flisen i fokus kan forstørres. -->
             <ScrollViewer x:Name="GameTilesScroll" Grid.Row="2" HorizontalScrollMode="Enabled" HorizontalScrollBarVisibility="Hidden"

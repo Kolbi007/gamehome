@@ -14,20 +14,41 @@ public sealed partial class MainWindow
 {
     // The HTTPS host identifies GameHome to YouTube and matches the MSIX identity.
     private const string YouTubePreviewHost = "gamehome";
+    private const double YouTubeMinimumHeight = 200;
+    private const double YouTubeAspectRatio = 16.0 / 9.0;
+    private const double YouTubeStartingHeight = 203;
+    private const double YouTubeHeroGap = 24;
     private string? _youTubePreviewPage;
     private WebView2? _youTubePreview;
 
-    private bool YouTubePreviewFits =>
-        Surface.ActualWidth - Surface.Padding.Left - Surface.Padding.Right >= YouTubePreviewSlot.Width + 330
-        && Surface.RowDefinitions[1].ActualHeight >= YouTubePreviewSlot.Height;
+    private double YouTubeAvailableWidth => Surface.ActualWidth - Surface.Padding.Left - Surface.Padding.Right;
+
+    private double YouTubePlayerHeight
+    {
+        get
+        {
+            const double minTitleWidth = 200;
+            const double preferredTitleWidth = 280;
+            var minPlayerWidth = YouTubeMinimumHeight * YouTubeAspectRatio;
+            var titleWidth = Math.Clamp(YouTubeAvailableWidth - YouTubeHeroGap - minPlayerWidth, minTitleWidth, preferredTitleWidth);
+            var playerWidth = YouTubeAvailableWidth - YouTubeHeroGap - titleWidth;
+            return Math.Min(Surface.RowDefinitions[1].ActualHeight, playerWidth / YouTubeAspectRatio);
+        }
+    }
+
+    private bool YouTubePreviewFits => YouTubePlayerHeight >= YouTubeMinimumHeight;
 
     private void TrailerSurfaceSizeChanged(object sender, SizeChangedEventArgs e)
     {
-        if (_youTubePreview is not null)
+        if (_youTubePreview is { } preview)
         {
             if (YouTubePreviewFits)
             {
-                FitHeroBesideYouTube();
+                LayoutYouTubePlayer(expanded: _trailerPlaying);
+                if (preview.Opacity > 0)
+                {
+                    FitHeroBesideYouTube();
+                }
             }
             else
             {
@@ -36,17 +57,31 @@ public sealed partial class MainWindow
         }
     }
 
+    private void LayoutYouTubePlayer(bool expanded)
+    {
+        var availableHeight = YouTubePlayerHeight;
+        var height = expanded ? availableHeight : Math.Min(availableHeight, YouTubeStartingHeight);
+        YouTubePreviewSlot.Height = height;
+        YouTubePreviewSlot.Width = height * YouTubeAspectRatio;
+    }
+
     private void FitHeroBesideYouTube() =>
-        HeroInfo.MaxWidth = Math.Min(820, Surface.ActualWidth - Surface.Padding.Left - Surface.Padding.Right - YouTubePreviewSlot.Width - 24);
+        HeroInfo.MaxWidth = Math.Min(820, YouTubeAvailableWidth - YouTubePreviewSlot.Width - YouTubeHeroGap);
 
     private async Task PlayYouTubePreviewAsync(string videoId, CancellationToken ct)
     {
+        if (!YouTubePreviewFits)
+        {
+            return;
+        }
+
         StartTrailerDeadline(TimeSpan.FromSeconds(10));
         try
         {
             var preview = new WebView2 { Opacity = 0, IsHitTestVisible = false, IsTabStop = false };
             AutomationProperties.SetName(preview, "YouTube-trailer");
             _youTubePreview = preview;
+            LayoutYouTubePlayer(expanded: false);
             YouTubePreviewSlot.Child = preview;
             await preview.EnsureCoreWebView2Async();
             if (ct.IsCancellationRequested)
@@ -123,6 +158,9 @@ public sealed partial class MainWindow
                     if (TrailersAllowed && !AnyOverlayOpen && !_trailerPlaying)
                     {
                         TrailerStarted();
+                        LayoutYouTubePlayer(expanded: true);
+                        FitHeroBesideYouTube();
+                        MakeRoomForTrailer(true, youtube: true);
                         _log.Write("trailer", "YouTube-trailer spiller");
                     }
                     break;
@@ -148,6 +186,24 @@ public sealed partial class MainWindow
                 YouTubePreviewFailed(ex.GetType().Name);
             }
         }
+    }
+
+    private bool DismissYouTubeTrailer()
+    {
+        if (_youTubePreview is null)
+        {
+            return false;
+        }
+
+        var tile = _trailerTile;
+        StopTrailer();
+        if (tile is not null && tile.FocusState == FocusState.Unfocused)
+        {
+            tile.Focus(FocusState.Programmatic);
+            StopTrailer(); // The restored tile's focus event can schedule another preview.
+        }
+
+        return true;
     }
 
     private void YouTubePreviewFailed(string reason)

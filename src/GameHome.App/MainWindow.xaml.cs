@@ -5549,6 +5549,11 @@ public sealed partial class MainWindow : Window
     /// <summary>B på kontrolleren og Escape på tastaturet: lukk det øverste panelet, eller gå tilbake til spillet.</summary>
     private void GoBack()
     {
+        if (DismissYouTubeTrailer())
+        {
+            return;
+        }
+
         if (MessagePanel.Visibility == Visibility.Visible)
         {
             CloseMessage(_messageCancel);

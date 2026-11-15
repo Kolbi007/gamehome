@@ -374,22 +374,21 @@ public sealed partial class MainWindow
     /// Mens traileren spiller, glir tekst og fliser litt til siden og nedover, og sløret over bildet blir lettere, så
     /// videoen får plass. Alt glir tilbake når traileren stopper (ved input, nytt spill eller slutt).
     /// </summary>
-    private void MakeRoomForTrailer(bool room)
+    private void MakeRoomForTrailer(bool room, bool youtube = false)
     {
         if (_roomForTrailer == room)
         {
             return;
         }
 
-        // Tydelig, ikke bare antydet (produkteier så ingen forskjell med 16/56 px, 2026-11-05): logo og tekst krymper og
-        // glir ned mot venstre hjørne, flisraden glir nesten ut nederst, verktøyknappene forsvinner, og sløret letter.
+        // YouTube har eget spillerfelt. Behold hele navigasjonsraden tilgjengelig når den glir ned.
         _roomForTrailer = room;
         var duration = room ? 900 : 350;
-        MoveTo(HeroInfo, room ? -24 : 0, room ? 150 : 0, room ? 0.7 : 1, duration, originX: 0, originY: 1);
-        MoveTo(GameTilesScroll, 0, room ? 170 : 0, 1, duration);
-        MoveTo(ToolTiles, 0, room ? 120 : 0, 1, duration);
-        FadeTo(GameTilesScroll, room ? 0.55 : 1, duration);
-        FadeTo(ToolTiles, room ? 0 : 1, duration);
+        MoveTo(HeroInfo, room ? -24 : 0, room ? (youtube ? 38 : 150) : 0, room ? 0.7 : 1, duration, originX: 0, originY: 1);
+        MoveTo(GameTilesScroll, 0, room ? (youtube ? 32 : 170) : 0, 1, duration);
+        MoveTo(ToolTiles, 0, room ? (youtube ? 24 : 120) : 0, 1, duration);
+        FadeTo(GameTilesScroll, room ? (youtube ? 0.86 : 0.55) : 1, duration);
+        FadeTo(ToolTiles, room && !youtube ? 0 : 1, duration);
         FadeTo(ScrimLeft, room ? 0.3 : 1, duration);
         FadeTo(ScrimBottom, room ? 0.55 : 1, duration);
     }
