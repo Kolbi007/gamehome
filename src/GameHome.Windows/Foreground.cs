@@ -100,7 +100,10 @@ public static class Foreground
         while ((window = NativeMethods.FindWindowExW(0, window, null, null)) != 0)
         {
             if (NativeMethods.GetWindowThreadProcessId(window, out var owner) != 0 && owner == processId
-                && NativeMethods.IsWindowVisible(window))
+                && NativeMethods.IsWindowVisible(window)
+                && NativeMethods.GetWindow(window, NativeMethods.GwOwner) == 0
+                && NativeMethods.GetWindowRect(window, out var bounds)
+                && bounds.Right > bounds.Left && bounds.Bottom > bounds.Top)
             {
                 return window;
             }
@@ -132,6 +135,8 @@ public static class Foreground
 
 internal static unsafe partial class NativeMethods
 {
+    internal const uint GwOwner = 4;
+
     [LibraryImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool AllowSetForegroundWindow(uint processId);

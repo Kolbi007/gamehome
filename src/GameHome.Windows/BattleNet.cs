@@ -132,7 +132,6 @@ public sealed class BattleNetRunner : IRunner
         Exec(launcher, action.Target);
         var started = DateTime.UtcNow;
         var secondSent = false;
-        var attentionShown = false;
         while (DateTime.UtcNow - started < GiveUp && !ct.IsCancellationRequested)
         {
             var elapsed = DateTime.UtcNow - started;
@@ -152,13 +151,6 @@ public sealed class BattleNetRunner : IRunner
                 }
 
                 candidate.Dispose();
-            }
-
-            if (action.Target.Equals("WoWF", StringComparison.OrdinalIgnoreCase)
-                && elapsed >= WowStartupGracePeriod && !attentionShown)
-            {
-                ShowLauncherForAttention();
-                attentionShown = true;
             }
 
             if (!secondSent && DateTime.UtcNow - started > SecondCall)

@@ -26,14 +26,14 @@ GitHub Actions bygger alt ved hver pull request og lager en signert test-MSIX so
 1. Last ned artefaktet `gamehome-msix-x64` fra siste CI-kjøring.
 2. Første gang, som administrator: `scripts/Install-DevBuild.ps1 -MsixPath <sti til .msix>`. Skriptet stoler på
    `certs/GameHome-Dev.cer` og installerer pakken.
-3. Senere oppdateringer: bruk kanalvelgeren i GameHomes M2-meny. GameHome laster ned MSIX-pakken selv; Windows ber deg
+3. Senere oppdateringer: bruk kanalvelgeren i strømmenyen øverst til høyre. GameHome laster ned MSIX-pakken selv; Windows ber deg
    bekrefte installasjonen.
 
 ## Oppdateringer
 
-GameHome ser etter oppdateringer når Home er aktiv og ingen spill kjører. Velg Stable eller Beta i M2-menyen.
+GameHome ser etter oppdateringer når Home er aktiv og ingen spill kjører. Velg Stable eller Beta i strømmenyen øverst til høyre.
 Stable mottar bare taggede utgivelser; Beta mottar både prereleases og stabile utgivelser. Når en oppdatering finnes,
-velger du den i M2-menyen. GameHome laster ned MSIX og åpner Windows App Installer for bekreftelse. Nettlesernedlasting
+velger du den i strømmenyen øverst til høyre. GameHome laster ned MSIX og åpner Windows App Installer for bekreftelse. Nettlesernedlasting
 er ikke nødvendig. Sammenslåinger til `main` publiserer Beta; en `vX.Y.Z`-tagg publiserer Stable.
 
 ## Prosjekter
