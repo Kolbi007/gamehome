@@ -5,6 +5,7 @@ using GameHome.Core.Library;
 using GameHome.Core.Model;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Input;
 using GameHome.Windows;
 
 namespace GameHome.App;
@@ -121,6 +122,18 @@ public sealed partial class MainWindow
 
         _log.Write("fokus", $"Vinduet ligger øverst, men Windows meldte ikke aktivering ({why}); behandles som aktivt");
         OnActivationChanged(WindowActivationState.CodeActivated);
+    }
+
+    private void RestoreHomeFocusIfMissing()
+    {
+        if (!_windowActive || _pickerOpen || SessionActive || AnyOverlayOpen || !Root.IsLoaded
+            || Root.XamlRoot is not { } root || FocusManager.GetFocusedElement(root) is not null
+            || !Foreground.IsForeground(WinRT.Interop.WindowNative.GetWindowHandle(this)))
+        {
+            return;
+        }
+
+        FocusHome(_focusGameId ?? LoadRememberedTile());
     }
 
     private bool WindowFitsDisplay()

@@ -45,6 +45,7 @@ public sealed partial class MainWindow
         if (!SessionActive)
         {
             RefreshHeroAfterDisplayChange();
+            RestoreHomeFocusIfMissing();
         }
     }
 }
