@@ -1,55 +1,26 @@
 # GameHome
 
-Et controller-first spillbibliotek for Windows 11 Xbox mode (Full Screen Experience), laget for Lenovo Legion Go.
-Ett bibliotek for lokale spill, stream fra desktop-PC (Moonlight mot Vibepollo) og emulatorer.
+**Give your Legion Go a home screen that feels like a console.**
 
-> Kodenavn: GameHome. Visningsnavnet velges senere.
-> Status per 2026-11-15: repoet inneholder kode for lokale spill, strømming, butikkilder, retro og PS5. Dette beskriver implementering, ikke aktuell Legion Go-verifisering. Se [stabiliseringsplanen](docs/roadmap.md#stabilisering-2026-11-15).
+Open GameHome, browse your games with the built-in controls, and press A to play. The game you run on the train can be the same tile you use to stream from your gaming PC at home. When you're done, GameHome takes you back to that game in your library.
 
-## Bygge
+[**Download GameHome for Legion Go**](https://github.com/Kolbi007/gamehome/releases) · [How to install](#install-on-your-legion-go)
 
-Krever .NET SDK 10 (se `global.json`). Visual Studio trengs ikke.
+## Make it your game room
 
-```sh
-# Plattformnøytrale prosjekter og tester (Windows, Mac, Linux)
-dotnet test --project tests/GameHome.Core.Tests
+- **Play the PC games you already have.** GameHome finds installed games from Steam, Xbox and PC Game Pass, Epic Games Store, GOG, and Battle.net. You can add other PC games yourself.
+- **Bring your gaming PC to the couch.** Pair Moonlight with your gaming PC and start a stream right from the game you want to play. You can disconnect and pick up the running game again later.
+- **Jump into your PS5 or revisit a classic.** Open your PS5 home screen through Remote Play with chiaki-ng, or give your own retro games a spot in your library and play them with RetroArch. Each needs its own one-time setup.
+- **Adjust your Legion Go mid-game.** With Handheld Companion set up, press the rear M2 button to bring up GameHome's controls for things like brightness and volume. GameHome can remember screen settings for each game, so you only have to dial them in once.
 
-# Test-MSIX for Windows (x64 eller arm64)
-dotnet publish src/GameHome.App -c Release -r win-x64 -p:Platform=x64 -p:GenerateAppxPackageOnBuild=true
-```
+## Install on your Legion Go
 
-GitHub Actions bygger alt ved hver pull request og lager en signert test-MSIX som artefakt
-(`gamehome-msix-x64` og `gamehome-msix-arm64`).
+GameHome is currently available as an early preview for Windows 11, version 24H2 or newer. The first install needs one extra step in Windows to approve the certificate GameHome uses to sign its downloads.
 
-## Installere på Legion Go
+1. **Download two files.** On the [GameHome download page](https://github.com/Kolbi007/gamehome/releases), open **Assets** under the newest release. Download the file ending in **`_x64.msix`** (the app) and **`GameHome-Dev.cer`** (the certificate).
+2. **Approve the certificate once.** In your Downloads folder, open **`GameHome-Dev.cer`** and choose **Install Certificate**. Choose **Local Machine**, select **Next**, and approve the Windows administrator prompt. Choose **Place all certificates in the following store**, then **Browse** and **Trusted People**. Select **OK**, **Next**, and **Finish**.
+3. **Install and play.** Open the **`_x64.msix`** file, choose **Install**, and launch **GameHome** from the Windows Start menu.
 
-1. Last ned artefaktet `gamehome-msix-x64` fra siste CI-kjøring.
-2. Første gang, som administrator: `scripts/Install-DevBuild.ps1 -MsixPath <sti til .msix>`. Skriptet stoler på
-   `certs/GameHome-Dev.cer` og installerer pakken.
-3. Senere oppdateringer: bruk kanalvelgeren i strømmenyen øverst til høyre. GameHome laster ned MSIX-pakken selv; Windows ber deg
-   bekrefte installasjonen.
+To get new preview versions, open the power menu in the top-right corner of GameHome and select **Beta**. When an update appears in that menu, select it and confirm the update in Windows.
 
-## Oppdateringer
-
-GameHome ser etter oppdateringer når Home er aktiv og ingen spill kjører. Velg Stable eller Beta i strømmenyen øverst til høyre.
-Stable mottar bare taggede utgivelser; Beta mottar både prereleases og stabile utgivelser. Når en oppdatering finnes,
-velger du den i strømmenyen øverst til høyre. GameHome laster ned MSIX og åpner Windows App Installer for bekreftelse. Nettlesernedlasting
-er ikke nødvendig. Sammenslåinger til `main` publiserer Beta; en `vX.Y.Z`-tagg publiserer Stable.
-
-## Prosjekter
-
-| Prosjekt | Innhold | Plattform |
-| --- | --- | --- |
-| `GameHome.Core` | Modeller, regler, profiler, sesjoner, launch-orkestrering | Nøytral |
-| `GameHome.Data` | SQLite, art-cache, overstyringer | Nøytral |
-| `GameHome.Sources` | Steam, Xbox, lokale mapper, Moonlight, ROM-er | Nøytral |
-| `GameHome.Runners` | Store, Executable, Moonlight, Emulator | Nøytral |
-| `GameHome.Metadata` | IGDB, SteamGridDB og valgfrie kilder | Nøytral |
-| `GameHome.Windows` | Job Objects, register, skjerm og strøm, single-instance | Windows |
-| `GameHome.Windows.Fse` | Eksperimentell FSE-adapter | Windows |
-| `GameHome.App` | WinUI 3-klient og MSIX-pakke | Windows |
-
-## Lisens
-
-GPL-3.0-or-later. Se [LICENSE](LICENSE) og [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
-Metadata og bilder fra eksterne tjenester er ikke omfattet av lisensen.
+[Report a problem or share an idea](https://github.com/Kolbi007/gamehome/issues) · [Open-source license](LICENSE) · [Third-party notices](THIRD-PARTY-NOTICES.md)
