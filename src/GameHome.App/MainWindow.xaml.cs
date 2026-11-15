@@ -2592,7 +2592,8 @@ public sealed partial class MainWindow : Window
     /// Starter et spill. Feil underveis logges og gir en melding med valg; de skal aldri forsvinne stille og etterlate
     /// en lasteskjerm som henger (0.1.68.0).
     /// </summary>
-    private bool _launching;
+    private readonly PendingLaunch _pendingLaunch = new();
+    private bool _launching => _pendingLaunch.IsActive;
 
     private async Task LaunchAsync(Game game, PlayAction? chosen = null, bool battleNetConfirmed = false)
     {
@@ -2604,27 +2605,50 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        _launching = true;
+        using var attempt = _pendingLaunch.Begin();
         try
         {
             CancelUpdateOperations();
             CancelStoreScan();
-            await LaunchCoreAsync(game, chosen, battleNetConfirmed);
+            await LaunchCoreAsync(game, chosen, battleNetConfirmed, attempt.Token);
         }
         catch (Exception ex)
         {
+            if (attempt.IsCancellationRequested)
+            {
+                if (ex is not OperationCanceledException)
+                {
+                    _log.Write("økt", $"Avbrutt spillstart avsluttet med {ex.GetType().Name}");
+                }
+
+                return;
+            }
+
             _log.Write("krasj", $"Start av «{GameLibrary.DisplayTitle(game)}» feilet: {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}");
             HideLoading("feil under start");
+            RestoreDisplayAfterGame();
             ShowMessage($"{GameLibrary.DisplayTitle(game)} startet ikke", ex.Message,
                 "Prøv igjen", () => _ = LaunchAsync(game, chosen), "Lukk", () => FocusHome(game.Id));
         }
         finally
         {
-            _launching = false;
+            _pendingLaunch.Complete(attempt);
         }
     }
 
-    private async Task LaunchCoreAsync(Game game, PlayAction? chosen, bool battleNetConfirmed)
+    private void CancelPendingLaunch()
+    {
+        if (!_pendingLaunch.Cancel())
+        {
+            return;
+        }
+
+        _waking = false;
+        RestoreDisplayAfterGame();
+        _log.Write("økt", "Ventingen på spillstart ble avbrutt");
+    }
+
+    private async Task LaunchCoreAsync(Game game, PlayAction? chosen, bool battleNetConfirmed, CancellationToken ct)
     {
         _firstSteamSync?.Stop();
         if (SessionActive)
@@ -2639,7 +2663,8 @@ public sealed partial class MainWindow : Window
         var remoteAction = _library.AvailableActionsFor(game.Id).FirstOrDefault(a => a.IsRemote);
         if (remoteAction is not null && (chosen is null || chosen.IsRemote))
         {
-            await RefreshHostStatusAsync(force: true);
+            await RefreshHostStatusAsync(force: true, ct);
+            ct.ThrowIfCancellationRequested();
         }
 
         // Spillet kjører fortsatt på PC-en: fortsett der du slapp, eller avslutt det.
@@ -2711,7 +2736,7 @@ public sealed partial class MainWindow : Window
         ShowLoading(game, action);
 
         // Stream: sover gaming-PC-en, vekkes den først (Wake-on-LAN), så Moonlight ikke gir opp etter 30 s.
-        if (action.IsRemote && !await WakeHostAsync(action.HostId!))
+        if (action.IsRemote && !await WakeHostAsync(action.HostId!, ct))
         {
             HideLoading(_lastWakeNoNetwork ? "Legion Go har ikke nettverk" : "PC-en våknet ikke");
             if (_lastWakeNoNetwork)
@@ -2733,19 +2758,30 @@ public sealed partial class MainWindow : Window
 
         try
         {
-            await ApplyGameDisplayAsync(game);
+            ct.ThrowIfCancellationRequested();
+            await ApplyGameDisplayAsync(game, ct);
+            ct.ThrowIfCancellationRequested();
             SaveBatteryForGame(game);
             if (action.RunnerId == GameLibrary.MoonlightRunnerId && action.HostId is { } streamHostId)
             {
                 var streamHost = MoonlightClient.FindHosts().FirstOrDefault(candidate => candidate.Uuid == streamHostId);
-                await SignalGameHomeStreamAsync(streamHost?.Name);
+                await SignalGameHomeStreamAsync(streamHost?.Name, ct);
             }
 
-            _session = (IForegroundSession)await runner.LaunchAsync(action, Profile.Default, CancellationToken.None);
+            ct.ThrowIfCancellationRequested();
+            var startedSession = (IForegroundSession)await runner.LaunchAsync(action, Profile.Default, ct);
+            if (ct.IsCancellationRequested)
+            {
+                startedSession.Dispose(); // Release GameHome's observers. The launcher or game may already be running.
+                ct.ThrowIfCancellationRequested();
+            }
+
+            _session = startedSession;
             _sessionRunnerId = action.RunnerId;
         }
         catch (LaunchException ex)
         {
+            ct.ThrowIfCancellationRequested();
             HideLoading("start feilet");
             _ = RestoreDisplayAfterGame();
             _log.Write("økt", $"Kunne ikke starte «{title}»: {ex.Failure}: {ex.Message}");
@@ -3545,6 +3581,7 @@ public sealed partial class MainWindow : Window
 
     private void LoadingHomeButton_Click(object sender, RoutedEventArgs e)
     {
+        CancelPendingLaunch();
         HideLoading("tilbake til Home");
         FocusHome(_focusGameId);
     }
@@ -4686,7 +4723,7 @@ public sealed partial class MainWindow : Window
     /// Sørger for at gaming-PC-en svarer. Sover den, sendes Wake-on-LAN og lasteskjermen viser «Vekker …» til den
     /// svarer, høyst 90 s. Returnerer false hvis den ikke våknet.
     /// </summary>
-    private async Task<bool> WakeHostAsync(string hostId)
+    private async Task<bool> WakeHostAsync(string hostId, CancellationToken ct)
     {
         var host = MoonlightClient.FindHosts().FirstOrDefault(h => h.Uuid == hostId);
         if (host is null)
@@ -4700,16 +4737,31 @@ public sealed partial class MainWindow : Window
         {
             result = await HostWaker.EnsureAwakeAsync(host, TimeSpan.FromSeconds(90), onWaking: () => DispatcherQueue.TryEnqueue(() =>
             {
+                if (!_pendingLaunch.Owns(ct))
+                {
+                    return;
+                }
+
                 _waking = true;
                 LoadingStatus.Text = $"Vekker {host.DisplayName} …";
                 _log.Write("vekking", $"{host.DisplayName} svarer ikke; sender Wake-on-LAN (MAC {(host.Mac is null ? "ukjent" : "kjent")})");
-            }), progress: p => DispatcherQueue.TryEnqueue(() => LoadingStatus.Text = WakeStatusText(host, p)));
+            }), progress: p => DispatcherQueue.TryEnqueue(() =>
+            {
+                if (_pendingLaunch.Owns(ct))
+                {
+                    LoadingStatus.Text = WakeStatusText(host, p);
+                }
+            }), ct);
         }
         finally
         {
-            _waking = false;
+            if (!ct.IsCancellationRequested)
+            {
+                _waking = false;
+            }
         }
 
+        ct.ThrowIfCancellationRequested();
         _lastWakeNoNetwork = result.NoLocalNetwork;
         if (result.NoLocalNetwork)
         {
@@ -4914,7 +4966,7 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>Henter hva som kjører på PC-en (høyst hvert 10. sekund, aldri under en økt) og oppdaterer flisene.</summary>
-    private async Task RefreshHostStatusAsync(bool force = false)
+    private async Task RefreshHostStatusAsync(bool force = false, CancellationToken ct = default)
     {
         if (SessionActive || Vibepollo is not { } api || (!force && DateTime.UtcNow - _lastHostStatus < TimeSpan.FromSeconds(10)))
         {
@@ -4924,7 +4976,12 @@ public sealed partial class MainWindow : Window
         _lastHostStatus = DateTime.UtcNow;
         try
         {
-            var status = await api.GetStatusAsync();
+            var status = await api.GetStatusAsync(ct);
+            if (ct.IsCancellationRequested)
+            {
+                return;
+            }
+
             var running = status is { AppRunning: true } ? status.AppName : null;
             if (!string.Equals(running, _hostRunningApp, StringComparison.Ordinal))
             {
@@ -4937,7 +4994,10 @@ public sealed partial class MainWindow : Window
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException or JsonException)
         {
             // PC-en er av eller utilgjengelig; ikke vis noe som kjører.
-            _hostRunningApp = null;
+            if (!ct.IsCancellationRequested)
+            {
+                _hostRunningApp = null;
+            }
         }
     }
 
@@ -4951,7 +5011,7 @@ public sealed partial class MainWindow : Window
 
         // Vis med en gang at noe skjer: Vibepollo kan bruke over 10 s på å svare mens spillet lukkes (målt 2026-11-02).
         var other = _hostRunningApp ?? "spillet";
-        _launching = true;
+        using var attempt = _pendingLaunch.Begin();
         CancelUpdateOperations();
         CancelStoreScan();
         ShowLoading(game, action);
@@ -4963,7 +5023,7 @@ public sealed partial class MainWindow : Window
             {
                 try
                 {
-                    closed = await api.CloseAppAsync();
+                    closed = await api.CloseAppAsync(attempt.Token);
                 }
                 catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException)
                 {
@@ -4971,14 +5031,19 @@ public sealed partial class MainWindow : Window
                 }
             }
 
+            attempt.Token.ThrowIfCancellationRequested();
             _log.Write("vibepollo", closed ? $"«{other}» avsluttet på PC-en før ny start" : "Avslutning ikke bekreftet; venter på status før ny start");
 
             // Også uten bekreftelse: vent til PC-en melder at ingenting kjører, så Moonlight ikke spør om å avslutte.
-            await WaitUntilHostIdleAsync();
+            await WaitUntilHostIdleAsync(attempt.Token);
+        }
+        catch (OperationCanceledException) when (attempt.IsCancellationRequested)
+        {
+            return;
         }
         finally
         {
-            _launching = false;
+            _pendingLaunch.Complete(attempt);
         }
 
         if (_hostRunningApp is { } still)
@@ -5023,17 +5088,18 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>Venter (høyst 15 s) til Vibepollo melder at ingen app kjører, så neste start ikke møter Moonlights «quit»-spørsmål.</summary>
-    private async Task WaitUntilHostIdleAsync()
+    private async Task WaitUntilHostIdleAsync(CancellationToken ct = default)
     {
         for (var i = 0; i < 30; i++)
         {
-            await RefreshHostStatusAsync(force: true);
+            await RefreshHostStatusAsync(force: true, ct);
+            ct.ThrowIfCancellationRequested();
             if (_hostRunningApp is null)
             {
                 return;
             }
 
-            await Task.Delay(500);
+            await Task.Delay(500, ct);
         }
 
         _log.Write("vibepollo", $"«{_hostRunningApp}» kjører fortsatt på PC-en etter 15 s");
@@ -5184,6 +5250,7 @@ public sealed partial class MainWindow : Window
 
     private void StopEverything()
     {
+        CancelPendingLaunch();
         StopTrailer();
         CancelUpdateOperations(shuttingDown: true);
         _firstSteamSync?.Stop();
@@ -5599,8 +5666,7 @@ public sealed partial class MainWindow : Window
         }
         else if (LoadingPanel.Visibility == Visibility.Visible)
         {
-            HideLoading("B");
-            FocusHome(_focusGameId);
+            LoadingHomeButton_Click(LoadingHomeButton, new RoutedEventArgs());
         }
         else if (SessionPanel.Visibility == Visibility.Visible)
         {

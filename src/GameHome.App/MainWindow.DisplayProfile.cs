@@ -102,7 +102,7 @@ public sealed partial class MainWindow
     /// 2026-11-05).
     /// </para>
     /// </summary>
-    private async Task ApplyGameDisplayAsync(Game game)
+    private async Task ApplyGameDisplayAsync(Game game, CancellationToken ct)
     {
         if (SavedDisplay(game) is not { } wanted || Display.Current() is not { } current || wanted == current)
         {
@@ -115,9 +115,10 @@ public sealed partial class MainWindow
             LoadingIntro.Stop();
             LoadingHero.Opacity = 0;
             LoadingCenter.Opacity = 0;
-            await Task.Delay(80); // La den svarte lasteskjermen bli tegnet før skjermen byttes.
+            await Task.Delay(80, ct); // La den svarte lasteskjermen bli tegnet før skjermen byttes.
         }
 
+        ct.ThrowIfCancellationRequested();
         var started = DateTime.UtcNow;
         var error = Display.Apply(wanted);
         var text = string.Create(CultureInfo.InvariantCulture, $"{wanted.Width}×{wanted.Height} {wanted.Hz} Hz");
@@ -127,9 +128,10 @@ public sealed partial class MainWindow
             FitWindowToDisplay();
             while (DateTime.UtcNow - started < RevealMaxWait && !WindowFitsDisplay())
             {
-                await Task.Delay(50);
+                await Task.Delay(50, ct);
             }
 
+            ct.ThrowIfCancellationRequested();
             RefreshHeroAfterDisplayChange();
             _log.Write("ytelse", $"Skjerm for «{GameLibrary.DisplayTitle(game)}»: {text}"
                 + string.Create(CultureInfo.InvariantCulture, $" (vinduet tilpasset på {(DateTime.UtcNow - started).TotalMilliseconds:0} ms)"));
