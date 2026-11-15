@@ -227,6 +227,7 @@ public sealed partial class MainWindow : Window
 
         PlayIntro();
         ShowSetupIfFirstRun();
+        DispatcherQueue.TryEnqueue(RestoreHomeFocusIfMissing);
     }
 
     private bool SessionActive => _session is not null && !_session.Completion.IsCompleted;
@@ -1104,7 +1105,7 @@ public sealed partial class MainWindow : Window
         void OnLoaded(object sender, RoutedEventArgs e)
         {
             target.Loaded -= OnLoaded;
-            if (MessagePanel.Visibility != Visibility.Visible && SessionPanel.Visibility != Visibility.Visible)
+            if (target.IsEnabled && !AnyOverlayOpen)
             {
                 target.Focus(FocusState.Keyboard);
             }
@@ -5355,6 +5356,7 @@ public sealed partial class MainWindow : Window
             _previousRightTrigger = false;
         }
         _log.Write("kontroller", $"Polling startet ({Gamepad.Gamepads.Count} tilkoblet, økt {(SessionActive ? "aktiv" : "ingen")})");
+        DispatcherQueue.TryEnqueue(RestoreHomeFocusIfMissing);
     }
 
     private static GamepadReading Combined(IReadOnlyList<Gamepad> gamepads)
