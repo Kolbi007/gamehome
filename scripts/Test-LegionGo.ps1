@@ -243,7 +243,14 @@ try {
     Start-Sleep 1
     # Spill som kan startes både her og fra PC-en, spør først; «Spill her» er førstevalget.
     if ((Wait-Until { Find 'MessagePrimary' } 3) -and ($primary = Find 'MessagePrimary')) { Note "Melding: «$($primary.Current.Name)» trykkes"; Press $primary }
-    $started = Wait-Until { -not (GameHomeInFront) -and [GhTest]::ForegroundPid() -notin $before } 90
+    $isWoW = $Game -like 'World of Warcraft*'
+    $started = Wait-Until {
+        $foregroundPid = [GhTest]::ForegroundPid()
+        if ((GameHomeInFront) -or $foregroundPid -in $before) { return $false }
+        if (-not $isWoW) { return $true }
+        $foregroundProcess = Get-Process -Id $foregroundPid -ErrorAction SilentlyContinue
+        $foregroundProcess -and $foregroundProcess.ProcessName -like 'Wow*'
+    } 90
     Check $started "«$Game» startet og fikk forgrunnen"
     if (-not $started) { throw 'Spillet startet ikke' }
     $gameProcess = Get-Process -Id ([GhTest]::ForegroundPid())
