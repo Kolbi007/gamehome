@@ -19,6 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.v.outputs.tag }}
+      previous_tag: ${{ steps.v.outputs.previous_tag }}
     steps:
       - uses: actions/checkout@v4
       - name: Test release versions
@@ -35,6 +36,8 @@ jobs:
           $requested = if ($env:GITHUB_REF -like 'refs/tags/*') { $env:GITHUB_REF_NAME } else { '' }
           $tag = ./scripts/Get-NextReleaseVersion.ps1 -Tags $tags -MinimumVersion $env:MINIMUM_VERSION -RequestedTag $requested
           "tag=$tag" >> $env:GITHUB_OUTPUT
+          $previous = $tags | Where-Object { $_ -match '^v\d+\.\d+\.\d+$' } | Sort-Object { [version]($_.Substring(1)) } -Descending | Select-Object -First 1
+          "previous_tag=$previous" >> $env:GITHUB_OUTPUT
           Write-Host "Versjon: $tag"
 
   build:
@@ -53,6 +56,21 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: dist
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Prepare release notes
+        id: notes
+        shell: pwsh
+        env:
+          REPOSITORY: ${{ github.repository }}
+          TAG: ${{ needs.version.outputs.tag }}
+          PREVIOUS_TAG: ${{ needs.version.outputs.previous_tag }}
+          TARGET_COMMIT: ${{ github.sha }}
+        run: ./scripts/New-ReleaseNotes.ps1 -Repository $env:REPOSITORY -Tag $env:TAG -PreviousTag $env:PREVIOUS_TAG -Subjects (git log "$($env:PREVIOUS_TAG)..$($env:TARGET_COMMIT)" --no-merges --pretty=format:'%s' -- . ':!docs' ':!README.md')
 
       - name: Create release
         env:
@@ -73,4 +91,4 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "GameHome $TAG" \
             "${release_args[@]}" \
-            --notes "Bygg fra main. GameHome på Legion Go finner det selv (strømmenyen øverst til høyre → Oppdater). Første installasjon: kjør Install-DevBuild.ps1 som administrator med stien til .msix-filen. Se README."
+            --notes-file release-notes.md
