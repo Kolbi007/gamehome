@@ -1,82 +1,66 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="no">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GameHome – menyforslag</title>
 <style>
-  :root{color-scheme:dark;font-family:Segoe UI,system-ui,sans-serif;background:#070c14;color:#eef5f9}
-  *{box-sizing:border-box} body{margin:0;min-height:100vh;display:grid;place-items:center;padding:28px}
-  button{font:inherit;color:inherit;cursor:pointer} button:focus-visible{outline:3px solid #8fe4ec;outline-offset:3px}
-  .screen{position:relative;width:min(1280px,100%);min-height:min(800px,calc(100vh - 56px));overflow:hidden;border:1px solid #334456;border-radius:24px;background:radial-gradient(ellipse at 80% 12%,#264457 0,transparent 42%),radial-gradient(ellipse at 5% 95%,#152b42 0,transparent 45%),#0c1522;box-shadow:0 28px 90px #0009}
-  .screen:before{content:"";position:absolute;inset:0;background:linear-gradient(135deg,transparent 40%,#a3c8d407 40.1%,transparent 70%);pointer-events:none}
-  .shell{position:relative;max-width:1130px;margin:auto;padding:42px 44px 28px}
-  header{display:flex;justify-content:space-between;align-items:flex-start;gap:24px;margin-bottom:30px}
-  .eyebrow{font-size:12px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:#8ec1cb}
-  h1{font-size:clamp(28px,3vw,38px);letter-spacing:-.035em;margin:8px 0 4px;font-weight:650}
-  .subtitle{color:#a5b7c6;margin:0;font-size:15px}.top-right{display:flex;align-items:center;gap:18px;white-space:nowrap;color:#c9d8e2;font-size:14px}
-  .battery{display:flex;align-items:center;gap:7px}.battery-icon{width:24px;height:12px;border:1.5px solid #a6c0ca;border-radius:3px;position:relative;padding:2px}.battery-icon:before{content:"";display:block;width:72%;height:100%;background:#9ddbd9;border-radius:1px}.battery-icon:after{content:"";position:absolute;right:-4px;top:3px;width:2px;height:4px;background:#a6c0ca}
-  .close{height:48px;min-width:84px;border:1px solid #547080;border-radius:12px;background:#ffffff0b}.close:hover,.card button:hover{background:#ffffff17}
-  .panel{display:grid;grid-template-columns:270px 1fr;min-height:510px;border:1px solid #ffffff16;border-radius:20px;background:#101d2bdc;box-shadow:0 16px 50px #0004;overflow:hidden;backdrop-filter:blur(20px)}
-  nav{padding:20px 14px;border-right:1px solid #ffffff12;background:#0a152296;display:flex;flex-direction:column;gap:7px}
-  nav button{text-align:left;display:flex;align-items:center;gap:13px;width:100%;min-height:58px;padding:10px 15px;border:1px solid transparent;border-radius:12px;background:transparent;color:#b8c9d4;font-size:16px;font-weight:600}
-  nav button:hover{background:#ffffff0a;color:white} nav button[aria-current="page"]{color:#ecfcff;background:#254655a6;border-color:#73bbc7;box-shadow:inset 3px 0 #8fe4ec}
-  .icon{width:25px;text-align:center;font-size:19px;color:#9ab6c0}.content{padding:31px 34px 28px}.content h2{font-size:25px;letter-spacing:-.025em;margin:0 0 7px}.intro{color:#a8bac7;margin:0 0 23px;line-height:1.5;font-size:15px}
-  .cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.card{min-height:144px;padding:17px;border:1px solid #ffffff16;border-radius:14px;background:#ffffff08;display:flex;flex-direction:column;align-items:flex-start}
-  .card-top{display:flex;width:100%;gap:12px;justify-content:space-between;align-items:center}.card h3{font-size:16px;margin:0}.status{font-size:12px;color:#b7cbd4;background:#ffffff0d;border-radius:20px;padding:5px 9px;white-space:nowrap}.status.ready{color:#b3e6d6;background:#4da88520}
-  .card p{font-size:13px;color:#9fb3c0;margin:9px 0 15px;line-height:1.35}.card button{margin-top:auto;min-height:44px;padding:0 14px;border:1px solid #547080;border-radius:9px;background:#ffffff08;font-size:14px;font-weight:600}
-  .note{margin-top:19px;color:#8fa5b3;font-size:13px;line-height:1.5}.placeholder{border:1px solid #ffffff16;background:#ffffff08;border-radius:14px;padding:24px;color:#b8cad4;line-height:1.55}
-  footer{display:flex;justify-content:space-between;gap:20px;align-items:center;margin-top:24px;color:#a5b8c4;font-size:13px}.hints{display:flex;gap:20px}.hint{display:flex;gap:7px;align-items:center}.key{display:inline-grid;place-items:center;width:23px;height:23px;border-radius:50%;background:#2c6c61;color:white;font-size:12px;font-weight:700}.key.b{background:#81545c}.concept{color:#8198a6}
-  @media(max-width:760px){body{padding:0}.screen{border:0;border-radius:0;min-height:100vh}.shell{padding:25px 20px}.top-right{gap:10px}.top-right time{display:none}.panel{grid-template-columns:1fr}.panel nav{border-right:0;border-bottom:1px solid #ffffff12;display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.content{padding:25px 18px}.cards{grid-template-columns:1fr}footer{align-items:flex-start;flex-direction:column}}
-  @media(max-width:420px){.panel nav{grid-template-columns:1fr}header{gap:10px}.battery{display:none}}
+  :root{color-scheme:dark;--base:#121110;--surface:#1d1b19;--primary:#f3f0eb;--secondary:#b3aca3;--tertiary:#7e776f;font-family:"Segoe UI Variable Text","Segoe UI",sans-serif;background:var(--base);color:var(--primary)}
+  *{box-sizing:border-box} body{margin:0;min-height:100vh;display:grid;place-items:center;padding:36px 5%}
+  button{font:inherit;color:inherit;cursor:pointer} button:focus-visible{outline:2px solid var(--primary);outline-offset:2px} button:hover{background:#35312d}
+  .screen{width:min(940px,100%);background:var(--base);border:1px solid var(--surface);border-radius:18px;padding:28px}
+  header{display:flex;align-items:center;gap:20px;margin-bottom:18px} h1{font-family:"Segoe UI Variable Display","Segoe UI",sans-serif;font-size:32px;font-weight:600;line-height:1.2;margin:0;flex:1}
+  .clock{color:var(--secondary);font-size:20px;white-space:nowrap}.close{width:112px;min-height:52px;border:1px solid #46413c;border-radius:8px;background:var(--surface);font-size:18px}
+  .status{color:var(--secondary);font-size:16px;margin:0 0 20px}.panel{display:grid;grid-template-columns:minmax(220px, 0.8fr) minmax(0,1.2fr);gap:28px}
+  nav{display:flex;flex-direction:column;gap:10px} nav button,.row{width:100%;min-height:56px;text-align:left;padding:0 18px;border:1px solid #393530;border-radius:8px;background:var(--surface);font-size:18px}
+  nav button[aria-current="page"]{background:#34302c;border-color:#8b8379;color:var(--primary)}
+  .content h2{font-size:22px;font-weight:600;margin:0 0 14px}.rows{display:flex;flex-direction:column;gap:10px}.row{display:flex;justify-content:space-between;align-items:center;gap:12px;min-height:64px}
+  .row-name{display:block}.row-detail{display:block;font-size:14px;color:var(--secondary);margin-top:2px}.row-action{font-size:14px;color:var(--secondary);white-space:nowrap}.explanation{font-size:14px;color:var(--secondary);line-height:1.45;margin:16px 0 0}
+  footer{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-top:25px;font-size:14px;color:var(--secondary)}.hints{display:flex;gap:18px}.key{display:inline-grid;place-items:center;border:1px solid var(--tertiary);border-radius:50%;width:22px;height:22px;font-size:12px;margin-right:5px;color:var(--primary)}.concept{color:var(--tertiary)}
+  @media(max-width:700px){body{display:block;padding:0}.screen{border:0;border-radius:0;padding:24px 5%;min-height:100vh}header{flex-wrap:wrap;gap:12px}h1{font-size:28px;flex-basis:100%}.panel{grid-template-columns:1fr;gap:28px}footer{align-items:flex-start;flex-direction:column}}
 </style>
 </head>
 <body>
 <main class="screen">
-  <div class="shell">
-    <header>
-      <div><div class="eyebrow">GameHome</div><h1>Innstillinger og strøm</h1><p class="subtitle">Alt du trenger, innen rekkevidde.</p></div>
-      <div class="top-right"><span class="battery"><span class="battery-icon" aria-hidden="true"></span> 78 %</span><time>20:42</time><button class="close" type="button" aria-label="Lukk, kun eksempel">Lukk</button></div>
-    </header>
-    <div class="panel">
-      <nav aria-label="Innstillingskategorier">
-        <button type="button" data-category="Hurtigvalg"><span class="icon" aria-hidden="true">◉</span>Hurtigvalg</button>
-        <button type="button" data-category="Utseende og lyd"><span class="icon" aria-hidden="true">◐</span>Utseende og lyd</button>
-        <button type="button" data-category="Kontoer og kilder" aria-current="page"><span class="icon" aria-hidden="true">◇</span>Kontoer og kilder</button>
-        <button type="button" data-category="System"><span class="icon" aria-hidden="true">⚙</span>System</button>
-        <button type="button" data-category="Strøm"><span class="icon" aria-hidden="true">⏻</span>Strøm</button>
-      </nav>
-      <section class="content" aria-live="polite">
-        <h2 id="section-title">Kontoer og kilder</h2>
-        <div id="section-body">
-          <p class="intro">Velg hvor GameHome skal hente spill, bilder og informasjon.</p>
-          <div class="cards">
-            <article class="card"><div class="card-top"><h3>IGDB</h3><span class="status ready">Testet</span></div><p>Spillinformasjon og spilletid</p><button type="button">Konfigurer <span aria-hidden="true">→</span></button></article>
-            <article class="card"><div class="card-top"><h3>Steam</h3><span class="status ready">Testet</span></div><p>Bibliotek og installasjon</p><button type="button">Konfigurer <span aria-hidden="true">→</span></button></article>
-            <article class="card"><div class="card-top"><h3>SteamGridDB</h3><span class="status">Ikke konfigurert</span></div><p>Bilder til spillbiblioteket</p><button type="button">Konfigurer <span aria-hidden="true">→</span></button></article>
-            <article class="card"><div class="card-top"><h3>Vibepollo</h3><span class="status">Ikke konfigurert</span></div><p>Tilkobling til gaming-PC-en</p><button type="button">Konfigurer <span aria-hidden="true">→</span></button></article>
-          </div>
-          <p class="note">Eksempelstatus. Hver kilde viser hva som hentes og hvordan tilkoblingen kan fjernes.</p>
+  <header><h1>Innstillinger og strøm</h1><span class="clock">78 % · 20:42</span><button class="close" type="button" aria-label="Lukk, kun eksempel">Lukk</button></header>
+  <p class="status">GameHome · Ingen spill kjører</p>
+  <div class="panel">
+    <nav aria-label="Innstillingskategorier">
+      <button type="button" data-category="Hurtigvalg">Hurtigvalg</button>
+      <button type="button" data-category="Utseende og lyd">Utseende og lyd</button>
+      <button type="button" data-category="Kontoer og kilder" aria-current="page">Kontoer og kilder</button>
+      <button type="button" data-category="System">System</button>
+      <button type="button" data-category="Strøm">Strøm</button>
+    </nav>
+    <section class="content" aria-live="polite">
+      <h2 id="section-title">Kontoer og kilder</h2>
+      <div id="section-body">
+        <div class="rows">
+          <button class="row" type="button"><span><span class="row-name">IGDB</span><span class="row-detail">Spillinformasjon og spilletid · Testet</span></span><span class="row-action">Konfigurer ›</span></button>
+          <button class="row" type="button"><span><span class="row-name">Steam</span><span class="row-detail">Bibliotek og installasjon · Testet</span></span><span class="row-action">Konfigurer ›</span></button>
+          <button class="row" type="button"><span><span class="row-name">SteamGridDB</span><span class="row-detail">Bilder · Ikke konfigurert</span></span><span class="row-action">Konfigurer ›</span></button>
+          <button class="row" type="button"><span><span class="row-name">Vibepollo</span><span class="row-detail">Gaming-PC · Ikke konfigurert</span></span><span class="row-action">Konfigurer ›</span></button>
         </div>
-      </section>
-    </div>
-    <footer><div class="hints"><span class="hint"><span class="key">A</span> Velg</span><span class="hint"><span class="key b">B</span> Tilbake</span></div><span class="concept">Designforslag – ikke implementert</span></footer>
+        <p class="explanation">Statusene er eksempler; bare kategoriene kan forhåndsvises her.</p>
+      </div>
+    </section>
   </div>
+  <footer><div class="hints"><span><span class="key">A</span> Velg</span><span><span class="key">B</span> Tilbake</span></div><span class="concept">Designforslag – ikke implementert</span></footer>
 </main>
 <script>
   const title=document.querySelector('#section-title'), body=document.querySelector('#section-body');
   const accounts=body.innerHTML;
   const summaries={
-    'Hurtigvalg':'Lysstyrke, volum, Wi-Fi, Bluetooth og tilgjengelig ytelse samles her.',
-    'Utseende og lyd':'Menylyder, bevegelse, lysbildefremvisning og trailere samles her.',
-    'System':'Oppdateringer, versjon og feilsøking samles her.',
-    'Strøm':'Dvale, omstart, avslåing og avslutt GameHome samles her. Handlinger krever en egen bekreftelse.'
+    'Hurtigvalg':'Lysstyrke, volum, Wi-Fi, Bluetooth og tilgjengelig ytelse.',
+    'Utseende og lyd':'Menylyder, bevegelse, lysbildefremvisning og trailere.',
+    'System':'Oppdateringer, versjon og feilsøking.',
+    'Strøm':'Dvale, omstart, avslåing og avslutt GameHome. Handlinger krever en egen bekreftelse.'
   };
   document.querySelectorAll('nav button').forEach(button=>button.addEventListener('click',()=>{
     document.querySelectorAll('nav button').forEach(item=>item.removeAttribute('aria-current'));
-    button.setAttribute('aria-current','page'); title.textContent=button.dataset.category;
+    button.setAttribute('aria-current','page');title.textContent=button.dataset.category;
     if(button.dataset.category==='Kontoer og kilder') body.innerHTML=accounts;
-    else {body.replaceChildren(); const p=document.createElement('p');p.className='placeholder';p.textContent=summaries[button.dataset.category];body.append(p);}
+    else {body.replaceChildren();const p=document.createElement('p');p.className='explanation';p.textContent=summaries[button.dataset.category];body.append(p);}
   }));
 </script>
 </body>
