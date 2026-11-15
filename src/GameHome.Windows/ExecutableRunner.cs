@@ -50,7 +50,7 @@ public sealed class ExecutableRunner : IRunner
     }
 }
 
-public enum LaunchFailure { FileMissing, StartFailed }
+public enum LaunchFailure { FileMissing, StartFailed, LauncherNeedsAttention }
 
 public sealed class LaunchException : Exception
 {
