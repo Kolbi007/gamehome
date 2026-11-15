@@ -133,7 +133,6 @@ public sealed partial class MainWindow : Window
     private bool _previousRightTrigger;
     private FocusNavigationDirection? _previousStick;
     private string _lastSource = "ukjent";
-    private bool _xamlGamepadKeysSeen;
     private bool _startupLogged;
 
     public MainWindow(FileLog log)
@@ -157,6 +156,7 @@ public sealed partial class MainWindow : Window
 
         _log.Written += OnLogWritten;
 
+        Root.PreviewKeyDown += OnPreviewKeyDown;
         Root.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(OnKeyDown), handledEventsToo: true);
         Root.Loaded += (_, _) =>
         {
@@ -5420,6 +5420,7 @@ public sealed partial class MainWindow : Window
         }
         _gamepadTimer.Interval = TimeSpan.FromMilliseconds(16);
         _gamepadTimer.Start();
+        RestoreSettingsFocus();
         if (!SessionActive)
         {
             StartAttractTimer();
@@ -5552,24 +5553,26 @@ public sealed partial class MainWindow : Window
 
         _log.Write("input", $"Kontroller: {string.Join(", ", names)}");
 
+        RestoreSettingsFocus();
+        var focusScope = MessagePanel.Visibility == Visibility.Visible ? MessagePanel
+            : KeyEntryPanel.Visibility == Visibility.Visible ? KeyEntryPanel
+            : PowerPanel.Visibility == Visibility.Visible ? PowerPanel
+            : Root.XamlRoot.Content;
         var direction = DPadDirection(pressed) ?? (stickMoved ? stick : null);
-        if (direction is { } dir && FocusManager.TryMoveFocus(dir, new FindNextElementOptions { SearchRoot = Root.XamlRoot.Content }))
+        if (direction is { } dir && FocusManager.TryMoveFocus(dir, new FindNextElementOptions { SearchRoot = focusScope }))
         {
             MenuSounds.Move();
         }
 
         var focusedButton = FocusManager.GetFocusedElement(Root.XamlRoot) as Button;
 
-        // Hvis XAML selv leverer kontrollertaster, gjør knappene jobben; ellers aktiverer vi med A.
-        if (pressed.HasFlag(GamepadButtons.A) && focusedButton is not null)
+        if (pressed.HasFlag(GamepadButtons.A) && focusedButton is { IsEnabled: true } &&
+            (PowerPanel.Visibility != Visibility.Visible || IsWithinSettingsScope(focusedButton, focusScope)))
         {
             MenuSounds.Select();
             Pulse();
-            if (!_xamlGamepadKeysSeen)
-            {
-                new ButtonAutomationPeer(focusedButton).Invoke();
-                return;
-            }
+            new ButtonAutomationPeer(focusedButton).Invoke();
+            return;
         }
 
         // Y på en spillflis: om spillet. ☰ (Start/Menu): valg for spillet.
@@ -5651,6 +5654,10 @@ public sealed partial class MainWindow : Window
         {
             CloseMessage(_messageCancel);
         }
+        else if (KeyEntryPanel.Visibility == Visibility.Visible)
+        {
+            CloseKeyEntry();
+        }
         else if (ArtPanel.Visibility == Visibility.Visible)
         {
             CloseArtPicker();
@@ -5731,20 +5738,59 @@ public sealed partial class MainWindow : Window
         : x > StickThreshold ? FocusNavigationDirection.Right
         : null;
 
+    private void OnPreviewKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (!_windowActive || !_gamepadTimer.IsRunning)
+        {
+            return;
+        }
+
+        var key = e.OriginalKey;
+        var button = key switch
+        {
+            VirtualKey.GamepadA when FocusManager.GetFocusedElement(Root.XamlRoot) is Button => GamepadButtons.A,
+            VirtualKey.GamepadB => GamepadButtons.B,
+            VirtualKey.GamepadDPadUp => GamepadButtons.DPadUp,
+            VirtualKey.GamepadDPadDown => GamepadButtons.DPadDown,
+            VirtualKey.GamepadDPadLeft => GamepadButtons.DPadLeft,
+            VirtualKey.GamepadDPadRight => GamepadButtons.DPadRight,
+            _ => GamepadButtons.None,
+        };
+        var stick = key switch
+        {
+            VirtualKey.GamepadLeftThumbstickUp => FocusNavigationDirection.Up,
+            VirtualKey.GamepadLeftThumbstickDown => FocusNavigationDirection.Down,
+            VirtualKey.GamepadLeftThumbstickLeft => FocusNavigationDirection.Left,
+            VirtualKey.GamepadLeftThumbstickRight => FocusNavigationDirection.Right,
+            _ => (FocusNavigationDirection?)null,
+        };
+        var gamepads = Gamepad.Gamepads;
+        if (gamepads.Count == 0 || (button == GamepadButtons.None && stick is null))
+        {
+            return;
+        }
+
+        // Suppress only the key that the polling path can currently see.
+        var reading = Combined(gamepads);
+        e.Handled = (button != GamepadButtons.None && ((_previousButtons | reading.Buttons) & button) != 0)
+            || (stick is not null && (stick == _previousStick ||
+                stick == StickDirection(reading.LeftThumbstickX, reading.LeftThumbstickY)));
+    }
+
     private void OnKeyDown(object sender, KeyRoutedEventArgs e)
     {
-        var isGamepadKey = e.Key >= VirtualKey.GamepadA && e.Key <= VirtualKey.GamepadRightThumbstickLeft;
-        if (isGamepadKey && !_xamlGamepadKeysSeen)
+        var isGamepadKey = e.OriginalKey >= VirtualKey.GamepadA && e.OriginalKey <= VirtualKey.GamepadRightThumbstickLeft;
+        if (isGamepadKey && e.Handled)
         {
-            _xamlGamepadKeysSeen = true;
-            _log.Write("input", "XAML leverer kontrollertaster selv (innebygd ruting finnes)");
+            return;
         }
 
         _lastSource = isGamepadKey ? "kontroller (XAML)" : "tastatur";
         NoteUserInput();
-        if (e.Key == VirtualKey.Escape)
+        if (e.Key == VirtualKey.Escape || e.OriginalKey == VirtualKey.GamepadB)
         {
             GoBack();
+            e.Handled = true;
         }
     }
 

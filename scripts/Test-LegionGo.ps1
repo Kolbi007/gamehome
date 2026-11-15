@@ -163,6 +163,27 @@ try {
         throw "Feil vindu ligger øverst: $(ForegroundName). Lukk eller minimer det, og kjør testen igjen."
     }
 
+    # ---- Fokus og tastaturnavigasjon i Innstillinger og strøm ----
+    if ((GameHomeInFront) -and ($settingsButton = Find 'PowerMenuButton')) {
+        try {
+            Press $settingsButton
+            Check (Wait-Until { $AE::FocusedElement.Current.AutomationId -eq 'SettingsQuickButton' } 3) 'Innstillinger starter med fokus på Hurtigvalg'
+            [GhTest]::Tap(0x28) # Ned
+            Check (Wait-Until { $AE::FocusedElement.Current.AutomationId -eq 'SettingsAppearanceButton' } 3) 'Pil ned flytter fokus til Utseende og lyd'
+            if ($AE::FocusedElement.Current.AutomationId -eq 'SettingsAppearanceButton') {
+                [GhTest]::Tap(0x0D) # Enter
+                Check (Wait-Until { $AE::FocusedElement.Current.AutomationId -eq 'SoundToggleButton' } 3) 'Enter åpner kategorien og flytter fokus inn'
+                [GhTest]::Tap(0x1B) # Escape
+                Check (Wait-Until { $AE::FocusedElement.Current.AutomationId -eq 'SettingsAppearanceButton' } 3) 'Escape returnerer fokus til kategorien'
+            }
+        } finally {
+            if ($close = Find 'PowerCancelButton') { Press $close }
+        }
+        Check (Wait-Until { $AE::FocusedElement.Current.AutomationId -eq 'PowerMenuButton' } 3) 'Lukk returnerer fokus til strømknappen'
+    } else {
+        Fail 'Fant ikke strømknappen i GameHome for menytesten'
+    }
+
     # ---- M2 uten spill: GameHome-menyen ----
     [GhTest]::Chord(0x7B) # F12
     Check (Wait-Until { Find 'MenuAccountsButton' } 5) 'M2 uten spill åpner GameHome-menyen'
