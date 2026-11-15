@@ -34,7 +34,7 @@
 ### Meny under spill
 
 - **Xbox-knappen:** Windows eier den. Vi bruker aldri udokumenterte API-er som `XInputGetStateEx`. GameInputs dokumenterte system-knapp-callback kan brukes bare hvis POC B viser at den virker uten å forstyrre Game Bar og Task View.
-- **Ett trykk er målet:** brukeren legger knappene om i Handheld Companion (ADR 0006) til sjeldne tastekombinasjoner. Vi registrerer dem med `RegisterHotKey`: menyhurtigtastene bare mens en økt er aktiv, Home-hurtigtasten (Ctrl+Alt+Shift+F11) hele tiden. Vi legger aldri om kontrollere selv, og vi lukker aldri andre programmer med makt.
+- **Legion-knappene:** Lenovo eier Quick Menu og ytelsesstyring. GameHome støtter valgfrie tastaturhurtigtaster og Game Bar → Hjem. Se [ADR 0012](docs/adr/0012-legion-quick-menu.md).
 - **Reservevei:** Xbox → Game Bar → Hjem. Er en økt aktiv, åpner Home-aktiveringen et fullskjermspanel «Kjører nå». Spillet kjører videre bak. Ingen overlay eller injeksjon.
 - **Protokoll:** `gamehome://session` henter appen frem via `AppInstance`.
 - **Fokus:**

@@ -21,7 +21,6 @@ public sealed partial class MainWindow
 
     private static string? AccountActionLabel(AccountStatus account) => account.Key switch
     {
-        "hc" when !account.Ok => "Start",
         "moonlight" when !account.Ok && MoonlightClient.FindExe() is not null => "Åpne Moonlight",
         "chiaki" when !account.Ok && Chiaki.FindExe() is not null => "Åpne chiaki-ng",
         "vibepollo" or "steam" or "steamgriddb" or "igdb" => account.Ok ? "Bytt nøkkel" : "Legg inn",
@@ -37,9 +36,6 @@ public sealed partial class MainWindow
 
         switch (key)
         {
-            case "hc":
-                StartHandheldCompanion();
-                break;
             case "moonlight" when MoonlightClient.FindExe() is { } moonlight:
                 StartProgram(moonlight);
                 break;

@@ -83,7 +83,10 @@ public sealed partial class MainWindow
         PowerPanel.Visibility = Visibility.Visible;
         SetHomeEnabled(false);
         SelectSettingsCategory(SettingsCategory.Quick);
-        PowerCancelButton.Focus(FocusState.Keyboard);
+        if (!SelectedSettingsButton.Focus(FocusState.Keyboard))
+        {
+            RestoreSettingsFocus();
+        }
         _log.Write("innstillinger", $"Innstillinger og strøm åpnet via {_lastSource}");
     }
 
@@ -101,10 +104,7 @@ public sealed partial class MainWindow
         SettingsBody.ColumnSpacing = compact ? 0 : 24;
         Grid.SetColumn(SettingsDetail, compact ? 0 : 1);
         UpdateSettingsLayout();
-        if (PowerPanel.Visibility == Visibility.Visible)
-        {
-            PowerCancelButton.Focus(FocusState.Keyboard);
-        }
+        RestoreSettingsFocus();
     }
 
     private void UpdateSettingsLayout()
@@ -185,8 +185,6 @@ public sealed partial class MainWindow
 
     private void RefreshSettingsTools()
     {
-        SettingsStartHcButton.Visibility = File.Exists(HandheldCompanionExe) && !HandheldCompanionRunning()
-            ? Visibility.Visible : Visibility.Collapsed;
         SettingsRestoreScreenButton.Visibility = Vibepollo is null ? Visibility.Collapsed : Visibility.Visible;
     }
 
@@ -202,14 +200,10 @@ public sealed partial class MainWindow
 
     private void BackFromSettings()
     {
-        for (var element = FocusManager.GetFocusedElement(Root.XamlRoot) as DependencyObject;
-             element is not null; element = VisualTreeHelper.GetParent(element))
+        if (IsWithinSettingsScope(FocusManager.GetFocusedElement(Root.XamlRoot) as DependencyObject, SettingsDetail))
         {
-            if (element == SettingsDetail)
-            {
-                BackFromSettingsCategory();
-                return;
-            }
+            BackFromSettingsCategory();
+            return;
         }
 
         if (_settingsCompact && _settingsShowingCategory)
@@ -220,6 +214,39 @@ public sealed partial class MainWindow
         {
             ClosePowerMenu(restoreOpener: true);
         }
+    }
+
+    private void RestoreSettingsFocus()
+    {
+        if (PowerPanel.Visibility != Visibility.Visible || !SettingsSurface.IsEnabled || Root.XamlRoot is not { } root)
+        {
+            return;
+        }
+
+        var focused = FocusManager.GetFocusedElement(root) as DependencyObject;
+        if (focused is Control { IsEnabled: true } && IsWithinSettingsScope(focused, PowerPanel))
+        {
+            return;
+        }
+
+        var target = SettingsNav.Visibility == Visibility.Visible ? SelectedSettingsButton : SettingsBackButton;
+        if (target.Focus(FocusState.Keyboard) || PowerCancelButton.Focus(FocusState.Keyboard))
+        {
+            _log.Write("input", "Kontrollerfokus gjenopprettet i Innstillinger og strøm");
+        }
+    }
+
+    private static bool IsWithinSettingsScope(DependencyObject? element, DependencyObject scope)
+    {
+        for (; element is not null; element = VisualTreeHelper.GetParent(element))
+        {
+            if (element == scope)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void PowerCancel_Click(object sender, RoutedEventArgs e) => ClosePowerMenu(restoreOpener: true);

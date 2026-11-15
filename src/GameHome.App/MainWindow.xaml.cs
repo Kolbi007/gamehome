@@ -50,7 +50,7 @@ public sealed partial class MainWindow : Window
         (3, HotkeyModifiers.Control | HotkeyModifiers.Shift, 0x7B, "Ctrl+Shift+F12"),
     ];
 
-    // Alltid registrert (ikke bare under spill): Legion-knappen til venstre via Handheld Companion. Uten spill hentes Home fram,
+    // Alltid registrert: valgfri Home-hurtigtast. Uten spill hentes Home fram,
     // under spill åpnes menyen som med M2.
     private static readonly (int Id, HotkeyModifiers Modifiers, uint Key, string Name) HomeHotkey =
         (4, HotkeyModifiers.Control | HotkeyModifiers.Alt | HotkeyModifiers.Shift, 0x7A, "Ctrl+Alt+Shift+F11 (Home)");
@@ -108,8 +108,6 @@ public sealed partial class MainWindow : Window
     private DispatcherQueueTimer? _firstSteamSync;
     private DispatcherQueueTimer? _loadingTimer;
     private DispatcherQueueTimer? _streamCover;
-    private DispatcherQueueTimer? _wowStartupCover;
-    private DateTime _wowStartupCoverStarted;
     private DateTime _loadingShown;
     private bool _waking;
     private bool _lastWakeNoNetwork;
@@ -133,7 +131,6 @@ public sealed partial class MainWindow : Window
     private bool _previousRightTrigger;
     private FocusNavigationDirection? _previousStick;
     private string _lastSource = "ukjent";
-    private bool _xamlGamepadKeysSeen;
     private bool _startupLogged;
 
     public MainWindow(FileLog log)
@@ -157,6 +154,7 @@ public sealed partial class MainWindow : Window
 
         _log.Written += OnLogWritten;
 
+        Root.PreviewKeyDown += OnPreviewKeyDown;
         Root.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler(OnKeyDown), handledEventsToo: true);
         Root.Loaded += (_, _) =>
         {
@@ -2204,7 +2202,6 @@ public sealed partial class MainWindow : Window
         var hasBoth = actions.Any(a => a.IsRemote) && actions.Any(a => !a.IsRemote);
         OptionDefaultMode.Visibility = hasBoth ? Visibility.Visible : Visibility.Collapsed;
         OptionDefaultMode.Content = DefaultModeText(game);
-        OptionPowerProfileText.Text = HandheldCompanionStatus(game);
         OptionPin.Content = PinText(game);
         ShowDisplayOption(game);
         ShowSource(game);
@@ -2361,29 +2358,6 @@ public sealed partial class MainWindow : Window
         OptionsStatus.Text = _details.ContainsKey(game.Id) ? "Info er oppdatert. Trykk Y på spillet for å se den." : "Fant ingen info på Steam Store.";
     }
 
-    /// <summary>
-    /// Handheld Companion har egne profiler per spill (strøm/TDP) i %LOCALAPPDATA%\HandheldCompanion. GameHome skriver
-    /// ikke dit før formatet er sjekket på Legion Go med HC installert (docs/roadmap.md, hypotese).
-    /// </summary>
-    private static string HandheldCompanionStatus(Game game)
-    {
-        _ = game;
-        var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "HandheldCompanion");
-        if (!Directory.Exists(root))
-        {
-            return "Krever Handheld Companion, som ikke er installert på denne maskinen.";
-        }
-
-        var profiles = Directory.Exists(Path.Combine(root, "powerprofiles"))
-            ? Directory.GetFiles(Path.Combine(root, "powerprofiles"), "*.json").Length
-            : 0;
-        return string.Create(CultureInfo.InvariantCulture,
-            $"Handheld Companion funnet ({profiles} strømprofiler). Valg per spill kommer i neste runde.");
-    }
-
-    private void OptionPowerProfile_Click(object sender, RoutedEventArgs e) =>
-        OptionsStatus.Text = OptionPowerProfileText.Text;
-
     private void OptionRemove_Click(object sender, RoutedEventArgs e)
     {
         if (_optionsGame is { } game)
@@ -2513,36 +2487,6 @@ public sealed partial class MainWindow : Window
         _log.Write("butikk", "Butikkklienter: " + (lines.Count == 0 ? "ingen" : string.Join("; ", lines)));
     }
 
-    // ---- Legion Space: tar forgrunnen fra Moonlight og spill mens den kjører (også i bakgrunnen) ----
-    // GameHome lukker den aldri selv: tvangslukking 2026-11-04 etterlot kontrollerne uten data til Legion Space startet igjen.
-
-    private const string LegionSpaceNotice = "legionspace";
-
-    private const string LegionSpaceAdvice =
-        "Avslutt den fra oppgavelinjen: trykk ^ nederst til høyre, hold på Legion Space-ikonet og velg Avslutt. Å lukke vinduet er ikke nok.";
-
-    /// <summary>Viser eller fjerner varselet om Legion Space. Gir true hvis den kjører.</summary>
-    private bool CheckLegionSpace(string when)
-    {
-        var running = LegionSpace.IsRunning();
-        if (running)
-        {
-            if (!_notices.Exists(n => n.Key == LegionSpaceNotice))
-            {
-                _log.Write("legion", $"Legion Space kjører i bakgrunnen ({when})");
-            }
-
-            AddNotice(LegionSpaceNotice, null, "Legion Space kjører i bakgrunnen og kan ta forgrunnen fra spill og strøm. " + LegionSpaceAdvice);
-        }
-        else if (_notices.RemoveAll(n => n.Key == LegionSpaceNotice) > 0)
-        {
-            _log.Write("legion", $"Legion Space er avsluttet ({when})");
-            UpdateNoticeButton();
-        }
-
-        return running;
-    }
-
     // ---- M2-reserve: tastaturkrok under spill som slår av hurtigtaster (Assassin's Creed Rogue, 2026-11-02) ----
     // Fokusproblemene 2.–4. november skyldtes Legion Space, ikke kroken; de andre fokusbryterne er fjernet.
 
@@ -2622,9 +2566,7 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private bool _launching;
 
-    private bool _startDespiteLegionSpace;
-
-    private async Task LaunchAsync(Game game, PlayAction? chosen = null)
+    private async Task LaunchAsync(Game game, PlayAction? chosen = null, bool battleNetConfirmed = false)
     {
         StopTrailer();
         // Ett trykk, én start: ekstra trykk mens noe starter eller avsluttes, ignoreres (0.1.87.0 startet Mega Man tre ganger).
@@ -2634,26 +2576,12 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        // Legion Space i bakgrunnen tar forgrunnen fra spillet og strømmen; be brukeren avslutte den (GameHome gjør det aldri selv).
-        if (!_startDespiteLegionSpace && CheckLegionSpace("spillstart"))
-        {
-            ShowMessage("Legion Space kjører", "Legion Space kan ta forgrunnen og kontrolleren fra spillet. " + LegionSpaceAdvice + " Velg så spillet igjen.",
-                "Start likevel", () =>
-                {
-                    _startDespiteLegionSpace = true;
-                    _ = LaunchAsync(game, chosen);
-                },
-                "Avbryt", () => FocusHome(game.Id));
-            return;
-        }
-
-        _startDespiteLegionSpace = false;
         _launching = true;
         try
         {
             CancelUpdateOperations();
             CancelStoreScan();
-            await LaunchCoreAsync(game, chosen);
+            await LaunchCoreAsync(game, chosen, battleNetConfirmed);
         }
         catch (Exception ex)
         {
@@ -2668,7 +2596,7 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private async Task LaunchCoreAsync(Game game, PlayAction? chosen)
+    private async Task LaunchCoreAsync(Game game, PlayAction? chosen, bool battleNetConfirmed)
     {
         _firstSteamSync?.Stop();
         if (SessionActive)
@@ -2726,6 +2654,12 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        if (action.RunnerId == BattleNetRunner.Id && !battleNetConfirmed)
+        {
+            ConfirmBattleNetSignIn(game, action);
+            return;
+        }
+
         // Programfil: mangler den DirectX-tillegg eller Visual C++? Sjekkes én gang per fil (huskes til filen endres).
         if (action.RunnerId == GameLibrary.ExecutableRunnerId && !_dependencySkip.Contains(action.Target)
             && CheckDependencies(action.Target) is { Ok: false } dependencies)
@@ -2779,7 +2713,6 @@ public sealed partial class MainWindow : Window
                 await SignalGameHomeStreamAsync(streamHost?.Name);
             }
 
-            StartWowStartupCover(game, action);
             _session = (IForegroundSession)await runner.LaunchAsync(action, Profile.Default, CancellationToken.None);
             _sessionRunnerId = action.RunnerId;
         }
@@ -2825,6 +2758,18 @@ public sealed partial class MainWindow : Window
         else if (session is SteamSession steam)
         {
             StartSteamCover(steam);
+        }
+
+        else if (action.RunnerId == BattleNetRunner.Id && session.MainWindowHandle is var battleNetGame && battleNetGame != 0)
+        {
+            HideLoading("Battle.net-spillvindu klart");
+            var gameHome = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            if (Foreground.IsForeground(gameHome) || Foreground.CurrentProcessName() is "Battle.net" or "Battle.net Launcher")
+            {
+                var (ok, _) = Foreground.BringGame(battleNetGame);
+                Foreground.SendToBack(gameHome);
+                _log.Write("laster", ok ? "Battle.net-spillet tok forgrunnen" : "Windows avslo forgrunnsbytte; GameHome lagt bakerst");
+            }
         }
 
         // M2 er alltid registrert (MenuHotkeyId); de andre bare under spill.
@@ -3408,55 +3353,6 @@ public sealed partial class MainWindow : Window
         _log.Write("laster", "Tar lang tid; viser Vent og Tilbake til Home");
     }
 
-    /// <summary>
-    /// For WoW Forever lokalt på Legion Go beholdes GameHomes lasteskjerm foran Battle.net mens spillet starter.
-    /// Etter 20 sekunder uten spillvindu vises Battle.net så eventuell innlogging eller feil kan håndteres.
-    /// </summary>
-    private void StartWowStartupCover(Game game, PlayAction action)
-    {
-        if (!string.Equals(action.RunnerId, BattleNetRunner.Id, StringComparison.Ordinal)
-            || !string.Equals(action.Target, "WoWF", StringComparison.OrdinalIgnoreCase))
-        {
-            return;
-        }
-
-        EndWowStartupCover("ny WoW-start");
-        _wowStartupCoverStarted = DateTime.UtcNow;
-        Foreground.SetTopmost(WinRT.Interop.WindowNative.GetWindowHandle(this), true);
-
-        _wowStartupCover = DispatcherQueue.CreateTimer();
-        _wowStartupCover.Interval = TimeSpan.FromMilliseconds(250);
-        _wowStartupCover.Tick += (_, _) =>
-        {
-            if (_sessionGame?.Id == game.Id && _session is IForegroundSession foreground && foreground.MainWindowHandle != 0)
-            {
-                EndWowStartupCover("WoW-vinduet åpnet");
-                HideLoading("WoW-vinduet åpnet");
-            }
-            else if (DateTime.UtcNow - _wowStartupCoverStarted >= BattleNetRunner.WowStartupGracePeriod)
-            {
-                BattleNetRunner.ShowLauncherForAttention();
-                EndWowStartupCover("20 sekunder uten WoW-vindu");
-                HideLoading("20 sekunder uten WoW-vindu; viser Battle.net");
-            }
-        };
-        _wowStartupCover.Start();
-        _log.Write("laster", $"WoW Forever: splash foran Battle.net i opptil {BattleNetRunner.WowStartupGracePeriod.TotalSeconds:F0} sekunder");
-    }
-
-    private void EndWowStartupCover(string reason)
-    {
-        if (_wowStartupCover is null)
-        {
-            return;
-        }
-
-        _wowStartupCover.Stop();
-        _wowStartupCover = null;
-        Foreground.SetTopmost(WinRT.Interop.WindowNative.GetWindowHandle(this), false);
-        _log.Write("laster", $"WoW-startsplash avsluttet: {reason}");
-    }
-
     // ---- Lasteskjerm over Moonlight til streamen viser bilde ----
 
     /// <summary>
@@ -3569,7 +3465,6 @@ public sealed partial class MainWindow : Window
 
     private void HideLoading(string why)
     {
-        EndWowStartupCover(why);
         if (_streamCover is not null)
         {
             EndStreamCover(why);
@@ -3804,10 +3699,6 @@ public sealed partial class MainWindow : Window
 
     // ---- Ytelse (ADR 0007) ----
 
-    /// <summary>Hurtigtasten Handheld Companion er satt opp til å åpne QuickTools med (scripts/Set-HandheldCompanion.ps1).</summary>
-    private static readonly ushort[] QuickToolsChord =
-        [Keyboard.LeftControl, Keyboard.LeftAlt, Keyboard.LeftShift, Keyboard.F9];
-
     private void FillPerformance()
     {
         RefreshRateButtons.Children.Clear();
@@ -3976,18 +3867,6 @@ public sealed partial class MainWindow : Window
                 }
             }
         }
-    }
-
-    private async void QuickToolsButton_Click(object sender, RoutedEventArgs e)
-    {
-        // Handheld Companion lytter på hurtigtasten i sin egen tastaturkrok; hvilket vindu som har forgrunnen, spiller
-        // ingen rolle.
-        var sent = await Keyboard.SendChordHeldAsync(TimeSpan.FromMilliseconds(60), QuickToolsChord);
-        _log.Write("ytelse", sent ? "QuickTools: hurtigtast sendt til Handheld Companion" : "QuickTools: Windows avslo tastetrykket");
-        PerformanceStatus.Text = sent
-            ? "Åpner Handheld Companion. Skjer ingenting, trykk høyre Legion-knapp."
-            : "Fikk ikke sendt hurtigtasten. Trykk høyre Legion-knapp.";
-        PerformanceStatus.Visibility = Visibility.Visible;
     }
 
     // ---- Feilsøking under strøm ----
@@ -4675,22 +4554,15 @@ public sealed partial class MainWindow : Window
                 Grid.SetColumn(fix, 1);
                 grid.Children.Add(fix);
             }
-            else if (notice.Key is "hc" or "update")
+            else if (notice.Key == "update")
             {
                 // Varsler som gjelder hele GameHome: knappen gjør det varselet ber om.
-                var action = new Button { Content = notice.Key == "hc" ? "Start" : "Oppdater", Height = 52, Padding = new Thickness(18, 0, 18, 0), VerticalAlignment = VerticalAlignment.Center };
-                var key = notice.Key;
+                var action = new Button { Content = "Oppdater", Height = 52, Padding = new Thickness(18, 0, 18, 0), VerticalAlignment = VerticalAlignment.Center };
                 action.Click += (_, _) =>
                 {
                     CloseNotices(focusHome: false);
-                    if (key == "hc")
-                    {
-                        StartHandheldCompanion();
-                    }
-                    else
-                    {
-                        PowerMenuButton_Click(PowerMenuButton, new RoutedEventArgs());
-                    }
+                    PowerMenuButton_Click(PowerMenuButton, new RoutedEventArgs());
+                    SettingsCategory_Click(SettingsSystemButton, new RoutedEventArgs());
                 };
                 Grid.SetColumn(action, 1);
                 grid.Children.Add(action);
@@ -5359,7 +5231,7 @@ public sealed partial class MainWindow : Window
         _windowActive = true;
         UpdateClock();
         _clockTimer.Start();
-        if (LoadingPanel.Visibility == Visibility.Visible && _loadingCovered && _wowStartupCover is null)
+        if (LoadingPanel.Visibility == Visibility.Visible && _loadingCovered)
         {
             HideLoading("GameHome aktiv igjen");
         }
@@ -5395,7 +5267,6 @@ public sealed partial class MainWindow : Window
         // Spill som fortsatt mangler bilder (for eksempel etter en nettverksfeil), prøves igjen når Home blir aktiv.
         _ = RefreshHostStatusAsync();
         RememberWifiNetwork();
-        CheckLegionSpace("Home aktiv");
         if (_firstSteamSync is not null)
         {
             _ = FetchMissingArtAsync();
@@ -5420,6 +5291,7 @@ public sealed partial class MainWindow : Window
         }
         _gamepadTimer.Interval = TimeSpan.FromMilliseconds(16);
         _gamepadTimer.Start();
+        RestoreSettingsFocus();
         if (!SessionActive)
         {
             StartAttractTimer();
@@ -5429,11 +5301,6 @@ public sealed partial class MainWindow : Window
             && FocusManager.GetFocusedElement(activeRoot) is not Button { Tag: string })
         {
             RefreshHero(force: false); // Ingen flis har fokus (for eksempel etter låst skjerm): hovedfeltet skal ikke stå tomt.
-        }
-
-        if (!SessionActive)
-        {
-            CheckHandheldCompanion();
         }
 
         var gamepads = Gamepad.Gamepads;
@@ -5489,8 +5356,6 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        // Alle kontrollere slås sammen: med Handheld Companion finnes både den fysiske (skjult av HidHide, sender ingenting
-        // til GameHome) og den virtuelle, og rekkefølgen er ikke fast (målt 2026-11-05: Home reagerte ikke på kontrolleren).
         var reading = Combined(gamepads);
         AdaptPollRate();
         var pressed = reading.Buttons & ~_previousButtons;
@@ -5552,24 +5417,26 @@ public sealed partial class MainWindow : Window
 
         _log.Write("input", $"Kontroller: {string.Join(", ", names)}");
 
+        RestoreSettingsFocus();
+        var focusScope = MessagePanel.Visibility == Visibility.Visible ? MessagePanel
+            : KeyEntryPanel.Visibility == Visibility.Visible ? KeyEntryPanel
+            : PowerPanel.Visibility == Visibility.Visible ? PowerPanel
+            : Root.XamlRoot.Content;
         var direction = DPadDirection(pressed) ?? (stickMoved ? stick : null);
-        if (direction is { } dir && FocusManager.TryMoveFocus(dir, new FindNextElementOptions { SearchRoot = Root.XamlRoot.Content }))
+        if (direction is { } dir && FocusManager.TryMoveFocus(dir, new FindNextElementOptions { SearchRoot = focusScope }))
         {
             MenuSounds.Move();
         }
 
         var focusedButton = FocusManager.GetFocusedElement(Root.XamlRoot) as Button;
 
-        // Hvis XAML selv leverer kontrollertaster, gjør knappene jobben; ellers aktiverer vi med A.
-        if (pressed.HasFlag(GamepadButtons.A) && focusedButton is not null)
+        if (pressed.HasFlag(GamepadButtons.A) && focusedButton is { IsEnabled: true } &&
+            (PowerPanel.Visibility != Visibility.Visible || IsWithinSettingsScope(focusedButton, focusScope)))
         {
             MenuSounds.Select();
             Pulse();
-            if (!_xamlGamepadKeysSeen)
-            {
-                new ButtonAutomationPeer(focusedButton).Invoke();
-                return;
-            }
+            new ButtonAutomationPeer(focusedButton).Invoke();
+            return;
         }
 
         // Y på en spillflis: om spillet. ☰ (Start/Menu): valg for spillet.
@@ -5651,6 +5518,10 @@ public sealed partial class MainWindow : Window
         {
             CloseMessage(_messageCancel);
         }
+        else if (KeyEntryPanel.Visibility == Visibility.Visible)
+        {
+            CloseKeyEntry();
+        }
         else if (ArtPanel.Visibility == Visibility.Visible)
         {
             CloseArtPicker();
@@ -5731,20 +5602,59 @@ public sealed partial class MainWindow : Window
         : x > StickThreshold ? FocusNavigationDirection.Right
         : null;
 
+    private void OnPreviewKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (!_windowActive || !_gamepadTimer.IsRunning)
+        {
+            return;
+        }
+
+        var key = e.OriginalKey;
+        var button = key switch
+        {
+            VirtualKey.GamepadA when FocusManager.GetFocusedElement(Root.XamlRoot) is Button => GamepadButtons.A,
+            VirtualKey.GamepadB => GamepadButtons.B,
+            VirtualKey.GamepadDPadUp => GamepadButtons.DPadUp,
+            VirtualKey.GamepadDPadDown => GamepadButtons.DPadDown,
+            VirtualKey.GamepadDPadLeft => GamepadButtons.DPadLeft,
+            VirtualKey.GamepadDPadRight => GamepadButtons.DPadRight,
+            _ => GamepadButtons.None,
+        };
+        var stick = key switch
+        {
+            VirtualKey.GamepadLeftThumbstickUp => FocusNavigationDirection.Up,
+            VirtualKey.GamepadLeftThumbstickDown => FocusNavigationDirection.Down,
+            VirtualKey.GamepadLeftThumbstickLeft => FocusNavigationDirection.Left,
+            VirtualKey.GamepadLeftThumbstickRight => FocusNavigationDirection.Right,
+            _ => (FocusNavigationDirection?)null,
+        };
+        var gamepads = Gamepad.Gamepads;
+        if (gamepads.Count == 0 || (button == GamepadButtons.None && stick is null))
+        {
+            return;
+        }
+
+        // Suppress only the key that the polling path can currently see.
+        var reading = Combined(gamepads);
+        e.Handled = (button != GamepadButtons.None && ((_previousButtons | reading.Buttons) & button) != 0)
+            || (stick is not null && (stick == _previousStick ||
+                stick == StickDirection(reading.LeftThumbstickX, reading.LeftThumbstickY)));
+    }
+
     private void OnKeyDown(object sender, KeyRoutedEventArgs e)
     {
-        var isGamepadKey = e.Key >= VirtualKey.GamepadA && e.Key <= VirtualKey.GamepadRightThumbstickLeft;
-        if (isGamepadKey && !_xamlGamepadKeysSeen)
+        var isGamepadKey = e.OriginalKey >= VirtualKey.GamepadA && e.OriginalKey <= VirtualKey.GamepadRightThumbstickLeft;
+        if (isGamepadKey && e.Handled)
         {
-            _xamlGamepadKeysSeen = true;
-            _log.Write("input", "XAML leverer kontrollertaster selv (innebygd ruting finnes)");
+            return;
         }
 
         _lastSource = isGamepadKey ? "kontroller (XAML)" : "tastatur";
         NoteUserInput();
-        if (e.Key == VirtualKey.Escape)
+        if (e.Key == VirtualKey.Escape || e.OriginalKey == VirtualKey.GamepadB)
         {
             GoBack();
+            e.Handled = true;
         }
     }
 

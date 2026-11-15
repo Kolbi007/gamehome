@@ -11,7 +11,7 @@ Open GameHome, browse your games with the built-in controls, and press A to play
 - **Play the PC games you already have.** GameHome finds installed games from Steam, Xbox and PC Game Pass, Epic Games Store, GOG, and Battle.net. You can add other PC games yourself.
 - **Bring your gaming PC to the couch.** Pair Moonlight with your gaming PC and start a stream right from the game you want to play. You can disconnect and pick up the running game again later.
 - **Jump into your PS5 or revisit a classic.** Open your PS5 home screen through Remote Play with chiaki-ng, or give your own retro games a spot in your library and play them with RetroArch. Each needs its own one-time setup.
-- **Adjust your Legion Go mid-game.** With Handheld Companion set up, press the rear M2 button to bring up GameHome's controls for things like brightness and volume. GameHome can remember screen settings for each game, so you only have to dial them in once.
+- **Adjust your Legion Go mid-game.** Use the right Legion button to open Lenovo's Quick Menu. GameHome has brightness and volume controls and can remember screen settings for each game.
 
 ## Install on your Legion Go
 

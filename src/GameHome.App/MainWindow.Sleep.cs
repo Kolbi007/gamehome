@@ -9,7 +9,7 @@ namespace GameHome.App;
 /// <summary>
 /// Dvale på Legion Go (Modern Standby) merkes som at skjermen slås av og på. Etter oppvåkning: under strømming vises
 /// menyen (Moonlight har ofte mistet forbindelsen, og brukeren velger å fortsette eller koble fra); i Home tegnes
-/// hovedfeltet på nytt og Handheld Companion sjekkes. Lokale spill får være i fred.
+/// hovedfeltet på nytt. Lokale spill får være i fred.
 /// </summary>
 public sealed partial class MainWindow
 {
@@ -45,7 +45,6 @@ public sealed partial class MainWindow
         if (!SessionActive)
         {
             RefreshHeroAfterDisplayChange();
-            CheckHandheldCompanion();
         }
     }
 }

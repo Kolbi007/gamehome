@@ -94,16 +94,13 @@ public static class BattleNetGames
 }
 
 /// <summary>
-/// Starter et Battle.net-spill via Battle.net (som logger inn) og følger spillets prosess. Kjører ikke Battle.net fra
-/// før, starter første kall ofte bare Battle.net; da sendes kallet én gang til.
+/// Starter et spill via den offisielle Battle.net-appen og venter på et synlig spillvindu.
 /// </summary>
 public sealed class BattleNetRunner : IRunner
 {
     public const string Id = "battlenet";
 
     private static readonly TimeSpan GiveUp = TimeSpan.FromMinutes(2);
-    private static readonly TimeSpan SecondCall = TimeSpan.FromSeconds(20);
-    public static readonly TimeSpan WowStartupGracePeriod = TimeSpan.FromSeconds(20);
 
     public string RunnerId => Id;
 
@@ -131,39 +128,35 @@ public sealed class BattleNetRunner : IRunner
 
         Exec(launcher, action.Target);
         var started = DateTime.UtcNow;
-        var secondSent = false;
-        while (DateTime.UtcNow - started < GiveUp && !ct.IsCancellationRequested)
+        while (DateTime.UtcNow - started < GiveUp)
         {
-            var elapsed = DateTime.UtcNow - started;
-            if (action.Target.Equals("WoWF", StringComparison.OrdinalIgnoreCase))
+            ct.ThrowIfCancellationRequested();
+            foreach (var name in names.Distinct(StringComparer.OrdinalIgnoreCase))
             {
-                if (elapsed < WowStartupGracePeriod)
+                LocalProcessSession? session = null;
+                foreach (var candidate in Process.GetProcessesByName(name))
                 {
-                    MinimizeLauncherWindows();
+                    if (session is null && !before.Contains(candidate.Id) && Foreground.FindVisibleWindow(candidate.Id) != 0)
+                    {
+                        session = new LocalProcessSession(action, candidate, action.WorkingDirectory);
+                    }
+                    else
+                    {
+                        candidate.Dispose();
+                    }
+                }
+
+                if (session is not null)
+                {
+                    return session;
                 }
             }
 
-            foreach (var candidate in Process.GetProcesses())
-            {
-                if (!before.Contains(candidate.Id) && names.Contains(candidate.ProcessName, StringComparer.OrdinalIgnoreCase))
-                {
-                    return new LocalProcessSession(action, candidate, action.WorkingDirectory);
-                }
-
-                candidate.Dispose();
-            }
-
-            if (!secondSent && DateTime.UtcNow - started > SecondCall)
-            {
-                secondSent = true;
-                Exec(launcher, action.Target);
-            }
-
-            await Task.Delay(1000, ct);
+            await Task.Delay(500, ct);
         }
 
         throw new LaunchException(LaunchFailure.StartFailed,
-            "Battle.net startet ikke spillet innen to minutter. Sjekk at du er logget inn i Battle.net.");
+            "Battle.net åpnet ikke spillvinduet innen to minutter. Fullfør eventuell innlogging eller oppdatering i Battle.net, og prøv igjen.");
     }
 
     private static void Exec(string launcher, string code)
@@ -180,45 +173,6 @@ public sealed class BattleNetRunner : IRunner
         catch (System.ComponentModel.Win32Exception ex)
         {
             throw new LaunchException(LaunchFailure.StartFailed, ex.Message, ex);
-        }
-    }
-
-    /// <summary>Etter 20 sekunder uten spillvindu kan brukeren se Battle.net og håndtere innlogging eller feil.</summary>
-    public static void ShowLauncherForAttention() => SetLauncherWindowsMinimized(false);
-
-    private static void MinimizeLauncherWindows() => SetLauncherWindowsMinimized(true);
-
-    private static void SetLauncherWindowsMinimized(bool minimized)
-    {
-        foreach (var processName in new[] { "Battle.net", "Battle.net Launcher" })
-        {
-            foreach (var process in Process.GetProcessesByName(processName))
-            {
-                using (process)
-                {
-                    try
-                    {
-                        var window = Foreground.FindVisibleWindow(process.Id);
-                        if (window == 0)
-                        {
-                            continue;
-                        }
-
-                        if (minimized)
-                        {
-                            Foreground.Minimize(window);
-                        }
-                        else
-                        {
-                            _ = Foreground.BringGame(window);
-                        }
-                    }
-                    catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException)
-                    {
-                        // Launcher windows can disappear while Battle.net updates or restarts its UI process.
-                    }
-                }
-            }
         }
     }
 }

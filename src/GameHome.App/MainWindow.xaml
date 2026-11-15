@@ -18,8 +18,6 @@
              hang GameHome når testen (og skjermlesere) gikk gjennom vinduet, 2026-11-05. -->
         <MediaPlayerElement x:Name="HeroVideo" Stretch="UniformToFill" HorizontalAlignment="Right" VerticalAlignment="Top" Opacity="0"
                             IsHitTestVisible="False" AreTransportControlsEnabled="False" AutomationProperties.AccessibilityView="Raw" />
-        <WebView2 x:Name="YouTubeTrailer" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Opacity="0"
-                  IsHitTestVisible="False" IsTabStop="False" AutomationProperties.AccessibilityView="Raw" />
         <Rectangle x:Name="ScrimLeft" IsHitTestVisible="False">
             <Rectangle.Fill>
                 <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
@@ -323,12 +321,6 @@
                         <TextBlock x:Name="MenuAccountsHint" FontSize="13" Foreground="#A0A7B0" />
                     </StackPanel>
                 </Button>
-                <Button x:Name="MenuStartHcButton" Click="MenuStartHcButton_Click" HorizontalAlignment="Stretch" Height="64" Visibility="Collapsed">
-                    <StackPanel Spacing="2">
-                        <TextBlock Text="Start Handheld Companion" FontSize="19" />
-                        <TextBlock Text="Kjører ikke: M2, Legion-knappene og TDP virker ikke" FontSize="13" Foreground="#FCC23D" />
-                    </StackPanel>
-                </Button>
                 <Button x:Name="MenuNoticesButton" Click="MenuNoticesButton_Click" HorizontalAlignment="Stretch" Height="56" FontSize="18" Visibility="Collapsed" />
                 <Button x:Name="MenuArtButton" Content="Hent manglende bilder og info" Click="MenuArtButton_Click" HorizontalAlignment="Stretch" Height="56" FontSize="18" />
                 <Button x:Name="MenuAddGameButton" Content="Legg til spill" Click="MenuAddGameButton_Click" HorizontalAlignment="Stretch" Height="56" FontSize="18" />
@@ -350,28 +342,13 @@
                 <StackPanel x:Name="HomeMenuHints" Orientation="Horizontal" Spacing="18" />
             </StackPanel>
 
-            <!-- Ytelse: sidepanel til venstre. Skjerm styres av GameHome; TDP og resten i Handheld Companion (ADR 0007). -->
+            <!-- Ytelse: sidepanel til venstre. -->
             <Border Grid.Column="0" Background="{StaticResource GhSurfaceBrush}" Padding="28,36,28,24">
                 <ScrollViewer VerticalScrollBarVisibility="Hidden" HorizontalScrollMode="Disabled">
                     <Grid x:Name="SessionPerformanceHost">
                     <StackPanel x:Name="PerformancePanel" Spacing="10">
                         <TextBlock Text="Ytelse" FontSize="24" FontWeight="SemiBold" Foreground="White" />
                         <TextBlock x:Name="BatteryText" FontSize="15" Foreground="#C8CDD3" />
-                        <!-- TDP: fjernstyrt i Handheld Companion med hurtigtaster; HC gjør endringen (ADR 0011). -->
-                        <TextBlock Text="TDP" FontSize="14" Foreground="#A0A7B0" Margin="0,10,0,0" />
-                        <Grid ColumnSpacing="8">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <Button x:Name="TdpDown" Content="−" Click="TdpStep_Click" Tag="-" Height="52" HorizontalAlignment="Stretch" FontSize="20"
-                                    AutomationProperties.Name="TDP ned" />
-                            <TextBlock x:Name="TdpValue" Grid.Column="1" Text="–" FontSize="18" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                       AutomationProperties.AutomationId="TdpValue" />
-                            <Button x:Name="TdpUp" Grid.Column="2" Content="+" Click="TdpStep_Click" Tag="+" Height="52" HorizontalAlignment="Stretch" FontSize="20"
-                                    AutomationProperties.Name="TDP opp" />
-                        </Grid>
                         <!-- Hurtiginnstillinger, så man slipper å gå ut til Windows (Lysstyrke, volum, Wi-Fi, Bluetooth). -->
                         <TextBlock Text="Lysstyrke" FontSize="14" Foreground="#A0A7B0" Margin="0,10,0,0" />
                         <Grid ColumnSpacing="8">
@@ -414,13 +391,7 @@
                             <Button x:Name="WifiToggle" Content="Wi-Fi" Click="WifiToggle_Click" Height="52" HorizontalAlignment="Stretch" FontSize="16" />
                             <Button x:Name="BluetoothToggle" Grid.Column="1" Content="Bluetooth" Click="BluetoothToggle_Click" Height="52" HorizontalAlignment="Stretch" FontSize="16" />
                         </Grid>
-                        <Button x:Name="QuickToolsButton" Click="QuickToolsButton_Click" HorizontalAlignment="Stretch" Height="64" Margin="0,14,0,0"
-                                ToolTipService.ToolTip="Åpner hurtigmenyen i Handheld Companion">
-                            <StackPanel Spacing="2">
-                                <TextBlock Text="Mer i Handheld Companion" FontSize="17" />
-                                <TextBlock Text="Strømprofil, vifte, kontroller" FontSize="13" Foreground="#A0A7B0" />
-                            </StackPanel>
-                        </Button>
+                        <TextBlock Text="Trykk høyre Legion-knapp for Lenovo Quick Menu." TextWrapping="Wrap" Foreground="{StaticResource GhTextSecondaryBrush}" />
                         <TextBlock x:Name="PerformanceStatus" FontSize="14" Foreground="#C8CDD3" TextWrapping="Wrap" Visibility="Collapsed" />
                         <!-- Strøm fra gaming-PC-en: bare når spillet strømmes. -->
                         <StackPanel x:Name="StreamDebugPanel" Spacing="8" Visibility="Collapsed" Margin="0,18,0,0">
@@ -527,8 +498,6 @@
                                         </Button>
                                         <TextBlock x:Name="UpdateStatus" Foreground="{StaticResource GhTextSecondaryBrush}" TextWrapping="Wrap" Visibility="Collapsed" />
                                         <Button x:Name="PowerDebugButton" Click="PowerDebugButton_Click" Content="Feilsøking" Style="{StaticResource SettingsRow}" />
-                                        <Button x:Name="SettingsStartHcButton" Click="MenuStartHcButton_Click" Content="Start Handheld Companion"
-                                                Style="{StaticResource SettingsRow}" Visibility="Collapsed" />
                                         <Button x:Name="SettingsRestoreScreenButton" Click="RestorePcScreen_Click" Style="{StaticResource SettingsRow}" Visibility="Collapsed">
                                             <TextBlock Text="Gjenopprett skjermen på gaming-PC-en" TextWrapping="Wrap" />
                                         </Button>
@@ -671,6 +640,8 @@
                         <Button x:Name="DetailsCloseButton" Content="Lukk" Click="DetailsCloseButton_Click" Height="56" Padding="24,0" CornerRadius="28"
                                 FontSize="{StaticResource GhSizeBody}" />
                     </StackPanel>
+                    <Button x:Name="DetailsYouTubeButton" Content="Trailer på YouTube" Click="DetailsYouTubeButton_Click"
+                            MinHeight="52" FontSize="{StaticResource GhSizeBody}" />
                     <TextBlock x:Name="DetailsSource" FontSize="{StaticResource GhSizeSmall}" Foreground="{StaticResource GhTextTertiaryBrush}" TextWrapping="Wrap" />
                 </StackPanel>
             </ScrollViewer>
@@ -694,12 +665,6 @@
                 </Button>
                 <Button x:Name="OptionRefreshArt" Style="{StaticResource GhPanelButton}" Content="Hent bilder på nytt" Click="OptionRefreshArt_Click" />
                 <Button x:Name="OptionRefreshInfo" Style="{StaticResource GhPanelButton}" Content="Hent info på nytt" Click="OptionRefreshInfo_Click" />
-                <Button x:Name="OptionPowerProfile" Style="{StaticResource GhPanelButton}" Click="OptionPowerProfile_Click">
-                    <StackPanel Spacing="2">
-                        <TextBlock Text="Strømprofil" />
-                        <TextBlock x:Name="OptionPowerProfileText" FontSize="{StaticResource GhSizeSmall}" Foreground="{StaticResource GhTextTertiaryBrush}" TextWrapping="Wrap" />
-                    </StackPanel>
-                </Button>
                 <Button x:Name="OptionPin" Style="{StaticResource GhPanelButton}" Click="OptionPin_Click" />
                 <Button x:Name="OptionDisplay" Style="{StaticResource GhPanelButton}" Click="OptionDisplay_Click" Visibility="Collapsed" />
                 <Button x:Name="OptionRemove" Style="{StaticResource GhPanelButton}" Content="Fjern fra GameHome" Click="OptionRemove_Click" />
