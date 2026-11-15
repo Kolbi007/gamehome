@@ -4,7 +4,7 @@ Et controller-first spillbibliotek for Windows 11 Xbox mode (Full Screen Experie
 Ett bibliotek for lokale spill, stream fra desktop-PC (Moonlight mot Vibepollo) og emulatorer.
 
 > Kodenavn: GameHome. Visningsnavnet velges senere.
-> Status: skjelett før fase 0A. Se [docs/architecture.md](docs/architecture.md) for plan, beslutninger og faseplan.
+> Status per 2026-11-15: repoet inneholder kode for lokale spill, strømming, butikkilder, retro og PS5. Dette beskriver implementering, ikke aktuell Legion Go-verifisering. Se [stabiliseringsplanen](docs/roadmap.md#stabilisering-2026-11-15).
 
 ## Bygge
 
