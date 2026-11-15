@@ -63,7 +63,7 @@ public sealed partial class MainWindow
 
         return
         [
-            new("Legion Space", LegionSpace.IsRunning(), "Trykk høyre Legion-knapp for Quick Menu og ytelsesinnstillinger."),
+            new("Legion Space", LegionSpace.IsRunning(), "Trykk høyre Legion-knapp for Lenovo Quick Menu."),
             new("Gaming-PC (Moonlight)", MoonlightClient.FindExe() is not null && hosts.Count > 0,
                 MoonlightClient.FindExe() is null ? "Moonlight er ikke installert" : hosts.Count == 0 ? "Ikke paret med en PC" : $"Paret med {HostLabel}", "moonlight"),
             new("Vibepollo", Vibepollo is not null, Vibepollo is null ? "Mangler nøkkel: ingen omslag, status eller avslutning på PC-en" : "Nøkkel finnes: omslag, status og avslutning", "vibepollo"),

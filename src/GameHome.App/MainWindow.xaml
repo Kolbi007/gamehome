@@ -342,7 +342,7 @@
                 <StackPanel x:Name="HomeMenuHints" Orientation="Horizontal" Spacing="18" />
             </StackPanel>
 
-            <!-- Ytelse: sidepanel til venstre. Bruk Legion Quick Menu til effektprofil og TDP. -->
+            <!-- Ytelse: sidepanel til venstre. -->
             <Border Grid.Column="0" Background="{StaticResource GhSurfaceBrush}" Padding="28,36,28,24">
                 <ScrollViewer VerticalScrollBarVisibility="Hidden" HorizontalScrollMode="Disabled">
                     <Grid x:Name="SessionPerformanceHost">
@@ -391,7 +391,7 @@
                             <Button x:Name="WifiToggle" Content="Wi-Fi" Click="WifiToggle_Click" Height="52" HorizontalAlignment="Stretch" FontSize="16" />
                             <Button x:Name="BluetoothToggle" Grid.Column="1" Content="Bluetooth" Click="BluetoothToggle_Click" Height="52" HorizontalAlignment="Stretch" FontSize="16" />
                         </Grid>
-                        <TextBlock Text="Ytelsesprofil og TDP: trykk høyre Legion-knapp for Quick Menu." TextWrapping="Wrap" Foreground="{StaticResource GhTextSecondaryBrush}" />
+                        <TextBlock Text="Trykk høyre Legion-knapp for Lenovo Quick Menu." TextWrapping="Wrap" Foreground="{StaticResource GhTextSecondaryBrush}" />
                         <TextBlock x:Name="PerformanceStatus" FontSize="14" Foreground="#C8CDD3" TextWrapping="Wrap" Visibility="Collapsed" />
                         <!-- Strøm fra gaming-PC-en: bare når spillet strømmes. -->
                         <StackPanel x:Name="StreamDebugPanel" Spacing="8" Visibility="Collapsed" Margin="0,18,0,0">
