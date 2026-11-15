@@ -9,6 +9,22 @@ namespace GameHome.Core.Tests;
 /// <summary>Parsere for SteamGridDB, IGDB og Steam Web API, med eksempelsvar formet etter den offentlige dokumentasjonen.</summary>
 public class MetadataClientTests
 {
+    [Theory]
+    [InlineData("Sonic & Knuckles + Sonic The Hedgehog 3")]
+    [InlineData("Sonic 3 and Knuckles")]
+    [InlineData("Sonic the Hedgehog 3 & Knuckles")]
+    public void Sonic_combined_edition_looks_up_its_own_igdb_video(string romTitle)
+    {
+        var search = TrailerCatalog.SearchTitle(romTitle);
+
+        Assert.Equal("Sonic the Hedgehog 3 & Knuckles", search);
+        Assert.True(TrailerCatalog.IsTitleMatch("Sonic the Hedgehog 3 and Knuckles", search));
+        Assert.False(TrailerCatalog.IsTitleMatch("Sonic the Hedgehog 3", search));
+        Assert.False(TrailerCatalog.IsTitleMatch("Sonic & Knuckles", search));
+        Assert.Equal("8pLqpfwedGc", TrailerCatalog.KnownVideoId(search));
+        Assert.Null(TrailerCatalog.KnownVideoId(TrailerCatalog.SearchTitle("Sonic 3")));
+    }
+
     private const string SgdbSearch = """
         {"success":true,"data":[
           {"id":5248878,"name":"Broforce","types":["steam"],"verified":true,"release_date":1444867200},

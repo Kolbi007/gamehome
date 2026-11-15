@@ -6,6 +6,8 @@ using GameHome.Core.Model;
 using GameHome.Metadata;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
 using Windows.Media.Core;
@@ -14,24 +16,25 @@ using Windows.Media.Playback;
 namespace GameHome.App;
 
 /// <summary>
-/// Stille trailer bak hovedfeltet: etter 3 sekunder på et spill spilles Steam-butikkens trailer uten lyd (spill fra andre
-/// kilder slås opp på navn), dempet bak
-/// gradienten, som på PS5. Bare i lader (video bruker batteri), aldri under spill, og ikke når animasjoner er av.
-/// Nettverkskall: Steam-butikkens appdetails (filters=movies) og selve videoen fra Steams CDN.
+/// Stille trailere på Home fra Steam eller IGDB/YouTube. Bare i lader, aldri under spill.
 /// </summary>
 public sealed partial class MainWindow
 {
     private static readonly TimeSpan TrailerDelay = TimeSpan.FromSeconds(3);
     private readonly Dictionary<int, string?> _trailers = [];
-    private readonly Dictionary<string, string?> _youtubeTrailers = [];
+    private readonly Dictionary<string, string> _youtubeTrailers = [];
     private DispatcherQueueTimer? _trailerTimer;
+    private DispatcherQueueTimer? _trailerPlaybackTimer;
+    private CancellationTokenSource? _trailerLifetime;
     private string? _trailerGameId;
+    private Button? _trailerTile;
+    private bool _trailerPlaying;
 
     private bool TrailersAllowed =>
         _trailersEnabled && !OnBattery && !SessionActive && _windowActive && new global::Windows.UI.ViewManagement.UISettings().AnimationsEnabled;
 
     /// <summary>Kalles når en flis i Home får fokus: traileren starter hvis fokus blir værende.</summary>
-    private void ScheduleTrailer(Game game)
+    private void ScheduleTrailer(Game game, Button tile)
     {
         StopTrailer();
         if (!TrailersAllowed)
@@ -40,6 +43,8 @@ public sealed partial class MainWindow
         }
 
         _trailerGameId = game.Id;
+        _trailerTile = tile;
+        _trailerLifetime = new CancellationTokenSource();
         if (_trailerTimer is null)
         {
             _trailerTimer = DispatcherQueue.CreateTimer();
@@ -47,9 +52,9 @@ public sealed partial class MainWindow
             _trailerTimer.Interval = TrailerDelay;
             _trailerTimer.Tick += (_, _) =>
             {
-                if (_trailerGameId is { } id && _library.Find(id) is { } focused)
+                if (_trailerLifetime is { } lifetime && _trailerGameId is { } id && _library.Find(id) is { } focused)
                 {
-                    _ = PlayTrailerAsync(focused);
+                    _ = PlayTrailerAsync(focused, lifetime.Token);
                 }
             };
         }
@@ -57,48 +62,87 @@ public sealed partial class MainWindow
         _trailerTimer.Start();
     }
 
-    private async Task PlayTrailerAsync(Game game)
+    private bool CanPreview(CancellationToken ct) =>
+        !ct.IsCancellationRequested && TrailersAllowed && !AnyOverlayOpen && !_attracting
+        && Root.XamlRoot is { } root && ReferenceEquals(FocusManager.GetFocusedElement(root), _trailerTile);
+
+    private async Task PlayTrailerAsync(Game game, CancellationToken ct)
     {
-        if (!TrailersAllowed || _trailerGameId != game.Id || AnyOverlayOpen || _attracting)
+        if (!CanPreview(ct))
         {
             return;
         }
 
-        if (_trailerGameId != game.Id)
+        var store = new SteamStoreClient(ArtHttp);
+        var appId = SteamAppIdFor(game);
+        var lookupTitle = TrailerCatalog.SearchTitle(GameLibrary.DisplayTitle(game));
+        using var lookup = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        lookup.CancelAfter(TimeSpan.FromSeconds(6));
+        var lookupToken = lookup.Token;
+        try
         {
-            return;
-        }
-
-        var appId = SteamAppIdFor(game) ?? await SteamAppIdByTitleAsync(game);
-        string? url = null;
-        if (appId is { } steamId && !_trailers.TryGetValue(steamId, out url))
-        {
-            try
+            if (appId is { } steamId && await SteamTrailerUrlAsync(store, steamId, lookupToken) is { } url)
             {
-                url = await new SteamStoreClient(ArtHttp).GetTrailerAsync(steamId);
-            }
-            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
-            {
-                url = null;
-            }
+                if (CanPreview(ct))
+                {
+                    PlaySteamTrailer(game, steamId, url, ct);
+                }
 
-            _trailers[steamId] = url;
-        }
-
-        if (url is not null)
-        {
-            if (_trailerGameId == game.Id && TrailersAllowed)
-            {
-                PlaySteamTrailer(game, appId, url);
+                return;
             }
 
-            return;
-        }
+            if (!CanPreview(ct))
+            {
+                return;
+            }
 
-        _log.Write("trailer", $"Ingen Steam-trailer for «{game.Title}»");
+            if (YouTubePreviewFits && await YouTubeTrailerIdAsync(game, appId, lookupToken) is { } video)
+            {
+                if (CanPreview(ct))
+                {
+                    await PlayYouTubePreviewAsync(video, ct);
+                }
+
+                return;
+            }
+
+            if (appId is null && CanPreview(ct)
+                && await SteamAppIdByTitleAsync(game, lookupToken) is { } match
+                && await SteamTrailerUrlAsync(store, match, lookupToken) is { } matchedUrl && CanPreview(ct))
+            {
+                PlaySteamTrailer(game, match, matchedUrl, ct);
+            }
+        }
+        catch (OperationCanceledException) when (lookup.IsCancellationRequested)
+        {
+            if (CanPreview(ct) && YouTubePreviewFits && TrailerCatalog.KnownVideoId(lookupTitle) is { } fallback)
+            {
+                await PlayYouTubePreviewAsync(fallback, ct);
+            }
+        }
     }
 
-    private void PlaySteamTrailer(Game game, int? appId, string url)
+    private async Task<string?> SteamTrailerUrlAsync(SteamStoreClient store, int appId, CancellationToken ct)
+    {
+        if (_trailers.TryGetValue(appId, out var url))
+        {
+            return url;
+        }
+
+        try
+        {
+            url = await store.GetTrailerAsync(appId, ct);
+            ct.ThrowIfCancellationRequested();
+            _trailers[appId] = url;
+            return url;
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested && ex is (HttpRequestException or TaskCanceledException))
+        {
+            return null;
+        }
+    }
+
+    private void PlaySteamTrailer(Game game, int appId, string url, CancellationToken ct)
     {
 
         // Spilles én gang: en trailer som går i loop, bruker strøm og blir støy.
@@ -110,33 +154,49 @@ public sealed partial class MainWindow
                 StopTrailer();
             }
         });
-        player.MediaOpened += (_, _) => DispatcherQueue.TryEnqueue(() =>
+        var playback = player.PlaybackSession;
+        void OnPositionChanged(MediaPlaybackSession session, object args)
         {
-            if (ReferenceEquals(HeroVideo.MediaPlayer, player))
+            if (session.Position <= TimeSpan.Zero || session.NaturalVideoWidth == 0)
             {
-                FadeTo(HeroVideo, 0.9, 900);
-                MakeRoomForTrailer(true);
-                _log.Write("trailer", "Trailer spiller");
+                return;
             }
-        });
+
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (!ct.IsCancellationRequested && ReferenceEquals(HeroVideo.MediaPlayer, player) && !_trailerPlaying)
+                {
+                    playback.PositionChanged -= OnPositionChanged;
+                    TrailerStarted();
+                    FadeTo(HeroVideo, 0.9, 900);
+                    MakeRoomForTrailer(true);
+                    _log.Write("trailer", "Steam-trailer spiller");
+                }
+            });
+        }
+
+        playback.PositionChanged += OnPositionChanged;
         player.MediaFailed += (_, args) => DispatcherQueue.TryEnqueue(() =>
         {
-            _log.Write("trailer", $"Traileren feilet: {args.Error} 0x{args.ExtendedErrorCode?.HResult ?? 0:X8}");
             if (ReferenceEquals(HeroVideo.MediaPlayer, player))
             {
+                _log.Write("trailer", $"Traileren feilet: {args.Error} 0x{args.ExtendedErrorCode?.HResult ?? 0:X8}");
                 StopTrailer();
             }
         });
         player.Source = MediaSource.CreateFromUri(new Uri(url));
         HeroVideo.SetMediaPlayer(player);
+        StartTrailerDeadline(TimeSpan.FromSeconds(10));
         _log.Write("trailer", $"Steam-trailer for «{game.Title}» (appid {appId})");
     }
 
-    private async Task<string?> YouTubeTrailerIdAsync(Game game, int? steamAppId)
+    private async Task<string?> YouTubeTrailerIdAsync(Game game, int? steamAppId, CancellationToken ct = default)
     {
+        var title = TrailerCatalog.SearchTitle(GameLibrary.DisplayTitle(game));
+        var fallback = TrailerCatalog.KnownVideoId(title);
         if (Igdb is not { } igdb)
         {
-            return null;
+            return fallback;
         }
 
         if (_youtubeTrailers.TryGetValue(game.Id, out var cached))
@@ -146,61 +206,36 @@ public sealed partial class MainWindow
 
         try
         {
-            var match = steamAppId is { } id ? await igdb.FindBySteamAppIdAsync(id) : null;
+            var match = steamAppId is { } id ? await igdb.FindBySteamAppIdAsync(id, ct) : null;
             if (match is null)
             {
                 // IGDB-søk kan returnere lignende spill; godta kun normalisert eksakt tittel.
-                var title = NormalizeTrailerTitle(GameLibrary.DisplayTitle(game));
-                match = (await igdb.SearchAsync(GameLibrary.DisplayTitle(game), 10))
-                .FirstOrDefault(candidate => TrailerTitlesMatch(title, NormalizeTrailerTitle(candidate.Name)));
+                match = (await igdb.SearchAsync(title, 10, ct))
+                    .FirstOrDefault(candidate => TrailerCatalog.IsTitleMatch(candidate.Name, title));
             }
 
             if (match is null)
             {
-                _youtubeTrailers[game.Id] = null;
-                return null;
+                return fallback;
             }
 
-            var videos = await igdb.GetVideosAsync(match.Id);
-            IgdbGameVideo? video = null;
-            foreach (var candidate in videos)
-            {
-                if (candidate.VideoId.Length != 11 || !candidate.VideoId.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_'))
-                {
-                    continue;
-                }
-
-                video ??= candidate;
-                if (candidate.Name.Contains("trailer", StringComparison.OrdinalIgnoreCase))
-                {
-                    video = candidate;
-                    break;
-                }
-            }
-            _youtubeTrailers[game.Id] = video?.VideoId;
+            var videos = await igdb.GetVideosAsync(match.Id, ct);
+            ct.ThrowIfCancellationRequested();
+            var video = videos.FirstOrDefault(candidate => candidate.Name.Contains("trailer", StringComparison.OrdinalIgnoreCase))
+                ?? (videos.Count > 0 ? videos[0] : null);
             if (video is not null)
             {
+                _youtubeTrailers[game.Id] = video.VideoId;
                 _log.Write("trailer", $"IGDB knytter «{video.Name}» til «{match.Name}»; YouTube-ID {video.VideoId}");
             }
 
-            return video?.VideoId;
+            return video?.VideoId ?? fallback;
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        catch (Exception ex) when (!ct.IsCancellationRequested && ex is (HttpRequestException or TaskCanceledException))
         {
-            return null;
+            return fallback;
         }
     }
-
-    private static string NormalizeTrailerTitle(string title)
-    {
-        var normalized = title.Replace("&", " and ", StringComparison.Ordinal);
-        return new string([.. normalized.Where(char.IsAsciiLetterOrDigit)]).ToLowerInvariant();
-    }
-
-    private static bool TrailerTitlesMatch(string localTitle, string catalogTitle) =>
-        localTitle == catalogTitle
-        || (localTitle == "sonic3andknuckles" && catalogTitle == "sonicthehedgehog3andknuckles")
-        || (localTitle == "sonic3" && catalogTitle == "sonicthehedgehog3");
 
     private async void DetailsYouTubeButton_Click(object sender, RoutedEventArgs e)
     {
@@ -256,7 +291,7 @@ public sealed partial class MainWindow
     /// Spill som ikke er fra Steam (for eksempel Broforce fra AnkerGames) får traileren fra Steam-siden med samme navn.
     /// Slås opp én gang per spill og kjøring.
     /// </summary>
-    private async Task<int?> SteamAppIdByTitleAsync(Game game)
+    private async Task<int?> SteamAppIdByTitleAsync(Game game, CancellationToken ct)
     {
         if (_steamIdsByTitle.TryGetValue(game.Id, out var cached))
         {
@@ -266,9 +301,10 @@ public sealed partial class MainWindow
         int? appId;
         try
         {
-            appId = await new SteamStoreClient(ArtHttp).FindAppIdAsync(Core.Library.GameLibrary.DisplayTitle(game));
+            appId = await new SteamStoreClient(ArtHttp).FindAppIdAsync(GameLibrary.DisplayTitle(game), ct);
+            ct.ThrowIfCancellationRequested();
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        catch (Exception ex) when (!ct.IsCancellationRequested && ex is (HttpRequestException or TaskCanceledException))
         {
             return null;
         }
@@ -280,7 +316,14 @@ public sealed partial class MainWindow
     private void StopTrailer()
     {
         _trailerTimer?.Stop();
+        _trailerPlaybackTimer?.Stop();
+        _trailerLifetime?.Cancel();
+        _trailerLifetime?.Dispose();
+        _trailerLifetime = null;
         _trailerGameId = null;
+        _trailerTile = null;
+        _trailerPlaying = false;
+        StopYouTubePreview();
         CancelFade(HeroVideo);
         if (HeroVideo.MediaPlayer is { } player)
         {
@@ -291,6 +334,30 @@ public sealed partial class MainWindow
 
         HeroVideo.Opacity = 0;
         MakeRoomForTrailer(false);
+    }
+
+    private void TrailerStarted()
+    {
+        _trailerPlaying = true;
+        StartTrailerDeadline(TimeSpan.FromMinutes(2));
+    }
+
+    private void StartTrailerDeadline(TimeSpan duration)
+    {
+        if (_trailerPlaybackTimer is null)
+        {
+            _trailerPlaybackTimer = DispatcherQueue.CreateTimer();
+            _trailerPlaybackTimer.IsRepeating = false;
+            _trailerPlaybackTimer.Tick += (_, _) =>
+            {
+                _log.Write("trailer", _trailerPlaying ? "Forhåndsvisningen nådde tidsgrensen" : "Forhåndsvisningen startet ikke i tide");
+                StopTrailer();
+            };
+        }
+
+        _trailerPlaybackTimer.Stop();
+        _trailerPlaybackTimer.Interval = duration;
+        _trailerPlaybackTimer.Start();
     }
 
     private void CancelFade(UIElement element)
