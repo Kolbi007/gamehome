@@ -36,7 +36,7 @@ jobs:
           $requested = if ($env:GITHUB_REF -like 'refs/tags/*') { $env:GITHUB_REF_NAME } else { '' }
           $tag = ./scripts/Get-NextReleaseVersion.ps1 -Tags $tags -MinimumVersion $env:MINIMUM_VERSION -RequestedTag $requested
           "tag=$tag" >> $env:GITHUB_OUTPUT
-          $previous = $tags | Where-Object { $_ -match '^v\d+\.\d+\.\d+$' } | Sort-Object { [version]($_.Substring(1)) } -Descending | Select-Object -First 1
+          $previous = $tags | Where-Object { $_ -ne $requested -and $_ -match '^v\d+\.\d+\.\d+$' } | Sort-Object { [version]($_.Substring(1)) } -Descending | Select-Object -First 1
           "previous_tag=$previous" >> $env:GITHUB_OUTPUT
           Write-Host "Versjon: $tag"
 
