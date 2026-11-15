@@ -10,6 +10,7 @@
         do:   powershell -NoProfile -ExecutionPolicy Bypass -File "<sti>\Set-StreamDesktop.ps1" -Action Hide
         undo: powershell -NoProfile -ExecutionPolicy Bypass -File "<sti>\Set-StreamDesktop.ps1" -Action Restore
     Sikkerhetsnett ved pålogging: samme skript med -Action Restore.
+    Oppdater skriptet når ingen strøm eller tidligere bakgrunnsprosesser kjører.
 
     Endringene skjer uten å starte Utforsker på nytt: ikonene skjules med samme kommando som «Vis skrivebordsikoner» i
     Utforsker, og oppgavelinjen settes til automatisk skjult med SHAppBarMessage. Forrige tilstand lagres i
@@ -36,9 +37,11 @@ $ErrorActionPreference = 'Stop'
 $stateDir = Join-Path $env:LOCALAPPDATA 'GameHome'
 $stateFile = Join-Path $stateDir 'stream-desktop.json'
 $streamFlagFile = Join-Path (Join-Path $stateDir 'host') 'gamehome-stream.flag'
-$coverPidFile = Join-Path $stateDir 'stream-cover.pid'
-$hidePidFile = Join-Path $stateDir 'stream-hide.pid'
-$watchPidFile = Join-Path $stateDir 'stream-watch.pid'
+$workerFiles = @{
+    Cover = Join-Path $stateDir 'stream-cover.pid'
+    Hide = Join-Path $stateDir 'stream-hide.pid'
+    Watch = Join-Path $stateDir 'stream-watch.pid'
+}
 $logFile = Join-Path $stateDir 'stream-desktop.log'
 
 function Write-Log([string] $message) {
@@ -92,53 +95,134 @@ function Import-Cached([string] $name, [string] $source, [string[]] $references)
     Add-Type -Path $dll
 }
 
-# Lytteren for feilsøkingstasten kjører i en egen, skjult PowerShell-prosess så lenge strømmen varer.
-function Start-Watch {
-    if (Test-Path $watchPidFile) {
-        $old = Get-Process -Id ([int](Get-Content $watchPidFile -Raw)) -ErrorAction SilentlyContinue
-        if ($old -and $old.ProcessName -eq 'powershell') { return }
+function Enter-DesktopGate {
+    $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    $gate = [Threading.Mutex]::new($false, "Local\GameHome.StreamDesktop.$sid")
+    try {
+        if (-not $gate.WaitOne(10000)) { throw 'tidsavbrudd ved låsing av skrivebordstilstand' }
+    } catch [Threading.AbandonedMutexException] {
+        # WaitOne ga oss låsen selv om den forrige eieren avsluttet uventet.
+    } catch {
+        $gate.Dispose()
+        throw
     }
-    $w = Start-Process -FilePath "$PSHOME\powershell.exe" -WindowStyle Hidden -PassThru -ArgumentList @(
-        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", '-Action', 'Watch')
-    Set-Content -Path $watchPidFile -Value $w.Id
+    return $gate
 }
 
-function Stop-Watch {
-    if (-not (Test-Path $watchPidFile)) { return }
-    $p = Get-Process -Id ([int](Get-Content $watchPidFile -Raw)) -ErrorAction SilentlyContinue
-    if ($p -and $p.ProcessName -eq 'powershell' -and $p.Id -ne $PID) { Stop-Process -Id $p.Id -Force }
-    Remove-Item -Path $watchPidFile -Force -ErrorAction SilentlyContinue
+function Get-WorkerIdentity([Diagnostics.Process] $worker) {
+    return '{0}:{1}' -f $worker.Id, $worker.StartTime.ToUniversalTime().Ticks
+}
+
+function Get-DesktopWorker([string] $recordPath) {
+    if (-not (Test-Path -LiteralPath $recordPath)) { return }
+    $identity = Get-Content -LiteralPath $recordPath -Raw
+    if (-not $identity) { return }
+    $identity = $identity.Trim()
+    if ($identity -notmatch '^(\d+):\d+$') { return }
+
+    try {
+        $worker = [Diagnostics.Process]::GetProcessById([int]$Matches[1])
+    } catch [ArgumentException] {
+        return # Prosessen har allerede avsluttet.
+    }
+
+    $owned = $false
+    try {
+        # Hold håndtaket åpent fra validering til venting/avslutning. PID alene kan være gjenbrukt.
+        $null = $worker.Handle
+        $owned = (Get-WorkerIdentity $worker) -eq $identity
+        if ($owned) { return $worker }
+    } catch {
+        if (-not $worker.HasExited) { throw }
+    } finally {
+        if (-not $owned) { $worker.Dispose() }
+    }
+}
+
+function Start-DesktopWorker([string] $workerAction) {
+    $recordPath = $workerFiles[$workerAction]
+    $old = Get-DesktopWorker $recordPath
+    if ($old) {
+        $old.Dispose()
+        return
+    }
+
+    $workerArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", '-Action', $workerAction)
+    if ($workerAction -eq 'Hide') { $workerArgs += '-Now' }
+    $worker = Start-Process -FilePath "$PSHOME\powershell.exe" -WindowStyle Hidden -PassThru -ArgumentList $workerArgs
+    try {
+        $tempRecord = "$recordPath.$PID.tmp"
+        Set-Content -LiteralPath $tempRecord -Value (Get-WorkerIdentity $worker)
+        Move-Item -LiteralPath $tempRecord -Destination $recordPath -Force
+    } finally {
+        $worker.Dispose()
+    }
+}
+
+function Test-DesktopWorker {
+    $gate = Enter-DesktopGate
+    try {
+        $recordPath = $workerFiles[$Action]
+        if (-not (Test-Path -LiteralPath $recordPath)) { return $false }
+        $identity = Get-Content -LiteralPath $recordPath -Raw
+        if (-not $identity) { return $false }
+        $current = [Diagnostics.Process]::GetCurrentProcess()
+        try {
+            return (Get-WorkerIdentity $current) -eq $identity.Trim()
+        } finally {
+            $current.Dispose()
+        }
+    } finally {
+        $gate.ReleaseMutex()
+        $gate.Dispose()
+    }
+}
+
+function Stop-DesktopWorker([string] $workerAction, [int] $gracePeriodMs) {
+    $recordPath = $workerFiles[$workerAction]
+    $worker = Get-DesktopWorker $recordPath
+    if ($worker) {
+        try {
+            if (-not $worker.WaitForExit($gracePeriodMs)) {
+                if ($gracePeriodMs -gt 0) { Write-Log "tidsavbrudd; stopper $workerAction før gjenoppretting" }
+                try { $worker.Kill() } catch { if (-not $worker.HasExited) { throw } }
+                if (-not $worker.WaitForExit(2000)) { throw "$workerAction kjører fortsatt etter stopp" }
+            }
+        } finally {
+            $worker.Dispose()
+        }
+    }
+    if (Test-Path -LiteralPath $recordPath) { Remove-Item -LiteralPath $recordPath -Force }
 }
 
 # Hide kjøres i bakgrunnen, så Vibepollo ikke venter på skriptet (målt 2,7 s) før spillet startes. Dekkbildet startes
 # først av alt, så det er oppe før streamen begynner og skjuler vinduer som ikke kan minimeres.
 if ($Action -eq 'Hide' -and -not $Now) {
     try {
-        New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
-        $cover = Start-Process -FilePath "$PSHOME\powershell.exe" -WindowStyle Hidden -PassThru -ArgumentList @(
-            '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", '-Action', 'Cover')
-        Set-Content -Path $coverPidFile -Value $cover.Id
-        $p = Start-Process -FilePath "$PSHOME\powershell.exe" -WindowStyle Hidden -PassThru -ArgumentList @(
-            '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", '-Action', 'Hide', '-Now')
-        Set-Content -Path $hidePidFile -Value $p.Id
-        Start-Watch
+        $gate = Enter-DesktopGate
+        try {
+            New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
+            Start-DesktopWorker 'Cover'
+            Start-DesktopWorker 'Hide'
+            Start-DesktopWorker 'Watch'
+        } finally {
+            $gate.ReleaseMutex()
+            $gate.Dispose()
+        }
     } catch {
         Write-Log "kunne ikke starte i bakgrunnen: $($_.Exception.Message)"
     }
     exit 0
 }
 
-# Restore venter på en Hide som fortsatt jobber (spillet avsluttet svært raskt), så ingenting blir liggende skjult.
-if ($Action -eq 'Restore' -and (Test-Path $hidePidFile)) {
+# En arbeider må være registrert av starteren før den kan endre skrivebordet. Restore holder samme lås.
+if ($Action -in 'Hide', 'Cover', 'Watch') {
     try {
-        $hide = Get-Process -Id ([int](Get-Content $hidePidFile -Raw)) -ErrorAction SilentlyContinue
-        if ($hide -and $hide.ProcessName -eq 'powershell') {
-            if (-not $hide.WaitForExit(10000)) {
-                Write-Log 'Hide bruker fortsatt tid; venter til skrivebordstilstanden er lagret før Restore'
-                $hide.WaitForExit()
-            }
-        }
-    } catch { }
+        if (-not (Test-DesktopWorker)) { exit 0 }
+    } catch {
+        Write-Log "kunne ikke kontrollere skrivebordsarbeideren: $($_.Exception.Message)"
+        exit 0
+    }
 }
 
 # Dekkbildet kjører i en egen, skjult PowerShell-prosess, så prep-kommandoen kan returnere med en gang.
@@ -192,6 +276,8 @@ public class GameHomeCover : Form
     // Explorer viser oppgavelinjen igjen når et nytt vindu (dette) får forgrunnen; skjul den på nytt.
     private static void HideTaskbar()
     {
+        if (!System.IO.File.Exists(DesktopStateFile)) return;
+
         foreach (var name in new[] { "Shell_TrayWnd", "Shell_SecondaryTrayWnd" })
         {
             var window = IntPtr.Zero;
@@ -299,6 +385,7 @@ public class GameHomeCover : Form
 
     /// <summary>Navnet på spillet, fra Vibepollos SUNSHINE_APP_NAME.</summary>
     public static string GameTitle;
+    public static string DesktopStateFile;
 
     private readonly Timer _animation = new Timer();
     private float _sweep = -0.3f;
@@ -328,6 +415,7 @@ public class GameHomeCover : Form
         # Vibepollo gir prep-kommandoen navnet på appen; prosessen for dekkbildet arver miljøet.
         [GameHomeCover]::GameTitle = $env:SUNSHINE_APP_NAME
         if (-not [GameHomeCover]::GameTitle) { [GameHomeCover]::GameTitle = $env:APOLLO_APP_NAME }
+        [GameHomeCover]::DesktopStateFile = $stateFile
         $form = New-Object GameHomeCover
         $form.add_Shown({ Write-Log 'dekkbilde vist' })
         [System.Windows.Forms.Application]::Run($form)
@@ -337,25 +425,21 @@ public class GameHomeCover : Form
     exit 0
 }
 
-function Start-Cover {
-    if (Test-Path $coverPidFile) {
-        $old = Get-Process -Id ([int](Get-Content $coverPidFile -Raw)) -ErrorAction SilentlyContinue
-        if ($old) { return }
-    }
-    $p = Start-Process -FilePath "$PSHOME\powershell.exe" -WindowStyle Hidden -PassThru -ArgumentList @(
-        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", '-Action', 'Cover')
-    Set-Content -Path $coverPidFile -Value $p.Id
-}
-
-function Stop-Cover {
-    if (-not (Test-Path $coverPidFile)) { return }
-    $p = Get-Process -Id ([int](Get-Content $coverPidFile -Raw)) -ErrorAction SilentlyContinue
-    # Bare vår egen PowerShell-prosess; et gjenbrukt PID etter omstart tilhører noe annet.
-    if ($p -and $p.ProcessName -eq 'powershell') { Stop-Process -Id $p.Id -Force }
-    Remove-Item -Path $coverPidFile -Force
-}
-
+$restoreGate = $null
 try {
+    if ($Action -eq 'Restore') {
+        $restoreGate = Enter-DesktopGate
+        Stop-DesktopWorker 'Cover' 0
+        Stop-DesktopWorker 'Watch' 0
+        Stop-DesktopWorker 'Hide' 10000
+
+        # Dekkbildet og hurtigtastlytteren har stoppet, og Hide kan ikke lenger endre skrivebordet etter Restore.
+        if (-not (Test-Path $stateFile)) {
+            Write-Log 'ingen lagret tilstand; ingenting å sette tilbake'
+            exit 0
+        }
+    }
+
     $desktopSource = @'
 using System;
 using System.Runtime.InteropServices;
@@ -490,14 +574,15 @@ public static class GameHomeDesktop
 '@
     Import-Cached 'desktop' $desktopSource @()
 
-    $icons = [GameHomeDesktop]::IconsVisible
-    $autoHide = [GameHomeDesktop]::TaskbarAutoHide
-
     switch ($Action) {
         'Status' {
+            $icons = [GameHomeDesktop]::IconsVisible
+            $autoHide = [GameHomeDesktop]::TaskbarAutoHide
             "Ikoner synlige: $icons, oppgavelinje synlig: $([GameHomeDesktop]::TaskbarVisible), automatisk skjult: $autoHide, lagret tilstand: $(Test-Path $stateFile)"
         }
         'Hide' {
+            $icons = [GameHomeDesktop]::IconsVisible
+            $autoHide = [GameHomeDesktop]::TaskbarAutoHide
             # Lagre bare første gang, så en ny Hide (for eksempel etter gjenoppkobling) ikke overskriver originalen.
             $firstHide = -not (Test-Path $stateFile)
             if ($firstHide) {
@@ -513,9 +598,7 @@ public static class GameHomeDesktop
             if ($icons -eq $true) { [void][GameHomeDesktop]::ToggleIcons() }
             if (-not $autoHide) { [GameHomeDesktop]::TaskbarAutoHide = $true }
             [GameHomeDesktop]::SetTaskbarVisible($false)
-            Start-Cover
-            Write-Log "ikoner var $icons, autoskjul var $autoHide, minimerte vinduer: $firstHide, dekkbilde åpnet"
-            Remove-Item -Path $hidePidFile -Force -ErrorAction SilentlyContinue
+            Write-Log "ikoner var $icons, autoskjul var $autoHide, minimerte vinduer: $firstHide"
         }
         'Watch' {
             # Ctrl+Shift+F10 (kommer fra Legion Go gjennom streamen) viser eller skjuler oppgavelinjen og ikonene.
@@ -566,6 +649,7 @@ public class GameHomeHotkey : NativeWindow, IDisposable
                 break
             }
             $hotkey.add_Pressed({
+                if (-not (Test-Path $stateFile)) { return }
                 $show = -not [GameHomeDesktop]::TaskbarVisible
                 [GameHomeDesktop]::SetTaskbarVisible($show)
                 if ([GameHomeDesktop]::IconsVisible -ne $show) { [void][GameHomeDesktop]::ToggleIcons() }
@@ -588,13 +672,6 @@ public class GameHomeHotkey : NativeWindow, IDisposable
             Write-Log 'lytter stoppet'
         }
         'Restore' {
-            Stop-Cover
-            Stop-Watch
-
-            if (-not (Test-Path $stateFile)) {
-                Write-Log 'ingen lagret tilstand; ingenting å sette tilbake'
-                break
-            }
             $saved = Get-Content -Path $stateFile -Raw | ConvertFrom-Json
             [GameHomeDesktop]::SetTaskbarVisible($saved.TaskbarVisible -ne $false)
             if ($saved.IconsVisible -eq $true -and [GameHomeDesktop]::IconsVisible -eq $false) { [void][GameHomeDesktop]::ToggleIcons() }
@@ -606,6 +683,11 @@ public class GameHomeHotkey : NativeWindow, IDisposable
     }
 } catch {
     Write-Log "feil: $($_.Exception.Message)"
+} finally {
+    if ($restoreGate) {
+        $restoreGate.ReleaseMutex()
+        $restoreGate.Dispose()
+    }
 }
 
 exit 0

@@ -9,6 +9,7 @@ using GameHome.Core.Diagnostics;
 using GameHome.Core.Library;
 using GameHome.Core.Model;
 using GameHome.Core.Runners;
+using GameHome.Core.Sources;
 using GameHome.Data;
 using GameHome.Metadata;
 using GameHome.Sources.Moonlight;
@@ -74,6 +75,7 @@ public sealed partial class MainWindow : Window
     private readonly FileLog _log;
     private readonly string _libraryPath;
     private readonly GameLibrary _library;
+    private bool _libraryReadOnly;
     private static readonly TimeSpan SteamSyncInterval = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan LoadingPatience = TimeSpan.FromSeconds(45);
     private static readonly TimeSpan CoveredLoadingLimit = TimeSpan.FromSeconds(10);
@@ -101,7 +103,8 @@ public sealed partial class MainWindow : Window
     private IForegroundSession? _session;
     private string? _sessionRunnerId;
     private DateTime _lastSteamSync = DateTime.MinValue;
-    private bool _steamSyncRunning;
+    private volatile bool _storeScanRunning;
+    private CancellationTokenSource? _storeScanCancellation;
     private DispatcherQueueTimer? _firstSteamSync;
     private DispatcherQueueTimer? _loadingTimer;
     private DispatcherQueueTimer? _streamCover;
@@ -292,31 +295,56 @@ public sealed partial class MainWindow : Window
 
     // ---- Bibliotek ----
 
+    private const string LibraryNotice = "library";
+    private const string LibrarySaveNotice = "library-save";
+
     private GameLibrary LoadLibrary()
     {
-        try
+        var result = LibraryStore.LoadWithStatus(_libraryPath);
+        _libraryReadOnly = !result.CanSave;
+        switch (result.Status)
         {
-            var library = LibraryStore.Load(_libraryPath);
-            _log.Write("bibliotek", $"Lest {library.Games.Count} spill fra library.json");
-            return library;
+            case LibraryLoadStatus.Loaded or LibraryLoadStatus.Missing:
+                _log.Write("bibliotek", $"Lest {result.Library.Games.Count} spill fra library.json");
+                break;
+            case LibraryLoadStatus.RecoveredFromBackup:
+                _log.Write("bibliotek", $"Lest {result.Library.Games.Count} spill fra sikkerhetskopien");
+                AddNotice(LibraryNotice, null, "Biblioteket er hentet fra sikkerhetskopien. De nyeste endringene kan mangle.");
+                break;
+            default:
+                _log.Write("bibliotek", $"Kunne ikke lese library.json ({result.Status}). Lagring er slått av.");
+                var reason = result.Status switch
+                {
+                    LibraryLoadStatus.UnsupportedVersion => "Biblioteket bruker et filformat denne utgaven av GameHome ikke støtter.",
+                    LibraryLoadStatus.Corrupt => "Biblioteket kunne ikke leses, og ingen gyldig sikkerhetskopi ble funnet.",
+                    _ => "Biblioteket er utilgjengelig.",
+                };
+                AddNotice(LibraryNotice, null, $"{reason} Endringer i biblioteket lagres ikke i denne økten.");
+                break;
         }
-        catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException or UnauthorizedAccessException)
-        {
-            // Et ødelagt bibliotek skal aldri stoppe Home. Filen beholdes for feilsøking.
-            _log.Write("bibliotek", $"Kunne ikke lese library.json: {ex.Message}");
-            return new GameLibrary();
-        }
+
+        return result.Library;
     }
 
     private void SaveLibrary()
     {
+        if (_libraryReadOnly)
+        {
+            return;
+        }
+
         try
         {
             LibraryStore.Save(_library, _libraryPath);
+            if (_notices.RemoveAll(n => n.Key == LibrarySaveNotice) > 0)
+            {
+                UpdateNoticeButton();
+            }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             _log.Write("bibliotek", $"Kunne ikke lagre library.json: {ex.Message}");
+            AddNotice(LibrarySaveNotice, null, "Endringene i biblioteket kunne ikke lagres.");
         }
     }
 
@@ -2621,6 +2649,8 @@ public sealed partial class MainWindow : Window
         _launching = true;
         try
         {
+            CancelUpdateOperations();
+            CancelStoreScan();
             await LaunchCoreAsync(game, chosen);
         }
         catch (Exception ex)
@@ -3102,7 +3132,7 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void SyncSteamInBackground()
     {
-        if (SessionActive)
+        if (_launching || SessionActive)
         {
             return;
         }
@@ -3115,50 +3145,128 @@ public sealed partial class MainWindow : Window
 
     private void SyncStoresInBackground()
     {
-        if (SessionActive || _steamSyncRunning || DateTime.UtcNow - _lastSteamSync < SteamSyncInterval)
+        if (_launching || SessionActive || _storeScanRunning || DateTime.UtcNow - _lastSteamSync < SteamSyncInterval)
         {
             return;
         }
 
-        _steamSyncRunning = true;
+        _storeScanCancellation?.Dispose();
+        _storeScanCancellation = new CancellationTokenSource();
+        var cancellationToken = _storeScanCancellation.Token;
+        var dispatcher = DispatcherQueue;
+        _storeScanRunning = true;
         _lastSteamSync = DateTime.UtcNow;
-        _ = Task.Run(() =>
+        _ = Task.Run(() => ScanStores(dispatcher, cancellationToken));
+    }
+
+    private void CancelStoreScan()
+    {
+        if (_storeScanRunning)
         {
-            var root = SteamClient.FindRoot();
-            IReadOnlyList<StoreEntry>? entries = null;
-            if (root is not null)
-            {
-                entries = SteamLibraryReader.Scan(root, message => _log.Write("steam", message));
-            }
+            _storeScanCancellation?.Cancel();
+            _lastSteamSync = DateTime.MinValue;
+        }
+    }
 
-            // Xbox-/Microsoft Store-spill fra Windows' pakkeliste (ingen Xbox-app trengs), i samme runde.
-            var watch = Stopwatch.StartNew();
-            var xbox = XboxGames.Scan(message => _log.Write("xbox", message));
-            var xboxMs = watch.ElapsedMilliseconds;
-            var battleNet = BattleNetGames.Scan();
-            var gog = GogGames.Scan(message => _log.Write("gog", message));
-            var epic = EpicGames.Scan(message => _log.Write("epic", message));
-            var playStation = Chiaki.RegisteredConsoles();
-            var retro = RetroArch.Scan();
+    private void ScanStores(DispatcherQueue dispatcher, CancellationToken cancellationToken)
+    {
+        var dispatched = false;
+        try
+        {
+            var scans = StoreScanner.Scan(
+            [
+                (GameLibrary.SteamRunnerId, ScanSteam),
+                (XboxRunner.Id, XboxGames.Scan),
+                (BattleNetRunner.Id, _ => StoreScanResult.Complete(BattleNetGames.AsStoreEntries(BattleNetGames.Scan()))),
+                (GogRunner.Id, _ => ScanStoreWithDiagnostics(log => GogGames.AsStoreEntries(GogGames.Scan(log)))),
+                (EpicRunner.Id, _ => ScanStoreWithDiagnostics(log => EpicGames.AsStoreEntries(EpicGames.Scan(log)))),
+                (ChiakiRunner.Id, _ => StoreScanResult.Complete(Chiaki.AsStoreEntries(Chiaki.RegisteredConsoles()))),
+                (RetroArchRunner.Id, _ => StoreScanResult.Complete(RetroArch.AsStoreEntries(RetroArch.Scan()))),
+            ], cancellationToken);
 
-            DispatcherQueue.TryEnqueue(() =>
+            dispatched = dispatcher.TryEnqueue(() =>
             {
-                ApplySteamScan(root, entries);
-                ApplyXboxScan(xbox, xboxMs);
-                ApplyBattleNetScan(battleNet);
-                ApplyStoreScan(GogRunner.Id, "GOG", GogGames.AsStoreEntries(gog));
-                ApplyStoreScan(EpicRunner.Id, "Epic", EpicGames.AsStoreEntries(epic));
-                ApplyStoreScan(ChiakiRunner.Id, "PlayStation", Chiaki.AsStoreEntries(playStation));
-                ApplyStoreScan(RetroArchRunner.Id, "retro", RetroArch.AsStoreEntries(retro));
+                try
+                {
+                    if (cancellationToken.IsCancellationRequested || _launching || SessionActive)
+                    {
+                        _lastSteamSync = DateTime.MinValue;
+                        return;
+                    }
+
+                    foreach (var (runnerId, scan) in scans)
+                    {
+                        try
+                        {
+                            ApplyStoreScan(runnerId, scan);
+                        }
+                        catch (Exception ex)
+                        {
+                            _log.Write(runnerId, $"Kunne ikke oppdatere biblioteket ({ex.GetType().Name})");
+                        }
+                    }
+                }
+                finally
+                {
+                    _storeScanRunning = false;
+                }
             });
-        });
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Spillstart avbrøt skanningen.
+        }
+        catch (Exception ex)
+        {
+            _log.Write("bibliotek", $"Kunne ikke fullføre kildeskanningen ({ex.GetType().Name})");
+        }
+        finally
+        {
+            if (!dispatched)
+            {
+                _storeScanRunning = false;
+            }
+        }
     }
 
-    /// <summary>Felles for butikker som leses fra disk uten klient (GOG, Epic): synk, lagre og hent bilder ved endring.</summary>
-    private void ApplyStoreScan(string runnerId, string label, IReadOnlyList<StoreEntry> entries)
+    private static StoreScanResult ScanSteam(CancellationToken cancellationToken)
     {
-        var result = _library.SyncStore(runnerId, entries);
-        _log.Write(runnerId, $"Fant {entries.Count} {label}-spill ({string.Join(", ", entries.Select(e => e.Title))}); {result.Added.Count} nye, {result.MarkedMissing} borte");
+        if (SteamClient.FindRoot() is not { } root)
+        {
+            return StoreScanResult.Failed("Fant ikke Steam-installasjonen");
+        }
+
+        return ScanStoreWithDiagnostics(log => SteamLibraryReader.Scan(root, log, cancellationToken));
+    }
+
+    private static StoreScanResult ScanStoreWithDiagnostics(Func<Action<string>, IReadOnlyList<StoreEntry>> scan)
+    {
+        var incomplete = false;
+        var entries = scan(_ => incomplete = true);
+        return incomplete
+            ? StoreScanResult.Degraded(entries, "Kunne ikke lese hele kilden")
+            : StoreScanResult.Complete(entries);
+    }
+
+    private void ApplyStoreScan(string runnerId, StoreScanResult scan)
+    {
+        var noticeKey = "source:" + runnerId;
+        if (scan.Health.LastError is { } error)
+        {
+            _log.Write(runnerId, error);
+            AddNotice(noticeKey, null, $"{runnerId}: {error}. Tidligere spill beholdes til kilden kan leses igjen.");
+        }
+        else if (scan.Health.State == SourceHealthState.Ok && _notices.RemoveAll(n => n.Key == noticeKey) > 0)
+        {
+            UpdateNoticeButton();
+        }
+
+        if (scan.ApplyTo(_library, runnerId) is not { } result)
+        {
+            return;
+        }
+
+        _log.Write(runnerId, $"Fant {scan.Health.FoundCount} installerte spill; {result.Added.Count} nye, {result.MarkedMissing} borte");
         if (!result.Changed)
         {
             return;
@@ -3166,56 +3274,12 @@ public sealed partial class MainWindow : Window
 
         SaveLibrary();
         BuildGameTiles();
-        _ = FetchMissingArtAsync();
-    }
-
-    private void ApplyBattleNetScan(IReadOnlyList<BattleNetGame> games)
-    {
-        var result = _library.SyncStore(BattleNetRunner.Id, BattleNetGames.AsStoreEntries(games));
-        _log.Write("battlenet", $"Fant {games.Count} Battle.net-spill ({string.Join(", ", games.Select(g => g.Title))}); {result.Added.Count} nye, {result.MarkedMissing} borte");
-        if (!result.Changed)
+        if (runnerId != GameLibrary.SteamRunnerId)
         {
+            _ = FetchMissingArtAsync();
             return;
         }
 
-        SaveLibrary();
-        BuildGameTiles();
-        _ = FetchMissingArtAsync();
-    }
-
-    private void ApplyXboxScan(IReadOnlyList<XboxGame> games, long elapsedMs)
-    {
-        var result = _library.SyncStore(XboxRunner.Id, XboxGames.AsStoreEntries(games));
-        _log.Write("xbox", string.Create(CultureInfo.InvariantCulture,
-            $"Fant {games.Count} Xbox-spill på {elapsedMs} ms ({string.Join(", ", games.Select(g => g.Title))}); {result.Added.Count} nye, {result.MarkedMissing} borte"));
-        if (!result.Changed)
-        {
-            return;
-        }
-
-        SaveLibrary();
-        BuildGameTiles();
-        _ = FetchMissingArtAsync();
-    }
-
-    private void ApplySteamScan(string? root, IReadOnlyList<StoreEntry>? entries)
-    {
-        _steamSyncRunning = false;
-        if (root is null || entries is null)
-        {
-            _log.Write("steam", "Steam er ikke installert");
-            return;
-        }
-
-        var result = _library.SyncStore(GameLibrary.SteamRunnerId, entries);
-        _log.Write("steam", $"Fant {entries.Count} installerte spill; {result.Added.Count} nye, {result.MarkedMissing} borte");
-        if (!result.Changed)
-        {
-            return;
-        }
-
-        SaveLibrary();
-        BuildGameTiles();
         _log.Write("steam", "Flisene oppdatert");
         var enabled = MessagePanel.Visibility != Visibility.Visible && SessionPanel.Visibility != Visibility.Visible;
         SetHomeEnabled(enabled);
@@ -4517,7 +4581,7 @@ public sealed partial class MainWindow : Window
         _notices.Insert(0, new Notice(key, gameId, text, DateTime.Now));
         if (_notices.Count > 20)
         {
-            _notices.RemoveRange(20, _notices.Count - 20);
+            _notices.RemoveAt(_notices.FindLastIndex(n => !_libraryReadOnly || n.Key != LibraryNotice));
         }
 
         UpdateNoticeButton();
@@ -4537,11 +4601,12 @@ public sealed partial class MainWindow : Window
 
     private void UpdateNoticeButton()
     {
-        // Home viser bare varsler som stopper spillingen (HC, nettverk); resten ligger i M2-menyen.
-        NoticeButton.Visibility = _notices.Any(n => n.Key is "hc" or "network") ? Visibility.Visible : Visibility.Collapsed;
+        // Home viser varsler om tilgang til biblioteket, HC og nettverk.
+        NoticeButton.Visibility = _notices.Any(n => n.Key is "hc" or "network" or LibraryNotice or LibrarySaveNotice)
+            ? Visibility.Visible : Visibility.Collapsed;
         MenuNoticesButton.Visibility = _notices.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         MenuNoticesButton.Content = $"Varsler ({_notices.Count})";
-        NoticeCount.Text = _notices.Count.ToString(CultureInfo.InvariantCulture);
+        NoticeCount.Text = _libraryReadOnly ? "Skrivebeskyttet bibliotek" : _notices.Count.ToString(CultureInfo.InvariantCulture);
     }
 
     private void NoticeButton_Click(object sender, RoutedEventArgs e)
@@ -4622,7 +4687,7 @@ public sealed partial class MainWindow : Window
 
     private void NoticeClearButton_Click(object sender, RoutedEventArgs e)
     {
-        _notices.Clear();
+        _notices.RemoveAll(n => n.Key != LibraryNotice || !_libraryReadOnly);
         UpdateNoticeButton();
         CloseNotices();
     }
@@ -4958,6 +5023,8 @@ public sealed partial class MainWindow : Window
         // Vis med en gang at noe skjer: Vibepollo kan bruke over 10 s på å svare mens spillet lukkes (målt 2026-11-02).
         var other = _hostRunningApp ?? "spillet";
         _launching = true;
+        CancelUpdateOperations();
+        CancelStoreScan();
         ShowLoading(game, action);
         LoadingStatus.Text = $"Avslutter {other} på {HostLabel} …";
         try
@@ -5305,6 +5372,11 @@ public sealed partial class MainWindow : Window
 
     private void StopEverything()
     {
+        CancelUpdateOperations(shuttingDown: true);
+        _firstSteamSync?.Stop();
+        CancelStoreScan();
+        _storeScanCancellation?.Dispose();
+        _storeScanCancellation = null;
         _clockTimer.Stop();
         _metricsTimer.Stop();
         _gamepadTimer.Stop();

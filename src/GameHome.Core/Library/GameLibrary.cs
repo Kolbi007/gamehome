@@ -46,9 +46,9 @@ public sealed class GameLibrary
 
     /// <summary>
     /// Oppdaterer biblioteket med det en butikk sier er installert. Nye spill legges til med butikkens ID; spill som
-    /// ikke lenger er installert, merkes <see cref="Availability.Missing"/> og beholdes med brukerens rettelser.
+    /// mangler i en fullstendig skanning, merkes <see cref="Availability.Missing"/> og beholdes med brukerens rettelser.
     /// </summary>
-    public StoreSyncResult SyncStore(string runnerId, IReadOnlyCollection<StoreEntry> installed)
+    public StoreSyncResult SyncStore(string runnerId, IReadOnlyCollection<StoreEntry> installed, bool markMissing = true)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(runnerId);
         ArgumentNullException.ThrowIfNull(installed);
@@ -83,6 +83,11 @@ public sealed class GameLibrary
                 Arguments: null, WorkingDirectory: entry.InstallDirectory, LaunchMode.ClientOnDemand,
                 ProfileId: null, Availability.Installed));
             added.Add(game);
+        }
+
+        if (!markMissing)
+        {
+            return new StoreSyncResult(added, updatedCount, 0);
         }
 
         var missing = 0;

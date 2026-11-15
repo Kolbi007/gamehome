@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (c) 2026 The GameHome contributors
 
-using System.Globalization;
 using System.Runtime.InteropServices;
 using GameHome.Sources.Updates;
 using Microsoft.UI.Xaml;
@@ -23,12 +22,16 @@ public sealed partial class MainWindow
     private const string LastUpdateCheckSetting = "update.lastCheck";
     private const string UpdateChannelSetting = "update.channel";
     private static readonly TimeSpan UpdateCheckInterval = TimeSpan.FromHours(6);
+    private static readonly TimeSpan UpdateDownloadTimeout = TimeSpan.FromMinutes(10);
 
     private static readonly HttpClient UpdateHttp = CreateUpdateHttp();
     private AvailableRelease? _update;
-    private bool _updateChecking;
     private bool _manualUpdateCheckQueued;
-    private bool _updateDownloading;
+    private CancellationTokenSource? _updateCheckCancellation;
+    private CancellationTokenSource? _updateDownloadCancellation;
+    private bool _updateShuttingDown;
+    private bool _updateDownloading => _updateDownloadCancellation is not null;
+    private bool CanUpdate => !_updateShuttingDown && !_launching && !SessionActive;
 
     private static bool BetaChannel => ApplicationData.Current.LocalSettings.Values[UpdateChannelSetting] as string == "beta";
 
@@ -37,15 +40,17 @@ public sealed partial class MainWindow
 
     private async void UpdateChannelButton_Click(object sender, RoutedEventArgs e)
     {
+        if (!CanUpdate)
+        {
+            return;
+        }
+
+        _updateCheckCancellation?.Cancel();
+        _updateDownloadCancellation?.Cancel();
         var settings = ApplicationData.Current.LocalSettings.Values;
         settings[UpdateChannelSetting] = BetaChannel ? "stable" : "beta";
         settings.Remove(LastUpdateCheckSetting);
-        _update = null;
-        UpdateButton.Visibility = Visibility.Collapsed;
-        if (_notices.RemoveAll(n => n.Key == "update") > 0)
-        {
-            UpdateNoticeButton();
-        }
+        ClearAvailableUpdate();
         RefreshUpdateChannelButton();
         UpdateStatus.Text = $"Sjekker {(BetaChannel ? "Beta" : "Stable")} …";
         UpdateStatus.Visibility = Visibility.Visible;
@@ -55,6 +60,11 @@ public sealed partial class MainWindow
 
     private async void UpdateCheckButton_Click(object sender, RoutedEventArgs e)
     {
+        if (!CanUpdate || _updateDownloading)
+        {
+            return;
+        }
+
         UpdateButton.Visibility = Visibility.Collapsed;
         UpdateStatus.Text = $"Sjekker {(BetaChannel ? "Beta" : "Stable")} …";
         UpdateStatus.Visibility = Visibility.Visible;
@@ -80,15 +90,39 @@ public sealed partial class MainWindow
 
     private static string Architecture => RuntimeInformation.ProcessArchitecture == System.Runtime.InteropServices.Architecture.Arm64 ? "arm64" : "x64";
 
+    private void CancelUpdateOperations(bool shuttingDown = false)
+    {
+        _updateShuttingDown |= shuttingDown;
+        _manualUpdateCheckQueued = false;
+        _updateCheckCancellation?.Cancel();
+        _updateDownloadCancellation?.Cancel();
+        if (!_updateShuttingDown && (_updateDownloading || _updateCheckCancellation is not null)
+            && UpdateStatus.Visibility == Visibility.Visible)
+        {
+            UpdateStatus.Text = "Oppdateringen ble avbrutt ved spillstart.";
+            UpdateButton.Visibility = _update is not null ? Visibility.Visible : Visibility.Collapsed;
+        }
+    }
+
+    private void ClearAvailableUpdate()
+    {
+        _update = null;
+        UpdateButton.Visibility = Visibility.Collapsed;
+        if (_notices.RemoveAll(n => n.Key == "update") > 0)
+        {
+            UpdateNoticeButton();
+        }
+    }
+
     /// <summary>Bakgrunnssjekk høyst hver 6. time; når menyen åpnes, høyst hvert 10. minutt; <paramref name="manual"/> alltid.</summary>
     private async Task CheckForUpdateAsync(bool manual, bool fromMenu = false)
     {
-        if (SessionActive)
+        if (!CanUpdate || (!manual && _updateDownloading))
         {
             return;
         }
 
-        if (_updateChecking)
+        if (_updateCheckCancellation is not null)
         {
             _manualUpdateCheckQueued |= manual;
             return;
@@ -101,19 +135,30 @@ public sealed partial class MainWindow
             return;
         }
 
-        _updateChecking = true;
+        var beta = BetaChannel;
+        var channel = beta ? "Beta" : "Stable";
+        using var cancellation = new CancellationTokenSource();
+        _updateCheckCancellation = cancellation;
         try
         {
-            settings[LastUpdateCheckSetting] = DateTime.UtcNow.ToBinary();
-            var json = await UpdateHttp.GetStringAsync(new Uri(BetaChannel ? ReleasesUrl : LatestStableReleaseUrl));
-            var newest = ReleaseFeed.Newest(json, Architecture, includePrerelease: BetaChannel);
+            var json = await UpdateHttp.GetStringAsync(new Uri(beta ? ReleasesUrl : LatestStableReleaseUrl), cancellation.Token);
+            if (cancellation.IsCancellationRequested || !CanUpdate)
+            {
+                return;
+            }
+
+            var newest = ReleaseFeed.Newest(json, Architecture, includePrerelease: beta);
             var installed = InstalledVersion;
             if (newest is null || newest.Version <= installed)
             {
+                var hadUpdate = _update is not null;
+                ClearAvailableUpdate();
                 _log.Write("oppdatering", $"Ingen nyere versjon (installert {installed}, nyeste {newest?.Version.ToString() ?? "ingen"})");
-                if (manual)
+                if (manual || hadUpdate)
                 {
-                    UpdateStatus.Text = $"Du har nyeste {(BetaChannel ? "Beta" : "Stable")}-versjon ({Short(installed)}).";
+                    UpdateStatus.Text = newest is null ? $"Fant ingen pakke på {channel}-kanalen."
+                        : newest.Version < installed ? $"Installert versjon ({Short(installed)}) er nyere enn nyeste {channel}-versjon ({Short(newest.Version)})."
+                        : $"Du har nyeste {channel}-versjon ({Short(installed)}).";
                     UpdateStatus.Visibility = Visibility.Visible;
                 }
 
@@ -125,19 +170,28 @@ public sealed partial class MainWindow
             UpdateButton.Visibility = Visibility.Visible;
             UpdateStatus.Text = $"Ny versjon klar · {newest.Size / 1_000_000.0:F0} MB (du har {Short(installed)}).";
             UpdateStatus.Visibility = Visibility.Visible;
-            AddNotice("update", null, $"GameHome {Short(newest.Version)} ({(BetaChannel ? "Beta" : "Stable")}) er klar på hovedsiden.");
-            _log.Write("oppdatering", $"Ny {(BetaChannel ? "Beta" : "Stable")}-kanalversjon {newest.Version} ({newest.Tag}); installert {installed}");
+            AddNotice("update", null, $"GameHome {Short(newest.Version)} ({channel}) er klar på hovedsiden.");
+            _log.Write("oppdatering", $"Ny {channel}-kanalversjon {newest.Version} ({newest.Tag}); installert {installed}");
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or System.Text.Json.JsonException)
         {
-            UpdateStatus.Text = $"Kunne ikke se etter oppdateringer: {ex.Message}";
-            UpdateStatus.Visibility = Visibility.Visible;
-            _log.Write("oppdatering", $"Kunne ikke se etter oppdatering: {ex.Message}");
+            if (!cancellation.IsCancellationRequested && CanUpdate)
+            {
+                UpdateStatus.Text = $"Kunne ikke se etter oppdateringer: {ex.Message}";
+                UpdateStatus.Visibility = Visibility.Visible;
+                UpdateButton.Visibility = _update is not null ? Visibility.Visible : Visibility.Collapsed;
+                _log.Write("oppdatering", $"Kunne ikke se etter oppdatering: {ex.Message}");
+            }
         }
         finally
         {
-            _updateChecking = false;
-            if (_manualUpdateCheckQueued && !SessionActive)
+            _updateCheckCancellation = null;
+            if (!cancellation.IsCancellationRequested && CanUpdate)
+            {
+                settings[LastUpdateCheckSetting] = DateTime.UtcNow.ToBinary();
+            }
+
+            if (_manualUpdateCheckQueued && CanUpdate)
             {
                 _manualUpdateCheckQueued = false;
                 await CheckForUpdateAsync(manual: true, fromMenu: true);
@@ -149,59 +203,105 @@ public sealed partial class MainWindow
 
     private async void UpdateButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_update is not { } update || SessionActive || _updateDownloading)
+        if (_update is not { } update || !CanUpdate || _updateDownloading || _updateCheckCancellation is not null)
         {
             return;
         }
 
-        _updateDownloading = true;
+        using var cancellation = new CancellationTokenSource();
+        _updateDownloadCancellation = cancellation;
+        var token = cancellation.Token;
         UpdateButton.IsEnabled = false;
+        UpdateCheckButton.IsEnabled = false;
+        UpdateStatus.Text = $"Laster ned {Short(update.Version)} …";
         UpdateStatus.Visibility = Visibility.Visible;
+        string? partialPath = null;
+        string? packagePath = null;
+        var receiving = true;
+        var launched = false;
         try
         {
-            var folder = await ApplicationData.Current.TemporaryFolder.CreateFolderAsync("update", CreationCollisionOption.OpenIfExists);
-            var file = await folder.CreateFileAsync(update.AssetName, CreationCollisionOption.ReplaceExisting);
-            using (var response = await UpdateHttp.GetAsync(update.AssetUrl, HttpCompletionOption.ResponseHeadersRead))
+            var folder = Path.Combine(ApplicationData.Current.TemporaryFolder.Path, "update");
+            Directory.CreateDirectory(folder);
+            partialPath = Path.Combine(folder, "GameHome.msix.partial");
+            var progress = new Progress<int>(percent =>
             {
-                response.EnsureSuccessStatusCode();
-                var total = response.Content.Headers.ContentLength ?? update.Size;
-                await using var source = await response.Content.ReadAsStreamAsync();
-                await using var target = File.Create(file.Path);
-                var buffer = new byte[81920];
-                long done = 0;
-                int read;
-                var lastShown = -1;
-                while ((read = await source.ReadAsync(buffer)) > 0)
+                if (receiving && !token.IsCancellationRequested && CanUpdate)
                 {
-                    await target.WriteAsync(buffer.AsMemory(0, read));
-                    done += read;
-                    var percent = total > 0 ? (int)(done * 100 / total) : 0;
-                    if (percent != lastShown)
-                    {
-                        lastShown = percent;
-                        UpdateStatus.Text = $"Laster ned {Short(update.Version)} … {percent} %";
-                    }
+                    UpdateStatus.Text = $"Laster ned {Short(update.Version)} … {percent} %";
                 }
+            });
+            await using (var target = new FileStream(partialPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous))
+            {
+                await ReleaseDownload.CopyAsync(UpdateHttp, update, target, UpdateDownloadTimeout, progress, token);
+            }
+
+            receiving = false;
+            if (token.IsCancellationRequested || !CanUpdate)
+            {
+                return;
+            }
+
+            var destination = Path.Combine(folder, "GameHome.msix");
+            File.Move(partialPath, destination, overwrite: true);
+            partialPath = null;
+            packagePath = destination;
+            var file = await StorageFile.GetFileFromPathAsync(packagePath);
+            if (token.IsCancellationRequested || !CanUpdate)
+            {
+                return;
             }
 
             UpdateStatus.Text = "Åpner Windows' installasjonsprogram. Trykk «Oppdater» der; GameHome starter på nytt.";
             _log.Write("oppdatering", $"Lastet ned {update.AssetName}; åpner App Installer");
-            var launched = await global::Windows.System.Launcher.LaunchFileAsync(file);
-            if (!launched)
+            launched = await global::Windows.System.Launcher.LaunchFileAsync(file);
+            if (!launched && !token.IsCancellationRequested && CanUpdate)
             {
                 UpdateStatus.Text = "Windows åpnet ikke installasjonsprogrammet.";
                 _log.Write("oppdatering", "App Installer ble ikke åpnet");
             }
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or TimeoutException
+            or InvalidDataException or IOException or UnauthorizedAccessException or COMException)
         {
-            UpdateStatus.Text = $"Nedlastingen feilet: {ex.Message}";
-            _log.Write("oppdatering", $"Nedlasting feilet: {ex.Message}");
+            if (!token.IsCancellationRequested && CanUpdate)
+            {
+                UpdateStatus.Text = $"Oppdateringen feilet: {ex.Message}";
+                _log.Write("oppdatering", $"Oppdatering feilet: {ex.Message}");
+            }
         }
         finally
         {
-            _updateDownloading = false;
-            UpdateButton.IsEnabled = !SessionActive;
+            receiving = false;
+            DeleteUpdateFile(partialPath);
+            if (!launched)
+            {
+                DeleteUpdateFile(packagePath);
+            }
+
+            _updateDownloadCancellation = null;
+            if (!_updateShuttingDown)
+            {
+                UpdateButton.IsEnabled = CanUpdate;
+                UpdateCheckButton.IsEnabled = CanUpdate;
+            }
+        }
+    }
+
+    private void DeleteUpdateFile(string? path)
+    {
+        if (path is null)
+        {
+            return;
+        }
+
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _log.Write("oppdatering", $"Kunne ikke rydde opp i oppdateringspakken: {ex.GetType().Name}");
         }
     }
 }

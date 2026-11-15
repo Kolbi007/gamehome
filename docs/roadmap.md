@@ -1,10 +1,36 @@
 # Veikart
 
-Fra der vi er til en barebones-versjon. «Barebones» er suksessdefinisjonen i `docs/product-brief.md`:
+Historisk faseplan og testlogg. Planen for barebones er nå overgått av implementeringen; datoene under er fortsatt verdifulle som historiske Legion Go-resultater. «Barebones» er suksessdefinisjonen i `docs/product-brief.md`:
 Legion Go starter i Xbox mode med GameHome, alt styres med kontroller, ett lokalt Steam-spill og 007 First Light
 via stream fra gaming-PC-en kan startes, øktmenyen åpnes med Legion-knappen, og brukeren kommer tilbake til samme flis.
 
-Hver testrunde tar 15–45 minutter på Legion Go. Resultater skrives i `docs/tests/`.
+«Implementert» betyr at kode finnes. «Testet Legion Go» krever en dokumentert enhetstest på Legion Go for gjeldende build. Eldre testresultater nedenfor gjelder buildene og datoene som er oppgitt, og beviser ikke dagens maskinvarestatus. Se stabiliseringsplanen nedenfor.
+
+
+## Stabilisering 2026-11-15
+
+Mål: gjøre gjeldende implementering trygg å bruke og utgi. Statusene er **planlagt**, **implementert**, **testet Legion Go** og **klar for Stable**. En endring er testet på enheten først når resultatet er loggført i `docs/tests/` med buildversjon. Klar for Stable krever grønn CI og fysisk validering av relevant build på Legion Go. Første stabiliseringsrunde er implementert på `codex/stability-foundation`, med 165 beståtte Core-tester; den er ikke testet på Legion Go.
+
+| Prioritet | Arbeid | Status |
+| --- | --- | --- |
+| 1 | Datagjenoppretting: validert JSON-backup, versjonskontroll og bevaring av brukerens overstyringer | Implementert og enhetstestet; skrivebeskyttet økt hvis ingen trygg kopi finnes. Ikke testet Legion Go |
+| 2 | Kildehelse: isolerte kildefeil, varsler og bevaring av spill ved ufullstendige skanninger | Implementert for rapporterte feil og Xbox-pakkelesing. Andre parseres stille feil gjenstår; ikke testet Legion Go |
+| 3 | Avbrytbarhet: avbryt langvarig skanning og oppstart/oppdateringsarbeid uten fastlåst Home | Skannerunden kanselleres ved spillstart; gamle resultater forkastes. Allerede påbegynte synkrone kall kan fullføres. Metadata og oppdateringer gjenstår |
+| 4 | Avgrensede operasjoner: tidsgrenser, begrenset parallellitet og maks datamengder for skanning/nettverkskall | Oppdateringsnedlasting har totalfrist, størrelseskontroll og kansellering. Host-Restore har avgrenset venting på egne arbeidere; krever separat host-installasjon. Øvrige kall gjenstår |
+| 5 | Logging: tåle diskfeil, begrense størrelse og rense personlige felt | Diskfeil og rotasjon implementert og testet; sentral personvernrensing gjenstår |
+| 6 | Versjonspolicy: nyere Beta/Stable enn tidligere utgivelser | Implementert med eksisterende tagger, serialisert release og versjonstester. For manuelt nummererte testbygg må `GAMEHOME_MIN_PACKAGE_VERSION` settes til høyeste installerte testversjon |
+| 7 | Enhetsvalidering: kjør røyktest og relevante arbeidsflyter på Legion Go for en konkret build, og loggfør build, utfall og kjente avvik | Planlagt |
+| 8 | Stable-klar: grønn CI og fysisk validering av relevant release-build på Legion Go | Planlagt |
+
+### Arbeidsflyt for modeller
+
+Bruk modellene etter behov ved sammenhengende leveransepunkt, ikke etter kalender eller fast tidsintervall. **Astra** gjennomgår arkitektur og risiko etter en sammenhengende implementeringsøkning. **Sol** gjør implementering og tester. **Luna** vedlikeholder dokumentasjon. **Terra** brukes valgfritt til observasjon av UI på Legion Go. Reviewfunn vurderes før neste økning; maskinvarestatus dokumenteres separat fra kode-review.
+
+Hold høyst to implementeringsoppgaver i gang samtidig, med adskilte kodeområder. Astra reviewer før samling når lagring, prosesser, oppstart eller oppdateringer berøres; små dokumentasjonsendringer trenger bare faktasjekk. Kjør relevante tester først og samlet Core/Windows-bygg ved integrasjon. Ikke gjenta bred review uten nye endringer eller feil. Se [første kontrollpunkt](review-stabilization-2026-11-15.md).
+
+## Historiske faser og resultater
+
+Tabellen og fasene under er historikk; statusene beskriver opprinnelige testrunder, ikke ny verifisering av gjeldende build. RetroArch er senere vedtatt i ADR 0009; butikk- og metadataarbeid er også delvis implementert. Stabilisering er gjeldende plan.
 
 ## Faser
 

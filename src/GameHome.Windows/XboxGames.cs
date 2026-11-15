@@ -6,6 +6,7 @@ using System.Xml.Linq;
 using GameHome.Core.Library;
 using GameHome.Core.Model;
 using GameHome.Core.Runners;
+using GameHome.Core.Sources;
 using Windows.Management.Deployment;
 
 namespace GameHome.Windows;
@@ -24,41 +25,75 @@ public sealed record XboxGame(string FamilyName, string AppId, string Title, str
 /// </summary>
 public static class XboxGames
 {
-    public static IReadOnlyList<XboxGame> Scan(Action<string>? log = null)
+    public static StoreScanResult Scan(CancellationToken cancellationToken)
     {
         var games = new List<XboxGame>();
+        var unreadablePackages = 0;
         try
         {
             foreach (var package in new PackageManager().FindPackagesForUser(string.Empty))
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 try
                 {
-                    if (package.IsFramework || package.IsResourcePackage || package.IsBundle
-                        || package.InstalledLocation?.Path is not { } location)
+                    if (package.IsFramework || package.IsResourcePackage || package.IsBundle)
                     {
                         continue;
                     }
 
-                    var config = Path.Combine(location, "MicrosoftGame.config");
-                    if (!File.Exists(config) || Read(config, package.Id.FamilyName, location) is not { } game)
+                    if (package.InstalledLocation?.Path is not { Length: > 0 } location)
+                    {
+                        unreadablePackages++;
+                        continue;
+                    }
+
+                    using var config = OpenConfigIfPresent(location);
+                    if (config is null)
                     {
                         continue;
                     }
 
-                    games.Add(game);
+                    if (ReadConfig(config, package.Id.FamilyName, location) is { } game)
+                    {
+                        games.Add(game);
+                    }
+                    else
+                    {
+                        unreadablePackages++;
+                    }
                 }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Runtime.InteropServices.COMException)
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                    or System.Runtime.InteropServices.COMException or System.Xml.XmlException)
                 {
-                    // Pakker som ikke kan leses (for eksempel under oppdatering), hoppes over.
+                    unreadablePackages++;
                 }
             }
         }
-        catch (Exception ex) when (ex is UnauthorizedAccessException or System.Runtime.InteropServices.COMException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Runtime.InteropServices.COMException)
         {
-            log?.Invoke($"Kunne ikke lese pakkelisten: {ex.Message}");
+            const string message = "Kunne ikke lese hele pakkelisten";
+            return games.Count == 0
+                ? StoreScanResult.Failed(message)
+                : StoreScanResult.Degraded(AsStoreEntries(games), message);
         }
 
-        return games;
+        var entries = AsStoreEntries(games);
+        return unreadablePackages == 0
+            ? StoreScanResult.Complete(entries)
+            : StoreScanResult.Degraded(entries, $"Kunne ikke lese {unreadablePackages} pakker");
+    }
+
+    private static FileStream? OpenConfigIfPresent(string installDirectory)
+    {
+        try
+        {
+            return File.OpenRead(Path.Combine(installDirectory, "MicrosoftGame.config"));
+        }
+        catch (FileNotFoundException)
+        {
+            // Pakken har ingen GDK-konfigurasjon.
+            return null;
+        }
     }
 
     /// <summary>Leser navn og programfiler fra MicrosoftGame.config.</summary>
@@ -66,31 +101,37 @@ public static class XboxGames
     {
         try
         {
-            var root = XDocument.Load(configPath).Root;
-            if (root is null)
-            {
-                return null;
-            }
-
-            var visuals = root.Element("ShellVisuals");
-            var title = visuals?.Attribute("DefaultDisplayName")?.Value;
-            var executables = root.Element("ExecutableList")?.Elements("Executable")
-                .Where(e => e.Attribute("TargetDeviceFamily")?.Value is null or "PC")
-                .ToList() ?? [];
-            var appId = executables.Select(e => e.Attribute("Id")?.Value).FirstOrDefault(id => !string.IsNullOrWhiteSpace(id));
-            if (string.IsNullOrWhiteSpace(title) || appId is null)
-            {
-                return null;
-            }
-
-            var names = executables.Select(e => e.Attribute("Name")?.Value).OfType<string>()
-                .Select(Path.GetFileNameWithoutExtension).OfType<string>().ToList();
-            return new XboxGame(familyName, appId, title, installDirectory, names);
+            using var config = File.OpenRead(configPath);
+            return ReadConfig(config, familyName, installDirectory);
         }
         catch (Exception ex) when (ex is System.Xml.XmlException or IOException or UnauthorizedAccessException)
         {
             return null;
         }
+    }
+
+    private static XboxGame? ReadConfig(Stream config, string familyName, string installDirectory)
+    {
+        var root = XDocument.Load(config).Root;
+        if (root is null)
+        {
+            return null;
+        }
+
+        var visuals = root.Element("ShellVisuals");
+        var title = visuals?.Attribute("DefaultDisplayName")?.Value;
+        var executables = root.Element("ExecutableList")?.Elements("Executable")
+            .Where(e => e.Attribute("TargetDeviceFamily")?.Value is null or "PC")
+            .ToList() ?? [];
+        var appId = executables.Select(e => e.Attribute("Id")?.Value).FirstOrDefault(id => !string.IsNullOrWhiteSpace(id));
+        if (string.IsNullOrWhiteSpace(title) || appId is null)
+        {
+            return null;
+        }
+
+        var names = executables.Select(e => e.Attribute("Name")?.Value).OfType<string>()
+            .Select(Path.GetFileNameWithoutExtension).OfType<string>().ToList();
+        return new XboxGame(familyName, appId, title, installDirectory, names);
     }
 
     /// <summary>Som butikkliste for biblioteket: ID-en er app-ID-en («PFN!App»), som også brukes til å starte spillet.</summary>

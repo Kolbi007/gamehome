@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# Hver sammenslåing til main gir en Beta-prerelease v0.2.<run number + 1>. En tagg vX.Y.Z gir en Stable-release.
+# Hver sammenslåing til main gir en nyere Beta-prerelease. En tagg vX.Y.Z gir en Stable-release.
 name: Release
 
 on:
@@ -10,23 +10,32 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: gamehome-release
+  cancel-in-progress: false
+
 jobs:
   version:
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.v.outputs.tag }}
     steps:
+      - uses: actions/checkout@v4
+      - name: Test release versions
+        shell: pwsh
+        run: ./scripts/Test-ReleaseVersion.ps1
       - id: v
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MINIMUM_VERSION: ${{ vars.GAMEHOME_MIN_PACKAGE_VERSION }}
         run: |
-          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
-            tag="$GITHUB_REF_NAME"
-          else
-            # Reserve a higher package version than the latest manual CI test-build (for example 0.2.20.1).
-            next_minor=$((GITHUB_RUN_NUMBER + 1))
-            tag="v0.2.${next_minor}"
-          fi
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "Versjon: $tag"
+          $tags = @(gh api --paginate "repos/$env:GITHUB_REPOSITORY/tags?per_page=100" --jq '.[].name')
+          if ($LASTEXITCODE -ne 0) { throw 'Could not read existing release tags' }
+          $requested = if ($env:GITHUB_REF -like 'refs/tags/*') { $env:GITHUB_REF_NAME } else { '' }
+          $tag = ./scripts/Get-NextReleaseVersion.ps1 -Tags $tags -MinimumVersion $env:MINIMUM_VERSION -RequestedTag $requested
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          Write-Host "Versjon: $tag"
 
   build:
     needs: version

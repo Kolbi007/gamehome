@@ -93,8 +93,32 @@ public class SteamTests
             File.WriteAllText(Path.Combine(steamapps, "libraryfolders.vdf"), "\"libraryfolders\" { }");
             File.WriteAllText(Path.Combine(steamapps, "appmanifest_2062430.acf"), Manifest);
 
-            var entry = Assert.Single(SteamLibraryReader.Scan(root));
+            var entry = Assert.Single(SteamLibraryReader.Scan(root, cancellationToken: TestContext.Current.CancellationToken));
             Assert.Equal("BALL x PIT", entry.Title);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Scan_reports_unavailable_library_but_keeps_entries_from_readable_libraries()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"gamehome-steam-{Guid.NewGuid():N}");
+        try
+        {
+            var steamapps = Directory.CreateDirectory(Path.Combine(root, "steamapps")).FullName;
+            var unavailable = Path.Combine(root, "external").Replace("\\", "\\\\", StringComparison.Ordinal);
+            File.WriteAllText(Path.Combine(steamapps, "libraryfolders.vdf"),
+                $"\"libraryfolders\" {{ \"1\" {{ \"path\" \"{unavailable}\" }} }}");
+            File.WriteAllText(Path.Combine(steamapps, "appmanifest_2062430.acf"), Manifest);
+            var diagnostics = new List<string>();
+
+            var games = SteamLibraryReader.Scan(root, diagnostics.Add, TestContext.Current.CancellationToken);
+
+            Assert.Equal("2062430", Assert.Single(games).Id);
+            Assert.StartsWith("Hopper over bibliotek", Assert.Single(diagnostics), StringComparison.Ordinal);
         }
         finally
         {

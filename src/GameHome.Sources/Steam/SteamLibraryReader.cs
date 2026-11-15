@@ -74,8 +74,9 @@ public static class SteamLibraryReader
     }
 
     /// <summary>Skanner alle bibliotekene. Et bibliotek som ikke kan leses (for eksempel en frakoblet disk), hoppes over.</summary>
-    public static IReadOnlyList<StoreEntry> Scan(string steamRoot, Action<string>? log = null)
+    public static IReadOnlyList<StoreEntry> Scan(string steamRoot, Action<string>? log = null, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var libraryFile = Path.Combine(steamRoot, "steamapps", "libraryfolders.vdf");
         string? libraryText = null;
         try
@@ -101,31 +102,29 @@ public static class SteamLibraryReader
         var found = new Dictionary<string, StoreEntry>();
         foreach (var folder in folders)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var steamapps = Path.Combine(folder, "steamapps");
-            IEnumerable<string> manifests;
             try
             {
-                manifests = Directory.Exists(steamapps) ? Directory.EnumerateFiles(steamapps, "appmanifest_*.acf") : [];
+                foreach (var manifest in Directory.EnumerateFiles(steamapps, "appmanifest_*.acf"))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    try
+                    {
+                        if (ParseAppManifest(File.ReadAllText(manifest), folder) is { } entry)
+                        {
+                            found.TryAdd(entry.Id, entry);
+                        }
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        log?.Invoke($"Hopper over {Path.GetFileName(manifest)}: {ex.Message}");
+                    }
+                }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 log?.Invoke($"Hopper over bibliotek: {ex.Message}");
-                continue;
-            }
-
-            foreach (var manifest in manifests)
-            {
-                try
-                {
-                    if (ParseAppManifest(File.ReadAllText(manifest), folder) is { } entry)
-                    {
-                        found.TryAdd(entry.Id, entry);
-                    }
-                }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                {
-                    log?.Invoke($"Hopper over {Path.GetFileName(manifest)}: {ex.Message}");
-                }
             }
         }
 
