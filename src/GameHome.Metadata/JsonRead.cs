@@ -8,6 +8,10 @@ namespace GameHome.Metadata;
 /// <summary>Små, tilgivende oppslag i <see cref="JsonElement"/>: feil type eller manglende felt gir null.</summary>
 internal static class JsonRead
 {
+    public static JsonElement Object(JsonElement element, string name) =>
+        element.ValueKind == JsonValueKind.Object && element.TryGetProperty(name, out var value)
+            && value.ValueKind == JsonValueKind.Object ? value : default;
+
     public static string? Text(JsonElement element, string name) =>
         element.ValueKind == JsonValueKind.Object && element.TryGetProperty(name, out var value)
             && value.ValueKind == JsonValueKind.String ? value.GetString() : null;

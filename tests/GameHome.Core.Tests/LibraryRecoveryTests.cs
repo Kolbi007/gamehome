@@ -165,5 +165,23 @@ public sealed class LibraryRecoveryTests : IDisposable
         Assert.Equal(2, LibraryStore.Load(LibraryPath).Games.Count);
     }
 
+    [Fact]
+    public void Null_play_stats_entry_does_not_hide_valid_play_history()
+    {
+        var path = Path.Combine(_directory.FullName, "playstats.json");
+        File.WriteAllText(path, """
+            {
+              "good": {"LastPlayedUtc":"2026-11-01T10:00:00Z","Minutes":25},
+              "broken": null
+            }
+            """);
+
+        var stats = PlayStatsStore.Load(path);
+
+        Assert.Equal(new PlayStat(new DateTime(2026, 11, 1, 10, 0, 0, DateTimeKind.Utc), 25), stats["good"]);
+        Assert.Single(stats);
+        Assert.False(stats.ContainsKey("GOOD"));
+    }
+
     public void Dispose() => _directory.Delete(recursive: true);
 }

@@ -8,6 +8,9 @@ namespace GameHome.Core.Tests;
 
 public class SteamAppInfoTests
 {
+    private static IReadOnlyDictionary<uint, SteamAppSummary> Read(byte[] data) =>
+        SteamAppInfo.Read(data, TestContext.Current.CancellationToken);
+
     // Bygger en minimal appinfo.vdf versjon 29: hode, én app med appinfo/common/{name,type}, slutt-markør, strengtabell.
     private static byte[] Build(uint appId, string name, string type)
     {
@@ -52,14 +55,102 @@ public class SteamAppInfoTests
     [Fact]
     public void NameAndTypeAreRead()
     {
-        var apps = SteamAppInfo.Read(Build(1580180, "Gunbrella", "Game"));
+        var apps = Read(Build(1580180, "Gunbrella", "Game"));
         Assert.Equal("Gunbrella", apps[1580180].Name);
         Assert.Equal("Game", apps[1580180].Type);
     }
 
     [Fact]
     public void UnknownVersionIsRejected() =>
-        Assert.Throws<FormatException>(() => SteamAppInfo.Read([1, 2, 3, 4, 5, 6, 7, 8]));
+        Assert.Throws<FormatException>(() => Read([1, 2, 3, 4, 5, 6, 7, 8]));
+
+    [Fact]
+    public void CancelledReadStopsBeforeParsing()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        Assert.Throws<OperationCanceledException>(() => SteamAppInfo.Read(Build(1, "Name", "Game"), cancellation.Token));
+    }
+
+    [Fact]
+    public void Version28ReadsInlineKeys()
+    {
+        using var file = new MemoryStream();
+        using var kv = new MemoryStream();
+        void Text(string value) { kv.Write(Encoding.UTF8.GetBytes(value)); kv.WriteByte(0); }
+        kv.WriteByte(0); Text("AppInfo");
+        kv.WriteByte(0); Text("Common");
+        kv.WriteByte(1); Text("Name"); Text("Game 28");
+        kv.WriteByte(1); Text("Type"); Text("Game");
+        kv.WriteByte(8); kv.WriteByte(8); kv.WriteByte(8);
+        file.Write(BitConverter.GetBytes(0x07564428u));
+        file.Write(BitConverter.GetBytes(1u));
+        file.Write(BitConverter.GetBytes(42u));
+        file.Write(BitConverter.GetBytes(60 + (int)kv.Length));
+        file.Write(new byte[60]);
+        kv.Position = 0; kv.CopyTo(file);
+        file.Write(BitConverter.GetBytes(0u));
+        Assert.Equal("Game 28", Read(file.ToArray())[42].Name);
+    }
+
+    [Fact]
+    public void InvalidVersion29MetadataIsRejected()
+    {
+        var valid = Build(1, "Name", "Game");
+        Assert.Throws<FormatException>(() => Read(valid[..12]));
+        foreach (var offset in new long[] { -1, 15, long.MaxValue, valid.Length - 3 })
+        {
+            var bytes = (byte[])valid.Clone();
+            BitConverter.GetBytes(offset).CopyTo(bytes, 8);
+            Assert.Throws<FormatException>(() => Read(bytes));
+        }
+
+        var table = (int)BitConverter.ToInt64(valid, 8);
+        foreach (var count in new[] { -1, int.MaxValue })
+        {
+            var bytes = (byte[])valid.Clone();
+            BitConverter.GetBytes(count).CopyTo(bytes, table);
+            Assert.Throws<FormatException>(() => Read(bytes));
+        }
+        var unterminated = valid[..^1];
+        Assert.Throws<FormatException>(() => Read(unterminated));
+    }
+
+    [Fact]
+    public void DamagedRecordDoesNotConsumeFollowingRecord()
+    {
+        var first = Build(1, "First", "Game");
+        var second = Build(2, "Second", "Game");
+        var firstTable = (int)BitConverter.ToInt64(first, 8);
+        var secondTable = (int)BitConverter.ToInt64(second, 8);
+        using var combined = new MemoryStream();
+        combined.Write(first, 0, firstTable - 4);
+        combined.Write(second, 16, secondTable - 16);
+        var tableOffset = combined.Position;
+        combined.Write(second, secondTable, second.Length - secondTable);
+        var bytes = combined.ToArray();
+        BitConverter.GetBytes(tableOffset).CopyTo(bytes, 8);
+        // An unterminated value at the end of the first record cannot read the next header.
+        var firstEnd = firstTable - 4;
+        Array.Fill(bytes, (byte)'x', 16 + 8 + 60, firstEnd - (16 + 8 + 60));
+        bytes[16 + 8 + 60] = 1;
+        BitConverter.GetBytes(2).CopyTo(bytes, 16 + 8 + 61);
+        var apps = Read(bytes);
+        Assert.False(apps.ContainsKey(1));
+        Assert.Equal("Second", apps[2].Name);
+    }
+
+    [Fact]
+    public void InvalidRecordLengthsAndKeysAreContained()
+    {
+        var bytes = Build(1, "Name", "Game");
+        BitConverter.GetBytes(int.MaxValue).CopyTo(bytes, 20);
+        Assert.Empty(Read(bytes));
+        bytes = Build(1, "Name", "Game");
+        BitConverter.GetBytes(int.MaxValue).CopyTo(bytes, 85);
+        Assert.Empty(Read(bytes));
+    }
 
     [Fact]
     public void RealFileFromLegionGoParses()
@@ -71,7 +162,7 @@ public class SteamAppInfoTests
             return;
         }
 
-        var apps = SteamAppInfo.Read(File.ReadAllBytes(path));
+        var apps = Read(File.ReadAllBytes(path));
         Assert.True(apps.Count > 100);
         Console.WriteLine($"appinfo: {apps.Count} apper, {apps.Values.Count(a => a.Type.Equals("game", StringComparison.OrdinalIgnoreCase))} spill");
     }

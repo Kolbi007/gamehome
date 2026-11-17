@@ -87,6 +87,20 @@ public class MetadataClientTests
         Assert.Equal("920x430,460x215", SteamGridDbClient.GridDimensions(SteamGridDbGridShape.Landscape));
     }
 
+    [Fact]
+    public void SteamGridDb_mixed_case_content_tags_still_exclude_images()
+    {
+        const string json = """
+            {"success":true,"data":[{"id":10,"url":"https://cdn2.steamgriddb.com/grid/a.png",
+                "nsfw":false,"humor":false,"tags":[null,"HuMoR",3,"NSFW"]}]}
+            """;
+
+        Assert.Empty(SteamGridDbClient.ParseImages(json));
+        var image = Assert.Single(SteamGridDbClient.ParseImages(json, includeNsfwAndHumor: true));
+        Assert.True(image.Nsfw);
+        Assert.True(image.Humor);
+    }
+
     private const string IgdbGames = """
         [{"id":1942,"name":"The Witcher 3: Wild Hunt",
           "summary":"RPG and sequel to The Witcher 2 (2011).",
@@ -221,6 +235,8 @@ public class MetadataClientTests
     {
         Assert.Empty(SteamWebApiClient.ParseOwnedGames("""{"response":{}}""")!);
         Assert.Null(SteamWebApiClient.ParseOwnedGames("<html>Forbidden</html>"));
+        Assert.Null(SteamWebApiClient.ParseOwnedGames("[]"));
+        Assert.Null(SteamWebApiClient.ParseVanity("null"));
     }
 
     [Fact]

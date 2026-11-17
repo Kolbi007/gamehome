@@ -16,7 +16,7 @@ namespace GameHome.App;
 /// </summary>
 public sealed partial class MainWindow
 {
-    private sealed record LibraryTab(string Key, string Label, Func<IReadOnlyList<PlayAction>, bool> Includes);
+    private sealed record LibraryTab(string Key, string Label, Func<IEnumerable<PlayAction>, bool> Includes);
 
     private enum LibrarySort { LastPlayed, MostPlayed, Title, Added }
 
@@ -44,14 +44,14 @@ public sealed partial class MainWindow
     private static readonly string[] ShortSessionGenres =
         ["Casual", "Arcade", "Puzzle", "Card", "Card & Board Game", "Roguelike", "Roguelite", "Pinball", "Platform", "Sport", "Racing", "Fighting"];
 
-    private bool InTab(LibraryTab tab, Game game, IReadOnlyList<PlayAction> actions) =>
+    private bool InTab(LibraryTab tab, Game game, IEnumerable<PlayAction> actions) =>
         tab.Key == "short" ? IsShortSession(game, actions) : tab.Includes(actions);
 
     /// <summary>
     /// Passer for 15–30 minutter: retrospill, og spill der en sjanger tyder på korte økter. Blir mer presist med IGDBs
     /// spilletid når nøklene er lagt inn.
     /// </summary>
-    private bool IsShortSession(Game game, IReadOnlyList<PlayAction> actions) =>
+    private bool IsShortSession(Game game, IEnumerable<PlayAction> actions) =>
         actions.Any(a => a.RunnerId == RetroArchRunner.Id)
         || (_details.TryGetValue(game.Id, out var details)
             && details.Genres.Any(g => ShortSessionGenres.Any(s => g.Contains(s, StringComparison.OrdinalIgnoreCase))));
@@ -111,7 +111,8 @@ public sealed partial class MainWindow
 
     private void BuildLibrary()
     {
-        var games = _library.VisibleGames.Select((g, index) => (Game: g, Index: index, Actions: _library.PlayActionsFor(g.Id))).ToList();
+        var actionsByGame = _library.PlayActions.ToLookup(a => a.GameId, StringComparer.Ordinal);
+        var games = _library.VisibleGames.Select((g, index) => (Game: g, Index: index, Actions: actionsByGame[g.Id])).ToList();
         var tabs = LibraryTabDefinitions.Where(t => t.Key == "all" || games.Any(g => InTab(t, g.Game, g.Actions))).ToList();
         if (!tabs.Any(t => t.Key == _libraryTab))
         {

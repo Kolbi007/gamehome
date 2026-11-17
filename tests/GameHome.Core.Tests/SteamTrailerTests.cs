@@ -22,6 +22,40 @@ public class SteamTrailerTests
     [Theory]
     [InlineData("""{"10":{"success":true,"data":{"movies":[]}}}""")]
     [InlineData("""{"10":{"success":false}}""")]
+    [InlineData("[]")]
+    [InlineData("""{"10":null}""")]
+    [InlineData("""{"10":{"data":{"movies":[null]}}}""")]
     [InlineData("not json")]
     public void NoTrailerGivesNull(string json) => Assert.Null(SteamStoreClient.ParseTrailer(json, 10));
+
+    [Fact]
+    public void InvalidPreferredFormatStillAllowsAnotherFormat() =>
+        Assert.Equal("https://video/max.mp4", SteamStoreClient.ParseTrailer("""
+            {"10":{"data":{"movies":[{"mp4":{"480":false,"max":"https://video/max.mp4"}}]}}}
+            """, 10));
+
+    [Fact]
+    public void InvalidScreenshotRowsAreSkipped() =>
+        Assert.Equal([("preview", "full")], SteamStoreClient.ParseScreenshots("""
+            {"10":{"data":{"screenshots":[null,{"path_thumbnail":3,"path_full":"unusable"},
+                {"path_thumbnail":"preview","path_full":"full"}]}}}
+            """, 10));
+
+    [Fact]
+    public void InvalidOptionalDetailsFieldsAreIgnored()
+    {
+        Assert.Null(SteamStoreClient.ParseDetails("""{"10":null}""", 10, DateTime.UnixEpoch));
+        var details = SteamStoreClient.ParseDetails("""
+            {"10":{"success":true,"data":{"genres":[null,{"description":"Action"}],
+                "release_date":"unavailable","metacritic":{"score":"unavailable"}}}}
+            """, 10, DateTime.UnixEpoch);
+        Assert.NotNull(details);
+        Assert.Equal(["Action"], details.Genres);
+    }
+
+    [Fact]
+    public void MissingSearchRowsAreSkipped() =>
+        Assert.Equal(10, Assert.Single(SteamStoreClient.ParseSearch("""
+            {"items":[null,{"type":"app","name":"Game","id":10}]}
+            """)).Id);
 }

@@ -25,7 +25,7 @@ public sealed partial class MainWindow
     /// <summary>Leser Steams lokale bibliotek én gang per kjøring, i bakgrunnen.</summary>
     private async void LoadSteamLocalLibrary()
     {
-        if (SessionActive || _steamLocal is not null || _steamLocalLoading || SteamClient.FindRoot() is not { } root)
+        if (_launching || SessionActive || _steamLocal is not null || _steamLocalLoading || SteamClient.FindRoot() is not { } root)
         {
             return;
         }
@@ -36,7 +36,7 @@ public sealed partial class MainWindow
         try
         {
             var apps = await Task.Run(() => SteamLocalLibrary.ReadAsync(root, cancellation.Token));
-            if (SessionActive || cancellation.IsCancellationRequested)
+            if (_launching || SessionActive || cancellation.IsCancellationRequested)
             {
                 return;
             }
@@ -54,6 +54,7 @@ public sealed partial class MainWindow
         }
         finally
         {
+            var retryCancelledLoad = cancellation.IsCancellationRequested;
             _steamLocalLoading = false;
             if (ReferenceEquals(_steamLocalLoadCancellation, cancellation))
             {
@@ -61,7 +62,7 @@ public sealed partial class MainWindow
             }
 
             cancellation.Dispose();
-            if (_steamLocal is null && !SessionActive && _windowActive)
+            if (retryCancelledLoad && _steamLocal is null && !_launching && !SessionActive && _windowActive)
             {
                 LoadSteamLocalLibrary();
             }

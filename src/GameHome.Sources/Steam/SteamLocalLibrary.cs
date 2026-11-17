@@ -27,7 +27,7 @@ public static class SteamLocalLibrary
         IReadOnlyDictionary<uint, SteamAppSummary> apps;
         try
         {
-            apps = SteamAppInfo.Read(await File.ReadAllBytesAsync(info, cancellationToken));
+            apps = SteamAppInfo.Read(await File.ReadAllBytesAsync(info, cancellationToken), cancellationToken);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or FormatException or ArgumentException)
         {

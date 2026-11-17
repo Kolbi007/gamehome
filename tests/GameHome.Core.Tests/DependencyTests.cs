@@ -101,6 +101,56 @@ public class DependencyTests
             File.Delete(path);
         }
     }
+
+    [Fact]
+    public void Loading_a_malformed_optional_cache_keeps_valid_checks_and_skips_malformed_checks()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"gamehome-deps-{Guid.NewGuid():N}.json");
+        try
+        {
+            File.WriteAllText(path, """
+                {
+                  "Executables": {
+                    "C:\\Games\\valid.exe": { "Size": 100, "ModifiedUtc": "2026-11-02T20:00:00Z", "CheckedUtc": "2026-11-02T20:00:00Z", "MissingPackages": [], "Version": 2 },
+                    "C:\\Games\\null.exe": null,
+                    "C:\\Games\\bad.exe": { "Size": 100, "ModifiedUtc": "2026-11-02T20:00:00Z", "CheckedUtc": "2026-11-02T20:00:00Z", "MissingPackages": null, "Version": 2 }
+                  },
+                  "InstalledPackages": null
+                }
+                """);
+            var modified = new DateTime(2026, 11, 2, 20, 0, 0, DateTimeKind.Utc);
+
+            var loaded = DependencyStore.Load(path);
+
+            Assert.True(loaded.IsKnownGood(@"c:\games\VALID.exe", 100, modified));
+            Assert.False(loaded.IsKnownGood(@"C:\Games\null.exe", 100, modified));
+            Assert.False(loaded.IsKnownGood(@"C:\Games\bad.exe", 100, modified));
+            Assert.Empty(loaded.InstalledPackages);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Loading_explicit_null_dictionaries_gives_an_empty_document()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"gamehome-deps-{Guid.NewGuid():N}.json");
+        try
+        {
+            File.WriteAllText(path, "{ \"Executables\": null, \"InstalledPackages\": null }");
+
+            var loaded = DependencyStore.Load(path);
+
+            Assert.Empty(loaded.Executables);
+            Assert.Empty(loaded.InstalledPackages);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 }
 
 public class DependencyTreeTests

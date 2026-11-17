@@ -177,10 +177,26 @@ public sealed class SteamGridDbClient
             return null;
         }
 
-        var tags = JsonRead.Array(image, "tags").Where(t => t.ValueKind == JsonValueKind.String)
-            .Select(t => t.GetString()).ToList();
-        var nsfw = JsonRead.Bool(image, "nsfw") || tags.Contains("nsfw", StringComparer.OrdinalIgnoreCase);
-        var humor = JsonRead.Bool(image, "humor") || tags.Contains("humor", StringComparer.OrdinalIgnoreCase);
+        var nsfw = JsonRead.Bool(image, "nsfw");
+        var humor = JsonRead.Bool(image, "humor");
+        if (!nsfw || !humor)
+        {
+            foreach (var tag in JsonRead.Array(image, "tags"))
+            {
+                if (tag.ValueKind != JsonValueKind.String)
+                {
+                    continue;
+                }
+
+                var text = tag.GetString();
+                nsfw |= string.Equals(text, "nsfw", StringComparison.OrdinalIgnoreCase);
+                humor |= string.Equals(text, "humor", StringComparison.OrdinalIgnoreCase);
+                if (nsfw && humor)
+                {
+                    break;
+                }
+            }
+        }
 
         // OpenAPI-filen sier streng, Node-klienten sier liste; godta begge.
         var style = JsonRead.Text(image, "style")

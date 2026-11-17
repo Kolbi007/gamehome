@@ -26,7 +26,12 @@ public static class SteamLibraryReader
         }
 
         var root = KeyValues.Parse(libraryFoldersText)["libraryfolders"];
-        foreach (var (_, node) in root?.Children ?? [])
+        if (root is null || root.Value is not null)
+        {
+            throw new FormatException("Mangler gyldig libraryfolders-gruppe");
+        }
+
+        foreach (var (_, node) in root.Children)
         {
             // Nytt format: { "path" "..." }. Gammelt format: "1" "D:\\SteamLibrary".
             var path = node.GetString("path") ?? node.Value;
@@ -42,26 +47,48 @@ public static class SteamLibraryReader
 
     /// <summary>Leser én appmanifest. Returnerer null for verktøy, ødelagte filer og spill som ikke er ferdig installert.</summary>
     public static StoreEntry? ParseAppManifest(string acfText, string libraryFolder)
+        => ParseAppManifest(acfText, libraryFolder, out _);
+
+    private static StoreEntry? ParseAppManifest(string acfText, string libraryFolder, out string? diagnostic)
     {
+        diagnostic = null;
         KeyValues? state;
         try
         {
             state = KeyValues.Parse(acfText)["AppState"];
         }
-        catch (FormatException)
+        catch (FormatException ex)
+        {
+            diagnostic = ex.Message;
+            return null;
+        }
+
+        if (state is null || state.Value is not null)
+        {
+            diagnostic = "Mangler gyldig AppState-gruppe";
+            return null;
+        }
+
+        var appId = state.GetString("appid");
+        var name = state.GetString("name");
+        var installDir = state.GetString("installdir");
+        if (string.IsNullOrWhiteSpace(appId) || string.IsNullOrWhiteSpace(name))
+        {
+            diagnostic = "AppState mangler appid eller name";
+            return null;
+        }
+
+        if (NonGames.Contains(appId))
         {
             return null;
         }
 
-        var appId = state?.GetString("appid");
-        var name = state?.GetString("name");
-        var installDir = state?.GetString("installdir");
-        if (string.IsNullOrWhiteSpace(appId) || string.IsNullOrWhiteSpace(name) || NonGames.Contains(appId))
+        if (!int.TryParse(state.GetString("StateFlags"), out var flags))
         {
+            diagnostic = "AppState mangler gyldige StateFlags";
             return null;
         }
 
-        _ = int.TryParse(state!.GetString("StateFlags"), out var flags);
         if ((flags & StateFullyInstalled) == 0)
         {
             return null;
@@ -81,13 +108,18 @@ public static class SteamLibraryReader
         string? libraryText = null;
         try
         {
-            libraryText = File.Exists(libraryFile) ? File.ReadAllText(libraryFile) : null;
+            libraryText = File.ReadAllText(libraryFile);
         }
-        catch (IOException ex)
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            // A single-library installation may not have this index.
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             log?.Invoke($"Kunne ikke lese libraryfolders.vdf: {ex.Message}");
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         IReadOnlyList<string> folders;
         try
         {
@@ -111,9 +143,15 @@ public static class SteamLibraryReader
                     cancellationToken.ThrowIfCancellationRequested();
                     try
                     {
-                        if (ParseAppManifest(File.ReadAllText(manifest), folder) is { } entry)
+                        var manifestText = File.ReadAllText(manifest);
+                        cancellationToken.ThrowIfCancellationRequested();
+                        if (ParseAppManifest(manifestText, folder, out var diagnostic) is { } entry)
                         {
                             found.TryAdd(entry.Id, entry);
+                        }
+                        else if (diagnostic is not null)
+                        {
+                            log?.Invoke($"Hopper over {Path.GetFileName(manifest)}: {diagnostic}");
                         }
                     }
                     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -128,6 +166,7 @@ public static class SteamLibraryReader
             }
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         return [.. found.Values];
     }
 

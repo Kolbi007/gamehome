@@ -22,7 +22,16 @@ public static class PlayStatsStore
                 var loaded = JsonSerializer.Deserialize(stream, PlayStatsJson.Default.DictionaryStringPlayStat);
                 if (loaded is not null)
                 {
-                    return new Dictionary<string, PlayStat>(loaded, StringComparer.Ordinal);
+                    var stats = new Dictionary<string, PlayStat>(loaded.Count, StringComparer.Ordinal);
+                    foreach (var (id, stat) in loaded)
+                    {
+                        if (stat is not null)
+                        {
+                            stats.Add(id, stat);
+                        }
+                    }
+
+                    return stats;
                 }
             }
         }

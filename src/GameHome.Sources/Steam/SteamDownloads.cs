@@ -6,7 +6,7 @@ namespace GameHome.Sources.Steam;
 /// <summary>Et Steam-spill som lastes ned eller oppdateres.</summary>
 public sealed record SteamDownload(string AppId, string Name, long BytesDownloaded, long BytesToDownload)
 {
-    public int Percent => BytesToDownload <= 0 ? 0 : (int)Math.Clamp(BytesDownloaded * 100 / BytesToDownload, 0, 100);
+    public int Percent => BytesToDownload <= 0 ? 0 : (int)Int128.Clamp((Int128)BytesDownloaded * 100 / BytesToDownload, 0, 100);
 }
 
 /// <summary>
@@ -42,8 +42,11 @@ public static class SteamDownloads
     }
 
     /// <summary>Pågående nedlastinger i alle Steam-bibliotekene.</summary>
-    public static IReadOnlyList<SteamDownload> Scan(string steamRoot)
+    public static IReadOnlyList<SteamDownload> Scan(string steamRoot) => Scan(steamRoot, CancellationToken.None);
+
+    public static IReadOnlyList<SteamDownload> Scan(string steamRoot, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var libraryFile = Path.Combine(steamRoot, "steamapps", "libraryfolders.vdf");
         IReadOnlyList<string> folders;
         try
@@ -55,9 +58,11 @@ public static class SteamDownloads
             folders = [steamRoot];
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         var downloads = new List<SteamDownload>();
         foreach (var folder in folders)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             try
             {
                 var steamapps = Path.Combine(folder, "steamapps");
@@ -68,9 +73,19 @@ public static class SteamDownloads
 
                 foreach (var manifest in Directory.EnumerateFiles(steamapps, "appmanifest_*.acf"))
                 {
-                    if (Parse(File.ReadAllText(manifest)) is { } download)
+                    cancellationToken.ThrowIfCancellationRequested();
+                    try
                     {
-                        downloads.Add(download);
+                        var text = File.ReadAllText(manifest);
+                        cancellationToken.ThrowIfCancellationRequested();
+                        if (Parse(text) is { } download)
+                        {
+                            downloads.Add(download);
+                        }
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    {
+                        // Et manifest som ikke kan leses, stopper ikke resten av biblioteket.
                     }
                 }
             }
@@ -80,6 +95,7 @@ public static class SteamDownloads
             }
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         return downloads;
     }
 }

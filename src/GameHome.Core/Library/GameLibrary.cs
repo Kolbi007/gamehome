@@ -39,10 +39,29 @@ public sealed class GameLibrary
     public IReadOnlyList<PlayAction> PlayActions => _actions;
 
     /// <summary>Synlige spill sortert etter tittel. Spill der ingen spillemåte er installert, vises ikke.</summary>
-    public IReadOnlyList<Game> VisibleGames =>
-        [.. _games
-            .Where(g => !g.Overrides.Hidden && _actions.Exists(a => a.GameId == g.Id && a.Availability != Availability.Missing))
-            .OrderBy(DisplayTitle, StringComparer.CurrentCultureIgnoreCase)];
+    public IReadOnlyList<Game> VisibleGames
+    {
+        get
+        {
+            if (_games.Count == 0 || _actions.Count == 0)
+            {
+                return [];
+            }
+
+            var availableGameIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var action in _actions)
+            {
+                if (action.Availability != Availability.Missing)
+                {
+                    availableGameIds.Add(action.GameId);
+                }
+            }
+
+            return [.. _games
+                .Where(g => !g.Overrides.Hidden && availableGameIds.Contains(g.Id))
+                .OrderBy(DisplayTitle, StringComparer.CurrentCultureIgnoreCase)];
+        }
+    }
 
     /// <summary>
     /// Oppdaterer biblioteket med det en butikk sier er installert. Nye spill legges til med butikkens ID; spill som
@@ -55,21 +74,36 @@ public sealed class GameLibrary
 
         var added = new List<Game>();
         var updatedCount = 0;
-        var present = new HashSet<string>(StringComparer.Ordinal);
+        var storeActions = new Dictionary<string, (int FirstIndex, bool Present)>(StringComparer.Ordinal);
+        if (installed.Count > 0)
+        {
+            for (var i = 0; i < _actions.Count; i++)
+            {
+                var action = _actions[i];
+                if (action.RunnerId == runnerId)
+                {
+                    storeActions.TryAdd(action.Target, (i, false));
+                }
+            }
+        }
+
         foreach (var entry in installed)
         {
-            present.Add(entry.Id);
-            var index = _actions.FindIndex(a => a.RunnerId == runnerId && a.Target == entry.Id);
-            if (index >= 0)
+            if (storeActions.TryGetValue(entry.Id, out var match))
             {
-                var updated = _actions[index] with
+                if (markMissing && !match.Present)
                 {
-                    Availability = Availability.Installed,
-                    WorkingDirectory = entry.InstallDirectory,
-                };
-                if (updated != _actions[index])
+                    storeActions[entry.Id] = (match.FirstIndex, true);
+                }
+
+                var action = _actions[match.FirstIndex];
+                if (action.Availability != Availability.Installed || action.WorkingDirectory != entry.InstallDirectory)
                 {
-                    _actions[index] = updated;
+                    _actions[match.FirstIndex] = action with
+                    {
+                        Availability = Availability.Installed,
+                        WorkingDirectory = entry.InstallDirectory,
+                    };
                     updatedCount++;
                 }
 
@@ -82,6 +116,7 @@ public sealed class GameLibrary
                 NewId(), game.Id, PlayKind.Store, runnerId, entry.Id,
                 Arguments: null, WorkingDirectory: entry.InstallDirectory, LaunchMode.ClientOnDemand,
                 ProfileId: null, Availability.Installed));
+            storeActions.Add(entry.Id, (_actions.Count - 1, true));
             added.Add(game);
         }
 
@@ -93,10 +128,11 @@ public sealed class GameLibrary
         var missing = 0;
         for (var i = 0; i < _actions.Count; i++)
         {
-            if (_actions[i].RunnerId == runnerId && !present.Contains(_actions[i].Target)
-                && _actions[i].Availability != Availability.Missing)
+            var action = _actions[i];
+            if (action.RunnerId == runnerId && action.Availability != Availability.Missing
+                && (!storeActions.TryGetValue(action.Target, out var match) || !match.Present))
             {
-                _actions[i] = _actions[i] with { Availability = Availability.Missing };
+                _actions[i] = action with { Availability = Availability.Missing };
                 missing++;
             }
         }
@@ -207,6 +243,38 @@ public sealed class GameLibrary
     public static string TitleKey(string title)
     {
         ArgumentNullException.ThrowIfNull(title);
+
+        var previousWasSpace = true;
+        var needsNormalization = false;
+        foreach (var c in title)
+        {
+            if (c is '™' or '®' or '©')
+            {
+                needsNormalization = true;
+                break;
+            }
+
+            if (c == ' ')
+            {
+                if (previousWasSpace)
+                {
+                    needsNormalization = true;
+                    break;
+                }
+
+                previousWasSpace = true;
+            }
+            else
+            {
+                previousWasSpace = false;
+            }
+        }
+
+        if (!needsNormalization && !previousWasSpace)
+        {
+            return title.ToUpperInvariant();
+        }
+
         var cleaned = new string([.. title.Where(c => c is not ('™' or '®' or '©'))]);
         return string.Join(' ', cleaned.Split(' ', StringSplitOptions.RemoveEmptyEntries)).ToUpperInvariant();
     }

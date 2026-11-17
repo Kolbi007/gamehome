@@ -3,6 +3,7 @@
 
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Security;
 
 namespace GameHome.Data;
 
@@ -49,17 +50,31 @@ public static class DependencyStore
                 var loaded = JsonSerializer.Deserialize(stream, DependencyJson.Default.DependencyDocument);
                 if (loaded is not null)
                 {
+                    var executables = new Dictionary<string, CheckedExecutable>(StringComparer.OrdinalIgnoreCase);
+                    if (loaded.Executables is not null)
+                    {
+                        foreach (var (pathKey, check) in loaded.Executables)
+                        {
+                            if (check?.MissingPackages is { } missingPackages && !missingPackages.Any(package => package is null))
+                            {
+                                executables[pathKey] = check;
+                            }
+                        }
+                    }
+
                     return new DependencyDocument
                     {
-                        Executables = new(loaded.Executables, StringComparer.OrdinalIgnoreCase),
-                        InstalledPackages = new(loaded.InstalledPackages, StringComparer.Ordinal),
+                        Executables = executables,
+                        InstalledPackages = loaded.InstalledPackages is null
+                            ? new(StringComparer.Ordinal)
+                            : new(loaded.InstalledPackages, StringComparer.Ordinal),
                     };
                 }
             }
         }
-        catch (JsonException)
+        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException or SecurityException)
         {
-            // Ødelagt oversikt: start på nytt; sjekkene er billige.
+            // Manglende, utilgjengelig eller ødelagt oversikt: start på nytt; sjekkene er billige.
         }
 
         return new DependencyDocument();

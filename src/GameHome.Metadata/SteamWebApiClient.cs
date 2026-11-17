@@ -80,18 +80,28 @@ public sealed class SteamWebApiClient
         try
         {
             using var document = JsonDocument.Parse(json);
-            if (!document.RootElement.TryGetProperty("response", out var response) || response.ValueKind != JsonValueKind.Object)
+            var response = JsonRead.Object(document.RootElement, "response");
+            if (response.ValueKind == JsonValueKind.Undefined)
             {
                 return null;
             }
 
-            return [.. JsonRead.Array(response, "games")
-                .Where(g => JsonRead.Int(g, "appid") is not null)
-                .Select(g => new SteamOwnedGame(
-                    JsonRead.Int(g, "appid")!.Value,
-                    JsonRead.Text(g, "name"),
-                    JsonRead.Int(g, "playtime_forever") ?? 0,
-                    JsonRead.Text(g, "img_icon_url") is { Length: > 0 } icon ? icon : null))];
+            var games = new List<SteamOwnedGame>();
+            foreach (var game in JsonRead.Array(response, "games"))
+            {
+                if (JsonRead.Int(game, "appid") is not { } appId)
+                {
+                    continue;
+                }
+
+                games.Add(new SteamOwnedGame(
+                    appId,
+                    JsonRead.Text(game, "name"),
+                    JsonRead.Int(game, "playtime_forever") ?? 0,
+                    JsonRead.Text(game, "img_icon_url") is { Length: > 0 } icon ? icon : null));
+            }
+
+            return games;
         }
         catch (JsonException)
         {
@@ -105,8 +115,8 @@ public sealed class SteamWebApiClient
         try
         {
             using var document = JsonDocument.Parse(json);
-            return document.RootElement.TryGetProperty("response", out var response)
-                && JsonRead.Int(response, "success") == 1
+            var response = JsonRead.Object(document.RootElement, "response");
+            return JsonRead.Int(response, "success") == 1
                 && ulong.TryParse(JsonRead.Text(response, "steamid"), NumberStyles.None, CultureInfo.InvariantCulture, out var id)
                     ? id
                     : null;

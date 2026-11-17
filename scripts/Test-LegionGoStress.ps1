@@ -17,8 +17,34 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
-Add-Type @'
+$logFile = $null
+$logStart = 0
+$logStartInitialized = $false
+$results = New-Object System.Collections.Generic.List[string]
+function Note([string] $s) { $results.Add("$(Get-Date -Format HH:mm:ss) $s") }
+function GameHome { Get-Process GameHome -ErrorAction SilentlyContinue | Select-Object -First 1 }
+function InFront { $g = GameHome; $g -and [GhStress]::ForegroundPid() -eq $g.Id }
+function NewLog([int] $from = $logStart) { Get-Content $logFile -Encoding UTF8 | Select-Object -Skip $from }
+function HangLines { @(NewLog | Select-String '\[heng\]' | ForEach-Object Line) }
+function Get-PhaseStatus([string] $phase, [bool] $stopped = $false) {
+    $g = GameHome
+    $hangs = HangLines
+    if (-not $g) { Note "${phase}: GameHome-prosess mangler, heng-linjer=$($hangs.Count)" }
+    else { Note "${phase}: GameHome svarer=$($g.Responding), CPU totalt=$([int]$g.CPU) s, minne=$([int]($g.WorkingSet64 / 1MB)) MB, heng-linjer=$($hangs.Count)" }
+    $hangs | ForEach-Object { Note "   $_" }
+    if ($stopped -or -not $g) { return 'FEILET' }
+    if ($hangs.Count -gt 0 -or -not $g.Responding) { return 'HENG' }
+    return 'OK'
+}
+
+$testGame = $null
+$runFailed = $true
+$status1 = 'IKKE KJØRT'
+$status2 = 'IKKE KJØRT'
+$status3 = 'IKKE KJØRT'
+try {
+    Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+    Add-Type @'
 using System; using System.Runtime.InteropServices; using System.Threading;
 public static class GhStress {
     [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
@@ -35,25 +61,10 @@ public static class GhStress {
     }
 }
 '@
-$AE = [System.Windows.Automation.AutomationElement]
-$logFile = Join-Path $env:LOCALAPPDATA 'Packages\GameHome_80y3cyz35a8xa\LocalState\gamehome.log'
-$logStart = (Get-Content $logFile).Count
-$results = New-Object System.Collections.Generic.List[string]
-function Note([string] $s) { $results.Add("$(Get-Date -Format HH:mm:ss) $s") }
-function GameHome { Get-Process GameHome -ErrorAction SilentlyContinue | Select-Object -First 1 }
-function InFront { $g = GameHome; $g -and [GhStress]::ForegroundPid() -eq $g.Id }
-function NewLog { Get-Content $logFile -Encoding UTF8 | Select-Object -Skip $logStart }
-function HangLines { @(NewLog | Select-String '\[heng\]' | ForEach-Object Line) }
-function Check([string] $phase) {
-    $g = GameHome
-    $hangs = HangLines
-    Note "${phase}: GameHome svarer=$($g.Responding), CPU totalt=$([int]$g.CPU) s, minne=$([int]($g.WorkingSet64 / 1MB)) MB, heng-linjer=$($hangs.Count)"
-    $hangs | ForEach-Object { Note "   $_" }
-    return $hangs.Count -eq 0 -and $g.Responding
-}
-
-$testGame = $null
-try {
+    $AE = [System.Windows.Automation.AutomationElement]
+    $logFile = Join-Path $env:LOCALAPPDATA 'Packages\GameHome_80y3cyz35a8xa\LocalState\gamehome.log'
+    $logStart = (Get-Content $logFile -Encoding UTF8).Count
+    $logStartInitialized = $true
     if (-not (GameHome)) { throw 'GameHome kjører ikke' }
     if ((Get-CimInstance Win32_Battery).BatteryStatus -ne 2) { Note 'MERK: ikke i lader; trailere spilles ikke, så del 1 og 3 tester lite' }
     [GhStress]::Chord(0x7A) # Home fram
@@ -61,19 +72,23 @@ try {
     if (-not (InFront)) { throw 'GameHome kom ikke fram (et annet vindu ligger øverst)' }
 
     # ---- 1. Trailere av og på ----
+    $status1 = 'FEILET'
     $end = (Get-Date).AddMinutes($TrailerMinutes)
     $i = 0
+    $part1Stopped = $false
     while ((Get-Date) -lt $end) {
-        if (-not (InFront)) { Note 'GameHome mistet forgrunnen; del 1 stoppes'; break }
+        if (-not (InFront)) { Note 'GameHome mistet forgrunnen; del 1 stoppes'; $part1Stopped = $true; break }
         [GhStress]::Tap($(if ($i % 4 -lt 2) { 0x27 } else { 0x25 })) # høyre, høyre, venstre, venstre
         $i++
         Start-Sleep -Milliseconds $(if ($i % 3 -eq 0) { 9000 } else { 5000 }) # av og til lenge nok til at traileren spiller en stund
     }
-    $trailers = @(NewLog | Select-String '\[trailer\] Trailer spiller').Count
+    $trailers = @(NewLog | Select-String '\[trailer\] (?:(?:Steam|YouTube)-)?trailer spiller').Count
     Note "Del 1: $i fokusbytter, $trailers trailere startet"
-    $ok1 = Check 'Del 1'
+    $status1 = Get-PhaseStatus 'Del 1' $part1Stopped
 
     # ---- 2. Spill avsluttes, skjermen byttes tilbake, traileren starter ----
+    $status2 = 'FEILET'
+    $part2Stopped = $false
     for ($round = 1; $round -le $GameRounds; $round++) {
         $w = $AE::RootElement.FindFirst([System.Windows.Automation.TreeScope]::Children,
             (New-Object System.Windows.Automation.PropertyCondition($AE::ProcessIdProperty, (GameHome).Id)))
@@ -81,22 +96,25 @@ try {
             (New-Object System.Windows.Automation.PropertyCondition($AE::NameProperty, $Game)),
             (New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button)))
         $tile = $w.FindAll([System.Windows.Automation.TreeScope]::Descendants, $cond) | Where-Object { $_.Current.AutomationId -like 'game:*' } | Select-Object -First 1
-        if (-not $tile) { Note "Fant ikke flisen «$Game»; del 2 stoppes"; break }
+        if (-not $tile) { Note "Fant ikke flisen «$Game»; del 2 stoppes"; $part2Stopped = $true; break }
         $tile.SetFocus(); Start-Sleep 1
+        $roundLogStart = (Get-Content $logFile -Encoding UTF8).Count
         $tile.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
         Start-Sleep 20
-        $line = NewLog | Select-String "Startet «$([regex]::Escape($Game))».*PID (\d+)" | Select-Object -Last 1
+        $line = NewLog $roundLogStart | Select-String "Startet «$([regex]::Escape($Game))».*PID (\d+)" | Select-Object -Last 1
         $testGame = if ($line) { Get-Process -Id ([int]$line.Matches[0].Groups[1].Value) -ErrorAction SilentlyContinue }
-        if (-not $testGame) { Note "Runde ${round}: spillet startet ikke; del 2 stoppes"; break }
+        if (-not $testGame) { Note "Runde ${round}: spillet startet ikke; del 2 stoppes"; $part2Stopped = $true; break }
         [void]$testGame.CloseMainWindow()
         $closed = $testGame.WaitForExit(20000)
         Note "Runde ${round}: $Game startet og ble lukket pent ($closed)"
+        if (-not $closed) { $part2Stopped = $true; Note "Runde ${round}: spillet lukket seg ikke; del 2 stoppes"; break }
         $testGame = $null
         Start-Sleep 30 # Home tilbake, skjermen byttet tilbake, traileren starter etter 3 s og spiller en stund
     }
-    $ok2 = Check 'Del 2'
+    $status2 = Get-PhaseStatus 'Del 2' $part2Stopped
 
     # ---- 3. UI Automation gjennom vinduet mens traileren spiller ----
+    $status3 = 'FEILET'
     for ($k = 1; $k -le 5; $k++) {
         [GhStress]::Tap(0x27); Start-Sleep 6 # ny flis, traileren starter
         $w = $AE::RootElement.FindFirst([System.Windows.Automation.TreeScope]::Children,
@@ -105,14 +123,30 @@ try {
         $n = $w.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition).Count
         Note "Del 3, runde ${k}: $n elementer på $($sw.ElapsedMilliseconds) ms"
     }
-    $ok3 = Check 'Del 3'
-    Note "Resultat: del 1 $(if ($ok1) { 'ok' } else { 'HENG' }), del 2 $(if ($ok2) { 'ok' } else { 'HENG' }), del 3 $(if ($ok3) { 'ok' } else { 'HENG' })"
+    $status3 = Get-PhaseStatus 'Del 3'
+    $runFailed = $status1 -ne 'OK' -or $status2 -ne 'OK' -or $status3 -ne 'OK'
+    Note "Resultat: del 1 $status1, del 2 $status2, del 3 $status3"
 }
 catch {
+    $runFailed = $true
     Note "Stresstesten stoppet: $($_.Exception.Message)"
+    Note "Delstatus ved avbrudd: del 1 $status1, del 2 $status2, del 3 $status3"
 }
 finally {
-    if ($testGame -and -not $testGame.HasExited) { [void]$testGame.CloseMainWindow(); Note "Opprydding: lukket $($testGame.ProcessName) pent" }
-    $results + @('', '---- Trailer-, heng- og forgrunnslinjer ----') + @(NewLog | Select-String '\[(heng|trailer|forgrunn)\]' | ForEach-Object Line) |
+    try {
+        if ($testGame -and -not $testGame.HasExited) { [void]$testGame.CloseMainWindow(); Note "Opprydding: lukket $($testGame.ProcessName) pent" }
+    }
+    catch { Note "Opprydding feilet: $($_.Exception.Message)"; $runFailed = $true }
+    $logLines = @()
+    if ($logStartInitialized) {
+        try { $logLines = @(NewLog | Select-String '\[(heng|trailer|forgrunn)\]' | ForEach-Object Line) }
+        catch { Note "Kunne ikke hente logglinjer til rapporten: $($_.Exception.Message)"; $runFailed = $true }
+    }
+    else { Note 'Loggvedlegg hoppet over fordi kjøringen ikke fikk et gyldig startpunkt' }
+    if ($runFailed) { Note 'Resultat: FEILET' }
+    else { Note 'Resultat: OK' }
+    $results + @('', '---- Trailer-, heng- og forgrunnslinjer ----') + $logLines |
         Set-Content $Report -Encoding UTF8
 }
+
+if ($runFailed) { exit 1 }

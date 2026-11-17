@@ -66,6 +66,76 @@ public class LibraryTests
     }
 
     [Fact]
+    public void Visible_games_require_a_nonmissing_action_and_respect_hidden_overrides()
+    {
+        var games = new[]
+        {
+            new Game("visible", "Visible", [], ArtSet.Empty, UserOverrides.None),
+            new Game("missing", "Missing", [], ArtSet.Empty, UserOverrides.None),
+            new Game("hidden", "Hidden", [], ArtSet.Empty, UserOverrides.None with { Hidden = true }),
+        };
+        var actions = new[]
+        {
+            new PlayAction("a1", "visible", PlayKind.Store, "runner", "1", null, null, LaunchMode.Direct, null, Availability.Unknown),
+            new PlayAction("a2", "missing", PlayKind.Store, "runner", "2", null, null, LaunchMode.Direct, null, Availability.Missing),
+            new PlayAction("a3", "hidden", PlayKind.Store, "runner", "3", null, null, LaunchMode.Direct, null, Availability.Installed),
+        };
+
+        var library = new GameLibrary(games, actions);
+
+        Assert.Equal(["Visible"], library.VisibleGames.Select(GameLibrary.DisplayTitle));
+    }
+
+    [Theory]
+    [InlineData("  The   Game  ", "THE GAME")]
+    [InlineData("A ™  B®", "A B")]
+    [InlineData("A\tB  C", "A\tB C")]
+    public void Title_key_removes_marks_and_collapses_only_ascii_spaces(string title, string expected) =>
+        Assert.Equal(expected, GameLibrary.TitleKey(title));
+
+    [Fact]
+    public void Title_key_uses_invariant_uppercase_for_unmodified_unicode_titles() =>
+        Assert.Equal("Straße Ω".ToUpperInvariant(), GameLibrary.TitleKey("Straße Ω"));
+
+    [Fact]
+    public void Sync_updates_only_the_first_persisted_action_for_a_duplicate_target()
+    {
+        var firstGame = new Game("first", "First", [], ArtSet.Empty, UserOverrides.None);
+        var secondGame = new Game("second", "Second", [], ArtSet.Empty, UserOverrides.None);
+        var firstAction = new PlayAction("a1", firstGame.Id, PlayKind.Store, "runner", "same", null, "old-first", LaunchMode.Direct, null, Availability.Missing);
+        var duplicateAction = new PlayAction("a2", secondGame.Id, PlayKind.Store, "runner", "same", null, "old-second", LaunchMode.Direct, null, Availability.Missing);
+        var library = new GameLibrary([firstGame, secondGame], [firstAction, duplicateAction]);
+
+        var result = library.SyncStore("runner", [new StoreEntry("same", "Title", "new")]);
+
+        Assert.Equal(1, result.Updated);
+        Assert.Equal(0, result.MarkedMissing);
+        Assert.Equal(Availability.Installed, library.PlayActions[0].Availability);
+        Assert.Equal("new", library.PlayActions[0].WorkingDirectory);
+        Assert.Equal(Availability.Missing, library.PlayActions[1].Availability);
+        Assert.Equal("old-second", library.PlayActions[1].WorkingDirectory);
+    }
+
+    [Fact]
+    public void Sync_reuses_a_target_added_during_the_scan_and_keeps_case_distinctions()
+    {
+        var library = new GameLibrary();
+
+        var result = library.SyncStore("runner",
+        [
+            new StoreEntry("game", "First title", "old"),
+            new StoreEntry("game", "Duplicate title", "new"),
+            new StoreEntry("GAME", "Different target", null),
+        ]);
+
+        Assert.Equal(["First title", "Different target"], result.Added.Select(g => g.Title));
+        Assert.Equal(1, result.Updated);
+        Assert.Equal(0, result.MarkedMissing);
+        Assert.Equal("new", library.PlayActions[0].WorkingDirectory);
+        Assert.Equal("GAME", library.PlayActions[1].Target);
+    }
+
+    [Fact]
     public void Library_survives_save_and_load()
     {
         var path = Path.Combine(Path.GetTempPath(), $"gamehome-test-{Guid.NewGuid():N}", "library.json");

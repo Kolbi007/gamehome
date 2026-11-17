@@ -3,6 +3,7 @@
 
 using GameHome.Core.Library;
 using GameHome.Core.Model;
+using GameHome.Core.Sources;
 using GameHome.Sources.Steam;
 
 namespace GameHome.Core.Tests;
@@ -56,6 +57,33 @@ public class SteamTests
     [Fact]
     public void KeyValues_rejects_unbalanced_braces() =>
         Assert.Throws<FormatException>(() => KeyValues.Parse("\"AppState\" { \"appid\" \"1\""));
+
+    [Fact]
+    public void KeyValues_preserves_duplicate_order_and_quoted_brace_values()
+    {
+        var root = KeyValues.Parse("\"root\" { \"A\" \"first\" \"b\" \"{literal}\" \"a\" \"last\" }")["root"]!;
+
+        Assert.Equal("last", root.GetString("A"));
+        Assert.Equal("{literal}", root.GetString("b"));
+        Assert.Equal(["A", "b"], root.Children.Select(child => child.Key));
+        Assert.Empty(root["A"]!.Children);
+    }
+
+    [Theory]
+    [InlineData("\"root\" { \"key\" \"unterminated")]
+    [InlineData("\"root\" { \"key\" }")]
+    [InlineData("{ \"key\" \"value\" }")]
+    public void KeyValues_rejects_malformed_tokens(string text) =>
+        Assert.Throws<FormatException>(() => KeyValues.Parse(text));
+
+    [Fact]
+    public void KeyValues_rejects_excessive_nesting()
+    {
+        var text = "\"root\" " + string.Concat(Enumerable.Repeat("\"group\" { ", 130))
+            + "\"key\" \"value\"" + string.Concat(Enumerable.Repeat(" }", 130));
+
+        Assert.Throws<FormatException>(() => KeyValues.Parse(text));
+    }
 
     [Fact]
     public void Library_folders_include_steam_root_once_and_extra_libraries()
@@ -119,6 +147,65 @@ public class SteamTests
 
             Assert.Equal("2062430", Assert.Single(games).Id);
             Assert.StartsWith("Hopper over bibliotek", Assert.Single(diagnostics), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Scan_reports_bad_manifests_and_degraded_apply_keeps_existing_games()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"gamehome-steam-{Guid.NewGuid():N}");
+        try
+        {
+            var steamapps = Directory.CreateDirectory(Path.Combine(root, "steamapps")).FullName;
+            File.WriteAllText(Path.Combine(steamapps, "libraryfolders.vdf"), "\"libraryfolders\" { }");
+            File.WriteAllText(Path.Combine(steamapps, "appmanifest_123.acf"),
+                "\"AppState\" { \"appid\" \"123\" \"name\" \"Existing Game\" \"StateFlags\" \"4\"");
+            File.WriteAllText(Path.Combine(steamapps, "appmanifest_456.acf"),
+                "\"AppState\" { \"appid\" \"456\" \"StateFlags\" \"4\" }");
+            File.WriteAllText(Path.Combine(steamapps, "appmanifest_789.acf"),
+                "\"AppState\" { \"appid\" \"789\" \"name\" \"Updating Game\" \"StateFlags\" \"2\" }");
+            File.WriteAllText(Path.Combine(steamapps, "appmanifest_228980.acf"),
+                "\"AppState\" { \"appid\" \"228980\" \"name\" \"Steamworks\" \"StateFlags\" \"4\" }");
+            var diagnostics = new List<string>();
+            var library = new GameLibrary();
+            library.SyncStore(GameLibrary.SteamRunnerId, [new("123", "Existing Game", null)]);
+
+            var entries = SteamLibraryReader.Scan(root, diagnostics.Add, TestContext.Current.CancellationToken);
+            var degraded = StoreScanResult.Degraded(entries, string.Join("; ", diagnostics));
+            var applied = degraded.ApplyTo(library, GameLibrary.SteamRunnerId);
+
+            Assert.Empty(entries);
+            Assert.Contains(diagnostics, message => message.Contains("appmanifest_123.acf", StringComparison.Ordinal));
+            Assert.Contains(diagnostics, message => message.Contains("appmanifest_456.acf", StringComparison.Ordinal));
+            Assert.DoesNotContain(diagnostics, message => message.Contains("appmanifest_789.acf", StringComparison.Ordinal));
+            Assert.DoesNotContain(diagnostics, message => message.Contains("appmanifest_228980.acf", StringComparison.Ordinal));
+            Assert.Equal(0, applied!.MarkedMissing);
+            Assert.Single(library.VisibleGames);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Scan_reports_malformed_libraryfolders_root_and_falls_back_to_steam_root()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"gamehome-steam-{Guid.NewGuid():N}");
+        try
+        {
+            var steamapps = Directory.CreateDirectory(Path.Combine(root, "steamapps")).FullName;
+            File.WriteAllText(Path.Combine(steamapps, "libraryfolders.vdf"), "\"wrong-root\" { }");
+            var diagnostics = new List<string>();
+
+            var entries = SteamLibraryReader.Scan(root, diagnostics.Add, TestContext.Current.CancellationToken);
+
+            Assert.Empty(entries);
+            Assert.Contains(diagnostics, message => message.Contains("libraryfolders.vdf er ødelagt", StringComparison.Ordinal));
         }
         finally
         {

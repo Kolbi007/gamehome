@@ -17,23 +17,46 @@ public sealed partial class MainWindow
     private static readonly TimeSpan DownloadPollInterval = TimeSpan.FromSeconds(3);
     private DispatcherQueueTimer? _downloadTimer;
     private bool _downloadCheckRunning;
+    private CancellationTokenSource? _downloadCheckCancellation;
+    private bool _downloadCheckRequested;
+    private bool _downloadCheckPausedForLaunch;
     private HashSet<string> _activeDownloads = new(StringComparer.Ordinal);
 
     /// <summary>Ser etter nedlastinger; finnes det noen, følges de til de er ferdige.</summary>
     private async void CheckDownloads()
     {
-        if (SessionActive || _downloadCheckRunning || SteamClient.FindRoot() is not { } root)
+        if (_launching || SessionActive)
+        {
+            PauseDownloadCheckForLaunch();
+            return;
+        }
+
+        if (_downloadCheckRunning)
+        {
+            // Home kan bli aktiv igjen før et avbrutt søk har rukket å avslutte.
+            _downloadCheckRequested |= _downloadCheckCancellation?.IsCancellationRequested == true;
+            return;
+        }
+
+        if (SteamClient.FindRoot() is not { } root)
         {
             StopDownloadTimer();
             return;
         }
 
         _downloadCheckRunning = true;
+        var cancellation = new CancellationTokenSource();
+        _downloadCheckCancellation = cancellation;
         try
         {
-            var downloads = await Task.Run(() => SteamDownloads.Scan(root));
-            var finished = _activeDownloads.Where(id => downloads.All(d => d.AppId != id)).ToList();
-            _activeDownloads = downloads.Select(d => d.AppId).ToHashSet(StringComparer.Ordinal);
+            var downloads = await Task.Run(() => SteamDownloads.Scan(root, cancellation.Token));
+            if (cancellation.IsCancellationRequested || _launching || SessionActive)
+            {
+                return;
+            }
+            var currentDownloads = downloads.Select(d => d.AppId).ToHashSet(StringComparer.Ordinal);
+            var finished = _activeDownloads.Where(id => !currentDownloads.Contains(id)).ToList();
+            _activeDownloads = currentDownloads;
 
             if (downloads.Count == 0)
             {
@@ -59,6 +82,10 @@ public sealed partial class MainWindow
                 SyncStoresInBackground();
             }
         }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            // En spillstart eller avslutning avbrøt søket.
+        }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             _log.Write("steam", $"Kunne ikke lese nedlastinger: {ex.Message}");
@@ -66,6 +93,43 @@ public sealed partial class MainWindow
         finally
         {
             _downloadCheckRunning = false;
+            if (ReferenceEquals(_downloadCheckCancellation, cancellation))
+            {
+                _downloadCheckCancellation = null;
+            }
+
+            cancellation.Dispose();
+            var retry = _downloadCheckRequested;
+            _downloadCheckRequested = false;
+            if (retry && !_launching && !SessionActive)
+            {
+                CheckDownloads();
+            }
+        }
+    }
+
+    private void CancelDownloadCheck()
+    {
+        _downloadCheckPausedForLaunch = false;
+        _downloadCheckRequested = false;
+        StopDownloadTimer();
+        _downloadCheckCancellation?.Cancel();
+    }
+
+    private void PauseDownloadCheckForLaunch()
+    {
+        var wasMonitoring = _downloadCheckPausedForLaunch || _downloadCheckRunning || _downloadTimer?.IsRunning == true;
+        CancelDownloadCheck();
+        _downloadCheckPausedForLaunch = wasMonitoring;
+    }
+
+    private void ResumeDownloadCheckAfterLaunch()
+    {
+        var wasMonitoring = _downloadCheckPausedForLaunch;
+        _downloadCheckPausedForLaunch = false;
+        if (wasMonitoring && _windowActive && !SessionActive)
+        {
+            CheckDownloads();
         }
     }
 

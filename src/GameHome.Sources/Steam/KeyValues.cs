@@ -11,16 +11,20 @@ namespace GameHome.Sources.Steam;
 /// </summary>
 public sealed class KeyValues
 {
-    private readonly Dictionary<string, KeyValues> _children = new(StringComparer.OrdinalIgnoreCase);
-    private readonly List<string> _order = [];
+    private const int MaximumNestingDepth = 128;
+
+    private Dictionary<string, KeyValues>? _children;
+    private List<string>? _order;
 
     private KeyValues(string? value) => Value = value;
 
     public string? Value { get; }
 
-    public IEnumerable<(string Key, KeyValues Node)> Children => _order.Select(k => (k, _children[k]));
+    public IEnumerable<(string Key, KeyValues Node)> Children => _order is null
+        ? []
+        : _order.Select(k => (k, _children![k]));
 
-    public KeyValues? this[string key] => _children.GetValueOrDefault(key);
+    public KeyValues? this[string key] => _children?.GetValueOrDefault(key);
 
     public string? GetString(string key) => this[key]?.Value;
 
@@ -30,11 +34,11 @@ public sealed class KeyValues
         ArgumentNullException.ThrowIfNull(text);
         var position = 0;
         var root = new KeyValues(null);
-        ReadChildren(text, ref position, root, expectClosingBrace: false);
+        ReadChildren(text, ref position, root, expectClosingBrace: false, depth: 0);
         return root;
     }
 
-    private static void ReadChildren(string text, ref int position, KeyValues parent, bool expectClosingBrace)
+    private static void ReadChildren(string text, ref int position, KeyValues parent, bool expectClosingBrace, int depth)
     {
         while (true)
         {
@@ -59,13 +63,28 @@ public sealed class KeyValues
                 return;
             }
 
+            if (token is { Quoted: false, Text: "{" })
+            {
+                throw new FormatException("Uventet {");
+            }
+
             var key = token.Value.Text;
             var next = NextToken(text, ref position) ?? throw new FormatException($"Mangler verdi for «{key}»");
+            if (next is { Quoted: false, Text: "}" })
+            {
+                throw new FormatException($"Mangler verdi for «{key}»");
+            }
+
             KeyValues child;
             if (next is { Quoted: false, Text: "{" })
             {
+                if (depth >= MaximumNestingDepth)
+                {
+                    throw new FormatException("KeyValues er nøstet for dypt");
+                }
+
                 child = new KeyValues(null);
-                ReadChildren(text, ref position, child, expectClosingBrace: true);
+                ReadChildren(text, ref position, child, expectClosingBrace: true, depth + 1);
             }
             else
             {
@@ -73,6 +92,8 @@ public sealed class KeyValues
             }
 
             // Ved like nøkler vinner den siste, som i Steam.
+            parent._children ??= new Dictionary<string, KeyValues>(StringComparer.OrdinalIgnoreCase);
+            parent._order ??= [];
             if (parent._children.TryAdd(key, child))
             {
                 parent._order.Add(key);
@@ -118,10 +139,29 @@ public sealed class KeyValues
 
         if (text[position] == '"')
         {
-            position++;
-            var builder = new StringBuilder();
-            while (position < text.Length && text[position] != '"')
+            var contentStart = ++position;
+            while (position < text.Length && text[position] is not ('"' or '\\'))
             {
+                position++;
+            }
+
+            if (position < text.Length && text[position] == '"')
+            {
+                var value = text[contentStart..position];
+                position++;
+                return (value, true);
+            }
+
+            var builder = new StringBuilder();
+            builder.Append(text, contentStart, position - contentStart);
+            while (position < text.Length)
+            {
+                if (text[position] == '"')
+                {
+                    position++;
+                    return (builder.ToString(), true);
+                }
+
                 if (text[position] == '\\' && position + 1 < text.Length)
                 {
                     position++;
@@ -135,8 +175,7 @@ public sealed class KeyValues
                 position++;
             }
 
-            position++; // avsluttende "
-            return (builder.ToString(), true);
+            throw new FormatException("Uventet slutt på filen i sitert token");
         }
 
         var start = position;

@@ -54,7 +54,8 @@ public sealed class SteamStoreClient(HttpClient http)
         try
         {
             var result = JsonSerializer.Deserialize(json, SteamStoreJson.Default.StoreSearchResult);
-            return [.. (result?.Items ?? []).Where(i => i.Type == "app" && !string.IsNullOrWhiteSpace(i.Name))
+            return [.. (result?.Items ?? []).OfType<StoreSearchItem>()
+                .Where(i => i.Type == "app" && !string.IsNullOrWhiteSpace(i.Name))
                 .Select(i => new SteamSearchHit(i.Id, CleanName(i.Name!), i.TinyImage))];
         }
         catch (JsonException)
@@ -121,32 +122,23 @@ public sealed class SteamStoreClient(HttpClient http)
         try
         {
             using var document = JsonDocument.Parse(json);
-            if (!document.RootElement.TryGetProperty(appId.ToString(CultureInfo.InvariantCulture), out var entry)
-                || !entry.TryGetProperty("success", out var success) || success.ValueKind != JsonValueKind.True
-                || !entry.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object)
+            var entry = ReadAppEntry(document.RootElement, appId);
+            var data = JsonRead.Object(entry, "data");
+            if (!JsonRead.Bool(entry, "success") || data.ValueKind == JsonValueKind.Undefined)
             {
                 return null;
             }
-
-            static string? Text(JsonElement element, string name) =>
-                element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 
             static string? First(JsonElement element, string name) =>
                 element.TryGetProperty(name, out var list) && list.ValueKind == JsonValueKind.Array && list.GetArrayLength() > 0
                     && list[0].ValueKind == JsonValueKind.String ? list[0].GetString() : null;
 
-            var genres = new List<string>();
-            if (data.TryGetProperty("genres", out var genreList) && genreList.ValueKind == JsonValueKind.Array)
-            {
-                genres.AddRange(genreList.EnumerateArray().Select(g => Text(g, "description")).OfType<string>().Take(3));
-            }
-
-            int? metacritic = data.TryGetProperty("metacritic", out var meta) && meta.TryGetProperty("score", out var score)
-                && score.TryGetInt32(out var value) ? value : null;
-            var released = data.TryGetProperty("release_date", out var release) ? Text(release, "date") : null;
+            var genres = JsonRead.Array(data, "genres").Select(g => JsonRead.Text(g, "description")).OfType<string>().Take(3).ToArray();
+            var metacritic = JsonRead.Int(JsonRead.Object(data, "metacritic"), "score");
+            var released = JsonRead.Text(JsonRead.Object(data, "release_date"), "date");
 
             return new GameDetails(
-                GameDetailsStore.PlainText(Text(data, "short_description")),
+                GameDetailsStore.PlainText(JsonRead.Text(data, "short_description")),
                 First(data, "developers"),
                 First(data, "publishers"),
                 string.IsNullOrWhiteSpace(released) ? null : released,
@@ -216,20 +208,14 @@ public sealed class SteamStoreClient(HttpClient http)
         try
         {
             using var document = JsonDocument.Parse(json);
-            if (!document.RootElement.TryGetProperty(appId.ToString(CultureInfo.InvariantCulture), out var entry)
-                || !entry.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object
-                || !data.TryGetProperty("movies", out var movies) || movies.ValueKind != JsonValueKind.Array
-                || movies.GetArrayLength() == 0)
-            {
-                return null;
-            }
+            var data = JsonRead.Object(ReadAppEntry(document.RootElement, appId), "data");
+            var movie = JsonRead.Array(data, "movies").FirstOrDefault();
+            var mp4 = JsonRead.Object(movie, "mp4");
+            static string? HttpsUrl(JsonElement element, string name) =>
+                JsonRead.Text(element, name) is { } url && url.StartsWith("https://", StringComparison.Ordinal) ? url : null;
 
-            var movie = movies[0];
-            static string? Pick(JsonElement movie, string format, string size) =>
-                movie.TryGetProperty(format, out var f) && f.ValueKind == JsonValueKind.Object && f.TryGetProperty(size, out var u)
-                    && u.GetString() is { Length: > 0 } url && url.StartsWith("https://", StringComparison.Ordinal) ? url : null;
-            return Pick(movie, "mp4", "480") ?? Pick(movie, "mp4", "max") ?? Pick(movie, "webm", "480")
-                ?? (movie.TryGetProperty("hls_h264", out var hls) && hls.GetString() is { Length: > 0 } h && h.StartsWith("https://", StringComparison.Ordinal) ? h : null);
+            return HttpsUrl(mp4, "480") ?? HttpsUrl(mp4, "max") ?? HttpsUrl(JsonRead.Object(movie, "webm"), "480")
+                ?? HttpsUrl(movie, "hls_h264");
         }
         catch (JsonException)
         {
@@ -242,16 +228,9 @@ public sealed class SteamStoreClient(HttpClient http)
         try
         {
             using var document = JsonDocument.Parse(json);
-            if (!document.RootElement.TryGetProperty(appId.ToString(CultureInfo.InvariantCulture), out var entry)
-                || !entry.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object
-                || !data.TryGetProperty("screenshots", out var shots) || shots.ValueKind != JsonValueKind.Array)
-            {
-                return [];
-            }
-
-            return [.. shots.EnumerateArray()
-                .Select(s => (Preview: s.TryGetProperty("path_thumbnail", out var t) ? t.GetString() : null,
-                              Full: s.TryGetProperty("path_full", out var f) ? f.GetString() : null))
+            var data = JsonRead.Object(ReadAppEntry(document.RootElement, appId), "data");
+            return [.. JsonRead.Array(data, "screenshots")
+                .Select(s => (Preview: JsonRead.Text(s, "path_thumbnail"), Full: JsonRead.Text(s, "path_full")))
                 .Where(s => s.Preview is not null && s.Full is not null)
                 .Select(s => (s.Preview!, s.Full!))
                 .Take(8)];
@@ -261,6 +240,9 @@ public sealed class SteamStoreClient(HttpClient http)
             return [];
         }
     }
+
+    private static JsonElement ReadAppEntry(JsonElement root, int appId) =>
+        JsonRead.Object(root, appId.ToString(CultureInfo.InvariantCulture));
 
     /// <summary>Flere offisielle butikkbilder enn standardsettet: bred «header» og kapsel som alternative omslag.</summary>
     public static IReadOnlyList<string> ExtraCoverUrls(int appId)
@@ -277,7 +259,7 @@ public sealed class SteamStoreClient(HttpClient http)
 }
 
 internal sealed record StoreSearchResult(
-    [property: JsonPropertyName("items")] IReadOnlyList<StoreSearchItem>? Items);
+    [property: JsonPropertyName("items")] IReadOnlyList<StoreSearchItem?>? Items);
 
 internal sealed record StoreSearchItem(
     [property: JsonPropertyName("type")] string? Type,

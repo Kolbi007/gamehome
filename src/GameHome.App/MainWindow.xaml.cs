@@ -452,16 +452,27 @@ public sealed partial class MainWindow : Window
     /// «Fortsett» i Home: festede spill først, så sist spilte, så nylig lagt til (nyeste først), høyst
     /// <see cref="HomeRowLimit"/>. Det første spillet er det du mest sannsynlig vil starte.
     /// </summary>
-    private List<Game> HomeGames()
+    private List<Game> HomeGames(IReadOnlyList<Game>? visibleGames = null)
     {
         // Et spill som kjører på PC-en (koblet fra uten å avslutte) står først: «Fortsett strømmen» er ett trykk unna.
+        HashSet<string>? runningGames = null;
+        if (!SessionActive && _hostRunningApp is { } running)
+        {
+            var titleKey = GameLibrary.TitleKey(running);
+            runningGames = _library.PlayActions.Where(a => MatchesHostApp(a, titleKey))
+                .Select(a => a.GameId).ToHashSet(StringComparer.Ordinal);
+        }
+
         var pinned = LoadPinned();
-        var all = _library.VisibleGames.Select((g, index) => (Game: g, Index: index)).ToList();
+        var all = (visibleGames ?? _library.VisibleGames)
+            .Select((game, index) => (Game: game, Index: index,
+                RunningOnHost: runningGames?.Contains(game.Id) == true, PinIndex: pinned.IndexOf(game.Id)))
+            .ToList();
         return
         [
-            .. all.Where(x => IsRunningOnHost(x.Game))
-                .Concat(all.Where(x => !IsRunningOnHost(x.Game) && pinned.Contains(x.Game.Id)).OrderBy(x => pinned.IndexOf(x.Game.Id)))
-                .Concat(all.Where(x => !IsRunningOnHost(x.Game) && !pinned.Contains(x.Game.Id))
+            .. all.Where(x => x.RunningOnHost)
+                .Concat(all.Where(x => !x.RunningOnHost && x.PinIndex >= 0).OrderBy(x => x.PinIndex))
+                .Concat(all.Where(x => !x.RunningOnHost && x.PinIndex < 0)
                     .OrderByDescending(x => LastPlayed(x.Game))
                     .ThenByDescending(x => x.Index))
                 .Select(x => x.Game)
@@ -471,7 +482,8 @@ public sealed partial class MainWindow : Window
 
     private void BuildGameTiles()
     {
-        var visible = HomeGames();
+        var visibleGames = _library.VisibleGames;
+        var visible = HomeGames(visibleGames);
         var ids = visible.Select(g => g.Id).ToHashSet(StringComparer.Ordinal);
 
         for (var i = GameTiles.Children.Count - 1; i >= 0; i--)
@@ -511,8 +523,7 @@ public sealed partial class MainWindow : Window
             focusedTile.StartBringIntoView();
         }
 
-        var hidden = _library.VisibleGames.Count - visible.Count;
-        LibraryTileText.Text = hidden > 0 ? $"Bibliotek ({_library.VisibleGames.Count})" : "Bibliotek";
+        LibraryTileText.Text = visibleGames.Count > visible.Count ? $"Bibliotek ({visibleGames.Count})" : "Bibliotek";
         if (LibraryPanel.Visibility == Visibility.Visible)
         {
             BuildLibrary();
@@ -1800,8 +1811,8 @@ public sealed partial class MainWindow : Window
             case "steamgriddb" when SteamGridDb is { } sgdb:
             {
                 var appId = SteamAppIdFor(game);
-                var match = appId is { } id ? await sgdb.GetGameBySteamAppIdAsync(id) : null;
-                match ??= First(await sgdb.SearchAsync(GameLibrary.DisplayTitle(game)));
+                var match = appId is { } id ? await sgdb.GetGameBySteamAppIdAsync(id, ct) : null;
+                match ??= First(await sgdb.SearchAsync(GameLibrary.DisplayTitle(game), ct));
                 if (match is null)
                 {
                     break;
@@ -2609,6 +2620,9 @@ public sealed partial class MainWindow : Window
         {
             CancelUpdateOperations();
             CancelStoreScan();
+            CancelBackgroundArt();
+            PauseDownloadCheckForLaunch();
+            CancelBackgroundHostStatus();
             await LaunchCoreAsync(game, chosen, battleNetConfirmed);
         }
         catch (Exception ex)
@@ -2621,6 +2635,7 @@ public sealed partial class MainWindow : Window
         finally
         {
             _launching = false;
+            ResumeDownloadCheckAfterLaunch();
         }
     }
 
@@ -4178,6 +4193,9 @@ public sealed partial class MainWindow : Window
 
     private IReadOnlyList<HostApp>? _hostApps;
     private bool _hostArtRunning;
+    private CancellationTokenSource? _artCancellation;
+
+    private void CancelBackgroundArt() => _artCancellation?.Cancel();
 
     /// <summary>
     /// Kopierer omslag Moonlight har i bufferen (hentet fra Vibepollo, altså fra Playnite på PC-en) til GameHomes egen
@@ -4273,7 +4291,7 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>Omslag, bakgrunn og logo fra SteamGridDB (første treff på tittelen), eller null.</summary>
-    private async Task<(string? Cover, string? Hero, string? Logo)?> SteamGridDbArtAsync(Game game)
+    private async Task<(string? Cover, string? Hero, string? Logo)?> SteamGridDbArtAsync(Game game, CancellationToken ct = default)
     {
         if (SteamGridDb is not { } sgdb)
         {
@@ -4281,16 +4299,16 @@ public sealed partial class MainWindow : Window
         }
 
         var appId = SteamAppIdFor(game);
-        var match = appId is { } id ? await sgdb.GetGameBySteamAppIdAsync(id) : null;
-        match ??= First(await sgdb.SearchAsync(GameLibrary.DisplayTitle(game)));
+        var match = appId is { } id ? await sgdb.GetGameBySteamAppIdAsync(id, ct) : null;
+        match ??= First(await sgdb.SearchAsync(GameLibrary.DisplayTitle(game), ct));
         if (match is null)
         {
             return null;
         }
 
-        var cover = First(await sgdb.GetGridsAsync(match.Id, SteamGridDbGridShape.Portrait))?.Url;
-        var hero = First(await sgdb.GetHeroesAsync(match.Id))?.Url;
-        var logo = First(await sgdb.GetLogosAsync(match.Id))?.Url;
+        var cover = First(await sgdb.GetGridsAsync(match.Id, SteamGridDbGridShape.Portrait, ct: ct))?.Url;
+        var hero = First(await sgdb.GetHeroesAsync(match.Id, ct: ct))?.Url;
+        var logo = First(await sgdb.GetLogosAsync(match.Id, ct: ct))?.Url;
         return cover is null && hero is null && logo is null ? null : (cover, hero, logo);
     }
 
@@ -4324,7 +4342,7 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private async Task FetchMissingArtAsync()
     {
-        if (_hostArtRunning || SessionActive)
+        if (_hostArtRunning || _launching || SessionActive)
         {
             return;
         }
@@ -4337,6 +4355,9 @@ public sealed partial class MainWindow : Window
         }
 
         _hostArtRunning = true;
+        using var cancellation = new CancellationTokenSource();
+        _artCancellation = cancellation;
+        var ct = cancellation.Token;
         ArtProgress.Maximum = missing.Count;
         ArtProgress.Value = 0;
         ArtProgressPanel.Visibility = Visibility.Visible;
@@ -4346,9 +4367,8 @@ public sealed partial class MainWindow : Window
         {
             for (var i = 0; i < missing.Count; i++)
             {
-                if (SessionActive)
+                if (ct.IsCancellationRequested || _launching || SessionActive)
                 {
-                    _log.Write("bilder", "Henting av bilder stoppet: et spill startet");
                     break;
                 }
 
@@ -4358,13 +4378,20 @@ public sealed partial class MainWindow : Window
                 ArtProgressText.Text = string.Create(CultureInfo.InvariantCulture, $"Henter bilder {i + 1}/{missing.Count}: {title}");
                 try
                 {
-                    var appId = SteamAppIdFor(game) ?? await store.FindAppIdAsync(title);
+                    var appId = SteamAppIdFor(game) ?? await store.FindAppIdAsync(title, ct);
+                    ct.ThrowIfCancellationRequested();
                     if (appId is not { } steamId)
                     {
                         // Ikke på Steam: prøv Playnite-omslaget fra gaming-PC-en via Vibepollo (Ubisoft, EA, Epic …).
-                        _vibepolloApps ??= Vibepollo is { } api ? await api.GetAppsAsync() : [];
-                        if (await DownloadVibepolloCoverAsync(game, _vibepolloApps) is { } cover)
+                        if (_vibepolloApps is null)
                         {
+                            var apps = Vibepollo is { } api ? await api.GetAppsAsync(ct) : [];
+                            ct.ThrowIfCancellationRequested();
+                            _vibepolloApps = apps;
+                        }
+                        if (await DownloadVibepolloCoverAsync(game, _vibepolloApps, ct) is { } cover)
+                        {
+                            ct.ThrowIfCancellationRequested();
                             _library.SetArt(game.Id, game.Art with { Cover = cover });
                             SaveLibrary();
                             if (TileFor(game.Id) is { } coverTile && _library.Find(game.Id) is { } withCover)
@@ -4375,8 +4402,9 @@ public sealed partial class MainWindow : Window
                             found++;
                             _log.Write("bilder", $"Omslag for «{title}» fra Vibepollo (Playnite)");
                         }
-                        else if (await SteamGridDbArtAsync(game) is { } grid && await DownloadArtAsync(game, grid.Cover, grid.Hero, grid.Logo) is { } gridArt)
+                        else if (await SteamGridDbArtAsync(game, ct) is { } grid && await DownloadArtAsync(game, grid.Cover, grid.Hero, grid.Logo, ct) is { } gridArt)
                         {
+                            ct.ThrowIfCancellationRequested();
                             _library.SetArt(game.Id, gridArt);
                             SaveLibrary();
                             if (TileFor(game.Id) is { } gridTile && _library.Find(game.Id) is { } withGrid)
@@ -4389,12 +4417,14 @@ public sealed partial class MainWindow : Window
                         }
                         else
                         {
+                            ct.ThrowIfCancellationRequested();
                             _log.Write("bilder", $"Fant ikke bilder for «{title}» på Steam eller i Vibepollo{(SteamGridDb is null ? " (SteamGridDB har ingen nøkkel ennå)" : " eller på SteamGridDB")}");
                             AddNotice("art:" + game.Id, game.Id, $"Fant ikke bilder for «{title}». Riktig navn gjør at Steam finner spillet.");
                         }
                     }
-                    else if (await DownloadArtAsync(game, SteamStoreClient.ImageUrls(steamId)) is { } art)
+                    else if (await DownloadArtAsync(game, SteamStoreClient.ImageUrls(steamId), ct) is { } art)
                     {
+                        ct.ThrowIfCancellationRequested();
                         _library.SetArt(game.Id, art);
                         SaveLibrary();
                         if (TileFor(game.Id) is { } tile && _library.Find(game.Id) is { } updated)
@@ -4406,6 +4436,16 @@ public sealed partial class MainWindow : Window
                         _log.Write("bilder", string.Create(CultureInfo.InvariantCulture,
                             $"Bilder for «{title}» fra Steam (appid {steamId}): omslag {(art.Cover is null ? "nei" : "ja")}, bakgrunn {(art.Hero is null ? "nei" : "ja")}, logo {(art.Logo is null ? "nei" : "ja")}"));
                     }
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    _artTried.Remove(game.Id);
+                    break;
+                }
+                catch (Exception ex) when (ct.IsCancellationRequested && ex is (HttpRequestException or IOException or UnauthorizedAccessException))
+                {
+                    _artTried.Remove(game.Id);
+                    break;
                 }
                 catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException or UnauthorizedAccessException or JsonException)
                 {
@@ -4422,11 +4462,21 @@ public sealed partial class MainWindow : Window
         {
             // Fremdriften vises bare mens noe hentes. Det som ikke ble funnet, ligger i varslene med en knapp for å rette det.
             _hostArtRunning = false;
+            if (ReferenceEquals(_artCancellation, cancellation))
+            {
+                _artCancellation = null;
+            }
             ArtProgressPanel.Visibility = Visibility.Collapsed;
-            _log.Write("bilder", string.Create(CultureInfo.InvariantCulture, $"Bilder hentet for {found} av {missing.Count} spill"));
+            if (!ct.IsCancellationRequested && !_launching && !SessionActive)
+            {
+                _log.Write("bilder", string.Create(CultureInfo.InvariantCulture, $"Bilder hentet for {found} av {missing.Count} spill"));
+            }
         }
 
-        await FillArtGapsAsync();
+        if (!ct.IsCancellationRequested)
+        {
+            await FillArtGapsAsync();
+        }
     }
 
     private readonly HashSet<string> _artGapTried = new(StringComparer.Ordinal);
@@ -4437,7 +4487,7 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private async Task FillArtGapsAsync()
     {
-        if (SteamGridDb is null || _hostArtRunning || SessionActive)
+        if (SteamGridDb is null || _hostArtRunning || _launching || SessionActive)
         {
             return;
         }
@@ -4455,11 +4505,14 @@ public sealed partial class MainWindow : Window
         }
 
         _hostArtRunning = true;
+        using var cancellation = new CancellationTokenSource();
+        _artCancellation = cancellation;
+        var ct = cancellation.Token;
         try
         {
             foreach (var game in gaps)
             {
-                if (SessionActive)
+                if (ct.IsCancellationRequested || _launching || SessionActive)
                 {
                     break;
                 }
@@ -4468,19 +4521,22 @@ public sealed partial class MainWindow : Window
                 var title = GameLibrary.DisplayTitle(game);
                 try
                 {
-                    if (await SteamGridDbArtAsync(game) is not { } grid)
+                    var grid = await SteamGridDbArtAsync(game, ct);
+                    ct.ThrowIfCancellationRequested();
+                    if (grid is not { } images)
                     {
                         continue;
                     }
 
-                    var cover = Has(game, a => a.Cover) ? null : grid.Cover;
-                    var hero = Has(game, a => a.Hero) ? null : grid.Hero;
-                    var logo = Has(game, a => a.Logo) ? null : grid.Logo;
-                    if ((cover ?? hero ?? logo) is null || await DownloadArtAsync(game, cover, hero, logo) is not { } art)
+                    var cover = Has(game, a => a.Cover) ? null : images.Cover;
+                    var hero = Has(game, a => a.Hero) ? null : images.Hero;
+                    var logo = Has(game, a => a.Logo) ? null : images.Logo;
+                    if ((cover ?? hero ?? logo) is null || await DownloadArtAsync(game, cover, hero, logo, ct) is not { } art)
                     {
                         continue;
                     }
 
+                    ct.ThrowIfCancellationRequested();
                     _library.SetArt(game.Id, art);
                     SaveLibrary();
                     if (TileFor(game.Id) is { } tile && _library.Find(game.Id) is { } updated)
@@ -4490,6 +4546,16 @@ public sealed partial class MainWindow : Window
 
                     _log.Write("bilder", $"Fylte inn for «{title}» fra SteamGridDB: " +
                         $"omslag {(cover is null ? "–" : "ja")}, bakgrunn {(hero is null ? "–" : "ja")}, logo {(logo is null ? "–" : "ja")}");
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    _artGapTried.Remove(game.Id);
+                    break;
+                }
+                catch (Exception ex) when (ct.IsCancellationRequested && ex is (HttpRequestException or IOException or UnauthorizedAccessException))
+                {
+                    _artGapTried.Remove(game.Id);
+                    break;
                 }
                 catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException or UnauthorizedAccessException or JsonException)
                 {
@@ -4501,6 +4567,10 @@ public sealed partial class MainWindow : Window
         finally
         {
             _hostArtRunning = false;
+            if (ReferenceEquals(_artCancellation, cancellation))
+            {
+                _artCancellation = null;
+            }
         }
     }
 
@@ -4635,42 +4705,84 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>Laster ned bildene som finnes (Steam har ikke alltid logo eller bakgrunn), til GameHomes bildemappe.</summary>
-    private static Task<ArtSet?> DownloadArtAsync(Game game, SteamImageUrls urls) => DownloadArtAsync(game, urls.Cover, urls.Hero, urls.Logo);
+    private static Task<ArtSet?> DownloadArtAsync(Game game, SteamImageUrls urls, CancellationToken ct = default) =>
+        DownloadArtAsync(game, urls.Cover, urls.Hero, urls.Logo, ct);
 
     /// <summary>Laster ned de bildene som finnes (null hoppes over) til appens art-mappe.</summary>
-    private static async Task<ArtSet?> DownloadArtAsync(Game game, string? coverUrl, string? heroUrl, string? logoUrl)
+    private static async Task<ArtSet?> DownloadArtAsync(Game game, string? coverUrl, string? heroUrl, string? logoUrl, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
         var folder = Path.Combine(ApplicationData.Current.LocalFolder.Path, "art");
         Directory.CreateDirectory(folder);
 
         async Task<string?> Get(string? url, string kind)
         {
+            ct.ThrowIfCancellationRequested();
             if (url is null)
             {
                 return null;
             }
 
-            using var response = await ArtHttp.GetAsync(new Uri(url));
-            if (!response.IsSuccessStatusCode)
+            var uri = new Uri(url);
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            deadline.CancelAfter(ArtHttp.Timeout);
+            try
             {
-                return null;
-            }
+                using var response = await ArtHttp.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, deadline.Token);
+                if (!response.IsSuccessStatusCode)
+                {
+                    return null;
+                }
 
-            var target = Path.Combine(folder, $"{game.Id}-{kind}{Path.GetExtension(new Uri(url).AbsolutePath)}");
-            await using (var file = File.Create(target))
+                var target = Path.Combine(folder, $"{game.Id}-{kind}{Path.GetExtension(uri.AbsolutePath)}");
+                await WriteArtAtomicallyAsync(target, (file, token) => response.Content.CopyToAsync(file, token), deadline.Token);
+                return target;
+            }
+            catch (OperationCanceledException ex) when (!ct.IsCancellationRequested && deadline.IsCancellationRequested)
             {
-                await response.Content.CopyToAsync(file);
+                throw new HttpRequestException("Bildenedlastingen tok for lang tid.", ex);
             }
-
-            return target;
         }
 
         var cover = await Get(coverUrl, "cover");
         var hero = await Get(heroUrl, "hero");
         var logo = await Get(logoUrl, "logo");
+        ct.ThrowIfCancellationRequested();
         return cover is null && hero is null && logo is null
             ? null
             : new ArtSet(cover ?? game.Art.Cover, hero ?? game.Art.Hero, logo ?? game.Art.Logo);
+    }
+
+    private static async Task WriteArtAtomicallyAsync(string target, Func<Stream, CancellationToken, Task> write, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var temp = target + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        var published = false;
+        try
+        {
+            await using (var file = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, useAsync: true))
+            {
+                await write(file, ct);
+            }
+
+            ct.ThrowIfCancellationRequested();
+            File.Move(temp, target, overwrite: true);
+            published = true;
+        }
+        finally
+        {
+            if (!published)
+            {
+                try
+                {
+                    File.Delete(temp);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // A cleanup failure must not mask the download failure or cancellation.
+                }
+            }
+        }
     }
 
     private void HostCloseButton_Click(object sender, RoutedEventArgs e) => CloseHostPanel();
@@ -4853,6 +4965,7 @@ public sealed partial class MainWindow : Window
     private string? _hostRunningApp;
     private IReadOnlyList<VibepolloApp>? _vibepolloApps;
     private DateTime _lastHostStatus = DateTime.MinValue;
+    private CancellationTokenSource? _backgroundHostStatusCancellation;
 
     /// <summary>Klienten, eller null hvis det ikke finnes nøkkel eller host.</summary>
     private VibepolloClient? Vibepollo
@@ -4916,28 +5029,70 @@ public sealed partial class MainWindow : Window
     /// <summary>Henter hva som kjører på PC-en (høyst hvert 10. sekund, aldri under en økt) og oppdaterer flisene.</summary>
     private async Task RefreshHostStatusAsync(bool force = false)
     {
-        if (SessionActive || Vibepollo is not { } api || (!force && DateTime.UtcNow - _lastHostStatus < TimeSpan.FromSeconds(10)))
+        if (SessionActive || (!force && (_launching || _backgroundHostStatusCancellation is not null
+            || DateTime.UtcNow - _lastHostStatus < TimeSpan.FromSeconds(10))) || Vibepollo is not { } api)
         {
             return;
+        }
+
+        using var cancellation = force ? null : new CancellationTokenSource();
+        var token = cancellation?.Token ?? CancellationToken.None;
+        if (force)
+        {
+            CancelBackgroundHostStatus();
+        }
+        else
+        {
+            _backgroundHostStatusCancellation = cancellation;
         }
 
         _lastHostStatus = DateTime.UtcNow;
         try
         {
-            var status = await api.GetStatusAsync();
-            var running = status is { AppRunning: true } ? status.AppName : null;
-            if (!string.Equals(running, _hostRunningApp, StringComparison.Ordinal))
+            var status = await api.GetStatusAsync(token);
+            if (token.IsCancellationRequested || SessionActive || !ReferenceEquals(api, _vibepollo))
             {
-                _hostRunningApp = running;
-                _log.Write("vibepollo", running is null ? "Ingenting kjører på PC-en" : $"«{running}» kjører på PC-en");
-                RefreshTileTexts();
-                BuildGameTiles(); // Spillet som kjører på PC-en, står først i Home.
+                return;
+            }
+
+            UpdateHostRunningApp(status);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+        }
+        catch (ObjectDisposedException) when (!ReferenceEquals(api, _vibepollo))
+        {
+        }
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or IOException or JsonException)
+        {
+            if (!token.IsCancellationRequested && !SessionActive && ReferenceEquals(api, _vibepollo))
+            {
+                // PC-en er av eller utilgjengelig; ikke vis noe som kjører.
+                _hostRunningApp = null;
             }
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException or JsonException)
+        finally
         {
-            // PC-en er av eller utilgjengelig; ikke vis noe som kjører.
-            _hostRunningApp = null;
+            if (cancellation is not null && ReferenceEquals(_backgroundHostStatusCancellation, cancellation))
+            {
+                _backgroundHostStatusCancellation = null;
+            }
+        }
+    }
+
+    private void CancelBackgroundHostStatus() => _backgroundHostStatusCancellation?.Cancel();
+
+    private void UpdateHostRunningApp(VibepolloStatus? status)
+    {
+        var running = status is { AppRunning: true } ? status.AppName : null;
+        if (!string.Equals(running, _hostRunningApp, StringComparison.Ordinal))
+        {
+            _hostRunningApp = running;
+            var message = running is not null ? $"«{running}» kjører på PC-en"
+                : status is { AppRunning: false } ? "Ingenting kjører på PC-en" : "Ingen bekreftet appstatus på PC-en";
+            _log.Write("vibepollo", message);
+            RefreshTileTexts();
+            BuildGameTiles(); // Spillet som kjører på PC-en, står først i Home.
         }
     }
 
@@ -4954,8 +5109,11 @@ public sealed partial class MainWindow : Window
         _launching = true;
         CancelUpdateOperations();
         CancelStoreScan();
+        CancelBackgroundArt();
+        CancelBackgroundHostStatus();
         ShowLoading(game, action);
         LoadingStatus.Text = $"Avslutter {other} på {HostLabel} …";
+        (bool? Running, string? Name) hostState;
         try
         {
             var closed = false;
@@ -4971,21 +5129,33 @@ public sealed partial class MainWindow : Window
                 }
             }
 
-            _log.Write("vibepollo", closed ? $"«{other}» avsluttet på PC-en før ny start" : "Avslutning ikke bekreftet; venter på status før ny start");
+            _log.Write("vibepollo", closed ? $"PC-en svarte på avslutning av «{other}»; kontrollerer status"
+                : "Avslutning ikke bekreftet; venter på status før ny start");
 
             // Også uten bekreftelse: vent til PC-en melder at ingenting kjører, så Moonlight ikke spør om å avslutte.
-            await WaitUntilHostIdleAsync();
+            hostState = await WaitUntilHostIdleAsync();
         }
         finally
         {
             _launching = false;
         }
 
-        if (_hostRunningApp is { } still)
+        if (hostState.Running != false)
         {
-            HideLoading("PC-en lukket ikke spillet");
-            ShowMessage($"{still} kjører fortsatt på {HostLabel}", $"Fikk ikke avsluttet {still}. Start {still} og avslutt det fra M2-menyen, eller prøv igjen.",
-                "Prøv igjen", () => _ = CloseHostAppThenLaunchAsync(game, action), "Lukk", () => FocusHome(game.Id));
+            if (hostState.Running == true)
+            {
+                var still = string.IsNullOrWhiteSpace(hostState.Name) ? "En app" : hostState.Name;
+                HideLoading("PC-en lukket ikke spillet");
+                ShowMessage($"{still} kjører fortsatt på {HostLabel}", "Avslutt appen på PC-en, eller prøv igjen.",
+                    "Prøv igjen", () => _ = CloseHostAppThenLaunchAsync(game, action), "Lukk", () => FocusHome(game.Id));
+            }
+            else
+            {
+                HideLoading("Kunne ikke bekrefte status på PC-en");
+                ShowMessage($"Ukjent status på {HostLabel}", "Kunne ikke bekrefte at appen er avsluttet. Sjekk forbindelsen og prøv igjen.",
+                    "Prøv igjen", () => _ = CloseHostAppThenLaunchAsync(game, action), "Lukk", () => FocusHome(game.Id));
+            }
+
             return;
         }
 
@@ -5008,14 +5178,18 @@ public sealed partial class MainWindow : Window
             }
         }
 
-        _log.Write("vibepollo", closed ? $"«{GameLibrary.DisplayTitle(game)}» avsluttet på PC-en fra Home" : "Avslutning fra Home feilet");
-        if (closed)
+        var hostState = closed ? await WaitUntilHostIdleAsync() : default;
+        if (hostState.Running == false)
         {
-            await WaitUntilHostIdleAsync();
+            _log.Write("vibepollo", $"«{GameLibrary.DisplayTitle(game)}» avsluttet på PC-en fra Home");
         }
         else
         {
-            ShowMessage($"Fikk ikke avsluttet på {HostLabel}", $"{HostLabel} svarte ikke. Prøv igjen, eller start spillet og avslutt fra M2-menyen.",
+            var message = hostState.Running == true
+                ? $"En app kjører fortsatt på {HostLabel}. Avslutt den på PC-en, eller prøv igjen."
+                : $"Kunne ikke bekrefte at appen er avsluttet på {HostLabel}. Sjekk forbindelsen og prøv igjen.";
+            _log.Write("vibepollo", "Avslutning fra Home ble ikke bekreftet");
+            ShowMessage($"Fikk ikke avsluttet på {HostLabel}", message,
                 "OK", () => FocusHome(game.Id), "Lukk", () => FocusHome(game.Id));
         }
 
@@ -5023,46 +5197,108 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>Venter (høyst 15 s) til Vibepollo melder at ingen app kjører, så neste start ikke møter Moonlights «quit»-spørsmål.</summary>
-    private async Task WaitUntilHostIdleAsync()
+    private async Task<(bool? Running, string? Name)> WaitUntilHostIdleAsync(CancellationToken cancellationToken = default)
     {
-        for (var i = 0; i < 30; i++)
+        cancellationToken.ThrowIfCancellationRequested();
+        if (SessionActive || Vibepollo is not { } api)
         {
-            await RefreshHostStatusAsync(force: true);
-            if (_hostRunningApp is null)
-            {
-                return;
-            }
-
-            await Task.Delay(500);
+            return (null, null);
         }
 
-        _log.Write("vibepollo", $"«{_hostRunningApp}» kjører fortsatt på PC-en etter 15 s");
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(TimeSpan.FromSeconds(15));
+        (bool? Running, string? Name) last = (null, null);
+        while (!deadline.IsCancellationRequested)
+        {
+            try
+            {
+                var status = await api.GetStatusAsync(deadline.Token);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (deadline.IsCancellationRequested || SessionActive || !ReferenceEquals(api, _vibepollo))
+                {
+                    return (null, null);
+                }
+
+                last = status is null ? (null, null) : (status.AppRunning, status.AppName);
+                if (status is not null)
+                {
+                    UpdateHostRunningApp(status);
+                }
+
+                if (last.Running == false)
+                {
+                    return last;
+                }
+            }
+            catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or IOException or JsonException or ObjectDisposedException)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (SessionActive || !ReferenceEquals(api, _vibepollo))
+                {
+                    return (null, null);
+                }
+
+                last = (null, null);
+            }
+
+            try
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(500), deadline.Token);
+            }
+            catch (OperationCanceledException) when (deadline.IsCancellationRequested)
+            {
+                break;
+            }
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        _log.Write("vibepollo", last.Running == true
+            ? $"En app kjører fortsatt på PC-en etter 15 s ({last.Name ?? "ukjent navn"})"
+            : "Kunne ikke bekrefte status på PC-en innen 15 s");
+        return last;
     }
 
     /// <summary>Om spillet kjører på gaming-PC-en uten at GameHome strømmer det (for eksempel etter «Koble fra»).</summary>
-    private bool IsRunningOnHost(Game game) =>
-        !SessionActive && _hostRunningApp is { } running
-        && _library.PlayActionsFor(game.Id).Any(a => a.IsRemote && GameLibrary.TitleKey(a.Target) == GameLibrary.TitleKey(running));
+    private bool IsRunningOnHost(Game game)
+    {
+        if (SessionActive || _hostRunningApp is not { } running)
+        {
+            return false;
+        }
+
+        var titleKey = GameLibrary.TitleKey(running);
+        return _library.PlayActions.Any(a => a.GameId == game.Id && MatchesHostApp(a, titleKey));
+    }
+
+    private static bool MatchesHostApp(PlayAction action, string titleKey) =>
+        action.IsRemote && GameLibrary.TitleKey(action.Target) == titleKey;
 
     /// <summary>Omslag fra Vibepollo (Playnite-omslaget) for et spill fra PC-en, eller null.</summary>
-    private async Task<string?> DownloadVibepolloCoverAsync(Game game, IReadOnlyList<VibepolloApp> apps)
+    private async Task<string?> DownloadVibepolloCoverAsync(Game game, IReadOnlyList<VibepolloApp> apps, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
         if (Vibepollo is not { } api
-            || _library.PlayActionsFor(game.Id).FirstOrDefault(a => a.IsRemote) is not { } stream
-            || apps.FirstOrDefault(a => a.Name is { } name && GameLibrary.TitleKey(name) == GameLibrary.TitleKey(stream.Target)) is not { Uuid: { } uuid, ImagePath.Length: > 0 })
+            || _library.PlayActionsFor(game.Id).FirstOrDefault(a => a.IsRemote) is not { } stream)
         {
             return null;
         }
 
-        if (await api.GetCoverAsync(uuid) is not { Length: > 0 } bytes)
+        var titleKey = GameLibrary.TitleKey(stream.Target);
+        if (apps.FirstOrDefault(a => a.Name is { } name && GameLibrary.TitleKey(name) == titleKey) is not { Uuid: { } uuid, ImagePath.Length: > 0 })
         {
             return null;
         }
 
+        if (await api.GetCoverAsync(uuid, ct) is not { Length: > 0 } bytes)
+        {
+            return null;
+        }
+
+        ct.ThrowIfCancellationRequested();
         var folder = Path.Combine(ApplicationData.Current.LocalFolder.Path, "art");
         Directory.CreateDirectory(folder);
         var target = Path.Combine(folder, $"{game.Id}-cover.png");
-        await File.WriteAllBytesAsync(target, bytes);
+        await WriteArtAtomicallyAsync(target, (file, token) => file.WriteAsync(bytes, token).AsTask(), ct);
         return target;
     }
 
@@ -5178,12 +5414,15 @@ public sealed partial class MainWindow : Window
     /// <summary>Frigjør Vibepollo-klienten når vinduet lukkes.</summary>
     private void DisposeVibepollo()
     {
+        CancelBackgroundHostStatus();
         _vibepollo?.Dispose();
         _vibepollo = null;
     }
 
     private void StopEverything()
     {
+        CancelBackgroundArt();
+        CancelDownloadCheck();
         StopTrailer();
         CancelUpdateOperations(shuttingDown: true);
         _firstSteamSync?.Stop();
