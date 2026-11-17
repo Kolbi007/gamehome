@@ -1811,8 +1811,8 @@ public sealed partial class MainWindow : Window
             case "steamgriddb" when SteamGridDb is { } sgdb:
             {
                 var appId = SteamAppIdFor(game);
-                var match = appId is { } id ? await sgdb.GetGameBySteamAppIdAsync(id, ct) : null;
-                match ??= First(await sgdb.SearchAsync(GameLibrary.DisplayTitle(game), ct));
+                var match = appId is { } id ? await sgdb.GetGameBySteamAppIdAsync(id) : null;
+                match ??= First(await sgdb.SearchAsync(GameLibrary.DisplayTitle(game)));
                 if (match is null)
                 {
                     break;
