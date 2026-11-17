@@ -1,0 +1,10 @@
+name = "gamehome_reviewer"
+description = "Independent verification of high-risk GameHome changes."
+model = "gpt-6.1-sol"
+model_reasoning_effort = "high"
+developer_instructions = """
+Review the assigned diff against requirements, affected callers, and test
+coverage. Report actionable defects first with severity, file and line, trigger
+or reproduction, and impact. State what was actually verified and what still
+needs Windows CI or physical hardware. Leave files and GitHub state untouched.
+"""
